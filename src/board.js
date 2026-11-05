@@ -20,25 +20,55 @@ export class Board {
   }
 
   // Put a decoded image on the board, centred on (x, y).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '' } = {}) {
+  // `blob` is the original image file; we keep it so the board can be saved.
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1 } = {}) {
     // Mipmaps are smaller pre-shrunk copies of the image. They keep big photos
     // looking smooth (not sparkly or jagged) when you zoom far out.
     const source = new ImageSource({ resource: bitmap, autoGenerateMipmaps: true });
     const sprite = new Sprite(new Texture({ source }));
     sprite.anchor.set(0.5);  // position, scale and rotation all work from the centre
     sprite.position.set(x, y);
+    sprite.scale.set(scaleX, scaleY);
+    sprite.rotation = rotation;
+    sprite.alpha = alpha;
     this.imageLayer.addChild(sprite);
 
+    if (id === undefined) id = nextId++;
+    else nextId = Math.max(nextId, id + 1);
+
     const item = {
-      id: nextId++,
+      id,
       sprite,
       width: bitmap.width,   // original pixel size of the image
       height: bitmap.height,
       name,
       sourceUrl,             // where the image came from, when we know it
+      blob,
     };
     this.items.push(item);
     return item;
+  }
+
+  // Remove everything (used for "New board" and before opening a file).
+  clear() {
+    for (const item of [...this.items]) this.remove(item);
+    this.selected = null;
+  }
+
+  // Where each image is and how it's placed, for saving. Images are saved separately.
+  toJSON() {
+    return this.items.map((item) => {
+      const s = item.sprite;
+      return {
+        id: item.id,
+        name: item.name,
+        sourceUrl: item.sourceUrl,
+        x: s.x, y: s.y,
+        scaleX: s.scale.x, scaleY: s.scale.y,
+        rotation: s.rotation,
+        alpha: s.alpha,
+      };
+    });
   }
 
   remove(item) {

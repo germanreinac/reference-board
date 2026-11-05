@@ -10,14 +10,21 @@
   <!-- The drawing surface (a WebGL canvas) gets added in here by src/main.js -->
   <div id="stage"></div>
 
+  <!-- One see-through box per pane sits on top of the canvas: it catches the mouse
+       and holds the pane buttons. The dividers between panes live here too. -->
+  <div id="panes"></div>
+
+  <!-- Board name. Click it for the menu. A dot means changes not yet saved to a file. -->
+  <button id="board-title" title="Board menu (or right-click anywhere)">
+    <span class="name">Untitled board</span><span class="dot"></span>
+  </button>
+
   <!-- Shown only while the board is empty -->
   <div id="empty-hint">
     <p><strong>Drop images here</strong> or paste with <kbd class="mod-key">Ctrl</kbd> + <kbd>V</kbd></p>
-    <p class="small">Scroll to zoom · drag empty space to pan · <kbd>F</kbd> to fit everything</p>
+    <p class="small">Scroll to zoom · drag empty space to pan · right-click for the menu</p>
+    <p class="small">Split the view with the buttons in the corner of a pane, or <kbd>Alt</kbd> + <kbd>V</kbd> / <kbd>H</kbd></p>
   </div>
-
-  <!-- Small zoom readout in the corner -->
-  <div id="zoom-readout">100%</div>
 
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>

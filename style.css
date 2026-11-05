@@ -5,17 +5,21 @@
   --text: #8a8a90;
   --text-strong: #c8c8cc;
   --accent: #4da3ff;
+  --panel: #2a2a2f;
+  --panel-border: #3a3a40;
 }
 
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: #0e0e0f;
   color: var(--text);
   font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   user-select: none;
 }
+
+button { font: inherit; color: inherit; }
 
 #stage, #stage canvas {
   position: fixed;
@@ -23,10 +27,133 @@ html, body {
   display: block;
 }
 
-/* Hide the cursor's text-selection behaviour and show a grab hand while panning */
-#stage canvas { cursor: default; touch-action: none; }
-#stage canvas.panning { cursor: grabbing; }
-#stage canvas.can-pan { cursor: grab; }
+/* ---------- Panes ---------- */
+
+#panes { position: fixed; inset: 0; }
+#panes.panning, #panes.panning * { cursor: grabbing !important; }
+#panes.can-pan .pane { cursor: grab; }
+
+.pane {
+  position: absolute;
+  touch-action: none;
+}
+
+/* The pane buttons appear in the top-right corner when the mouse is over the pane. */
+.pane-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(20, 20, 22, 0.75);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pane:hover .pane-tools { opacity: 1; }
+.pane.narrow .pane-tools { display: none; }
+#panes.panning .pane-tools { opacity: 0; }
+
+/* With only one pane there's nothing to close or maximize. */
+#panes.single .pane-tools [data-action="close"],
+#panes.single .pane-tools [data-action="maximize"] { display: none; }
+
+.pane-tools button {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+.pane-tools button:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-strong); }
+.pane-tools svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pane-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font-size: 11px;
+  opacity: 0.5;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.pane.narrow .pane-zoom { display: none; }
+
+/* Dividers: a thin line, with a wider invisible area so they're easy to grab. */
+.divider { position: absolute; z-index: 2; }
+.divider::before { content: ""; position: absolute; }
+.divider.row { cursor: col-resize; }
+.divider.col { cursor: row-resize; }
+.divider.row::before { inset: 0 -4px; }
+.divider.col::before { inset: -4px 0; }
+.divider:hover, .divider.dragging { background: var(--accent); }
+
+/* ---------- Board title ---------- */
+
+#board-title {
+  position: fixed;
+  top: 6px;
+  left: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 40vw;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font-size: 12px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+#board-title:hover { opacity: 1; background: rgba(20, 20, 22, 0.75); }
+#board-title .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#board-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text); display: none; }
+#board-title.unsaved .dot { display: block; }
+
+/* ---------- Right-click menu ---------- */
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.menu-item:disabled { opacity: 0.35; cursor: default; }
+.menu-item kbd { border: 0; padding: 0; color: inherit; opacity: 0.6; }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--panel-border); }
+
+/* ---------- Hints and messages ---------- */
 
 #empty-hint {
   position: fixed;
@@ -37,6 +164,7 @@ html, body {
   justify-content: center;
   pointer-events: none;
   text-align: center;
+  padding: 0 16px;
 }
 #empty-hint p { margin: 4px 0; }
 #empty-hint strong { color: var(--text-strong); font-weight: 500; }
@@ -47,19 +175,9 @@ kbd {
   font: inherit;
   font-size: 11px;
   padding: 1px 5px;
-  border: 1px solid #3a3a3f;
+  border: 1px solid var(--panel-border);
   border-radius: 4px;
   color: var(--text-strong);
-}
-
-#zoom-readout {
-  position: fixed;
-  right: 10px;
-  bottom: 8px;
-  font-size: 11px;
-  opacity: 0.6;
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Outline shown over the whole window while you drag files in */
@@ -70,17 +188,19 @@ body.drag-over::after {
   border: 2px dashed var(--accent);
   border-radius: 8px;
   pointer-events: none;
+  z-index: 20;
 }
 
 #toast {
   position: fixed;
   left: 50%;
   bottom: 24px;
+  z-index: 20;
   transform: translateX(-50%);
   max-width: min(480px, calc(100vw - 32px));
   padding: 8px 14px;
   border-radius: 6px;
-  background: #2b2b30;
+  background: var(--panel);
   color: var(--text-strong);
   opacity: 0;
   transition: opacity 0.2s;
