@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference Board</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- The drawing surface (a WebGL canvas) gets added in here by src/main.js -->
+  <div id="stage"></div>
+
+  <!-- Shown only while the board is empty -->
+  <div id="empty-hint">
+    <p><strong>Drop images here</strong> or paste with <kbd class="mod-key">Ctrl</kbd> + <kbd>V</kbd></p>
+    <p class="small">Scroll to zoom · drag empty space to pan · <kbd>F</kbd> to fit everything</p>
+  </div>
+
+  <!-- Small zoom readout in the corner -->
+  <div id="zoom-readout">100%</div>
+
+  <!-- Short messages, e.g. when an image can't be loaded -->
+  <div id="toast"></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
