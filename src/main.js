@@ -113,8 +113,11 @@ function placeToolbar() {
   const el = document.getElementById('toolbar');
   const panes = boardPanes();
   el.classList.toggle('no-board', panes.length === 0);
+  emptyHint.style.visibility = panes.length ? '' : 'hidden';
   if (!panes.length) return;
   const r = panes.reduce((a, b) => (b.rect.w * b.rect.h > a.rect.w * a.rect.h ? b : a)).rect;
+  // The "drop images here" hint goes in the middle of that pane too.
+  Object.assign(emptyHint.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
   const half = el.offsetWidth / 2;
   const x = Math.min(Math.max(r.x + r.w / 2, half + 8), window.innerWidth - half - 8);
   el.style.left = `${x}px`;
@@ -526,7 +529,7 @@ function paneAction(action, pane, button) {
   const l = layout();
   if (action === 'type') {
     const r = button.getBoundingClientRect();
-    showMenu(r.left, r.bottom + 4, PANE_TYPES.filter((t) => t !== 'mannequin').map((t) => ({
+    showMenu(r.left, r.bottom + 4, PANE_TYPES.map((t) => ({
       label: `${pane.type === t ? '✓ ' : ''}${TYPE_NAMES[t]}`,
       action: () => setPaneType(pane, t),
     })));
