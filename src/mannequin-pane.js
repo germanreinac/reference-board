@@ -7,15 +7,20 @@
 //   Click empty     deselect
 //
 // The top bar has ready-made poses, Mirror, Reset and "Add to board" (a picture of
-// the current view goes onto the board). The bottom bar has the light, lens and material.
+// the current view goes onto the board). Below it you can type a pose for Claude to
+// make (see src/ai-pose.js). The bottom bar has the light, lens and material.
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { TransformControls } from '../vendor/three/TransformControls.js';
 import {
   buildFigure, applyPose, readRotations, writeRotations, mirror, standOnFloor,
-  PRESETS, JOINT_NAMES,
+  rotationsToPose, targetRotations, PRESETS, JOINT_NAMES,
 } from './mannequin.js';
+import { poseFromDescription } from './ai-pose.js';
+import { loadKeys, saveKeys } from './sources.js';
+
+const KEY_ICON = '<svg viewBox="0 0 16 16"><circle cx="5" cy="10.5" r="2.8"/><path d="M7 8.5l6-6M11 4.5l1.8 1.8M9.5 6l1.5 1.5"/></svg>';
 
 const BACKGROUND = 0x232327;
 const MATERIALS = {
@@ -51,7 +56,18 @@ export class MannequinPane {
         <span class="mq-flex"></span>
         <button class="text-button primary mq-add" title="Put a picture of this view on the board">Add to board</button>
       </div>
-      <div class="mq-ai-slot"></div>
+      <form class="mq-ai" autocomplete="off">
+        <input class="mq-ai-input" placeholder="Describe a pose… e.g. sitting on the floor hugging knees, looking left" spellcheck="false">
+        <button class="text-button mq-ai-go" type="submit" title="Ask Claude to pose the mannequin">Pose it</button>
+        <button class="text-button mq-ai-key" type="button" title="Your Anthropic API key">${KEY_ICON}</button>
+      </form>
+      <div class="mq-ai-status" hidden></div>
+      <div class="mq-ai-settings" hidden>
+        <p>Typed poses use Claude with your own Anthropic API key. It stays in this browser and is only sent to Anthropic. Each pose costs a few cents on your Anthropic account.</p>
+        <label class="key-row"><span>Anthropic API key · <a href="https://platform.claude.com/" target="_blank" rel="noopener">get one</a></span>
+          <input class="mq-ai-key-input" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+        <button class="text-button mq-ai-done" type="button">Done</button>
+      </div>
       <div class="mq-selected" hidden></div>
       <div class="mq-bar mq-bottom">
         <label title="Turn the light around the figure">Light <input class="mq-light-turn" type="range" min="0" max="360"></label>
@@ -64,6 +80,7 @@ export class MannequinPane {
 
     this.setupScene();
     this.setupUI();
+    this.setupAI();
 
     // Bring back the saved pose and view, or start standing.
     if (s.rotations) writeRotations(this.figure, s.rotations);
@@ -194,6 +211,7 @@ export class MannequinPane {
     const label = this.el.querySelector('.mq-selected');
     label.hidden = !jointName;
     label.textContent = jointName ? `${JOINT_NAMES[jointName]} · drag the rings to bend · Esc to deselect` : '';
+    this.el.classList.toggle('has-selection', !!jointName);
     this.render();
   }
 
@@ -264,8 +282,8 @@ export class MannequinPane {
       this.saveSoon();
     });
 
-    // Keep clicks and keys inside the pane's controls from reaching the board.
-    for (const bar of this.el.querySelectorAll('.mq-bar')) bar.addEventListener('pointerdown', (e) => e.stopPropagation());
+    // Keep clicks inside the pane's controls from reaching the 3D view.
+    for (const bar of this.el.querySelectorAll('.mq-bar, .mq-ai, .mq-ai-settings')) bar.addEventListener('pointerdown', (e) => e.stopPropagation());
   }
 
   // Change lens but keep the figure about the same size on screen
@@ -282,10 +300,89 @@ export class MannequinPane {
     this.saveSoon();
   }
 
-  // Put the figure in a plain-language pose (see src/mannequin.js).
-  setPose(pose) {
-    applyPose(this.figure, pose);
-    this.poseChanged();
+  // Put the figure in a plain-language pose (see src/mannequin.js), moving smoothly into it.
+  setPose(pose, { animate = true } = {}) {
+    cancelAnimationFrame(this.tween);
+    if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      applyPose(this.figure, pose);
+      this.poseChanged();
+      return;
+    }
+    const to = targetRotations(pose);
+    const from = {};
+    for (const [name, j] of Object.entries(this.figure.joints)) from[name] = j.quaternion.clone();
+    const fromTurn = this.figure.root.rotation.y;
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 450);
+      const k = t * t * (3 - 2 * t);  // ease in and out
+      for (const [name, j] of Object.entries(this.figure.joints)) j.quaternion.slerpQuaternions(from[name], to[name], k);
+      this.figure.root.rotation.y = fromTurn + (to.turn - fromTurn) * k;
+      standOnFloor(this.figure);
+      if (this.selected) this.gizmo.attach(this.figure.joints[this.selected]);
+      this.render();
+      if (t < 1) this.tween = requestAnimationFrame(step);
+      else this.poseChanged();
+    };
+    this.tween = requestAnimationFrame(step);
+  }
+
+  // ---------- Typing a pose ----------
+
+  setupAI() {
+    const $ = (sel) => this.el.querySelector(sel);
+    const form = $('.mq-ai');
+    const input = $('.mq-ai-input');
+    const go = $('.mq-ai-go');
+    const status = $('.mq-ai-status');
+    const settings = $('.mq-ai-settings');
+    const keyInput = $('.mq-ai-key-input');
+    const showStatus = (text, kind = '') => {
+      status.hidden = !text;
+      status.textContent = text;
+      status.dataset.kind = kind;
+    };
+    const openSettings = (open) => {
+      settings.hidden = !open;
+      if (open) { keyInput.value = loadKeys().anthropic || ''; keyInput.focus(); }
+    };
+    $('.mq-ai-key').addEventListener('click', () => openSettings(settings.hidden));
+    $('.mq-ai-done').addEventListener('click', () => openSettings(false));
+    keyInput.addEventListener('change', () => {
+      const keys = loadKeys();
+      if (keyInput.value.trim()) keys.anthropic = keyInput.value.trim();
+      else delete keys.anthropic;
+      saveKeys(keys);
+    });
+    // Typing in these boxes must not trigger board shortcuts.
+    for (const el of [input, keyInput]) el.addEventListener('keydown', (e) => e.stopPropagation());
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const description = input.value.trim();
+      if (!description || this.asking) return;
+      const key = loadKeys().anthropic;
+      if (!key) {
+        showStatus('Add your Anthropic API key first (the key button).', 'error');
+        openSettings(true);
+        return;
+      }
+      this.asking = true;
+      go.disabled = true;
+      showStatus('Claude is posing the mannequin…', 'busy');
+      try {
+        const { pose, summary } = await poseFromDescription(description, rotationsToPose(this.figure), key);
+        if (!this.renderer) return;  // the pane was closed meanwhile
+        this.setPose(pose);
+        showStatus(summary ? `${summary}. Click a body part to adjust it.` : 'Done. Click a body part to adjust it.');
+        setTimeout(() => { if (status.dataset.kind === '') showStatus(''); }, 6000);
+      } catch (err) {
+        showStatus(err.message, 'error');
+      } finally {
+        this.asking = false;
+        go.disabled = false;
+      }
+    });
   }
 
   poseChanged() {
@@ -333,6 +430,7 @@ export class MannequinPane {
 
   destroy() {
     clearTimeout(this.saveTimer);
+    cancelAnimationFrame(this.tween);
     if (this.pane.type === 'mannequin') this.save();  // not when the pane is switching to something else
     window.removeEventListener('keydown', this.onKey);
     this.gizmo.detach();

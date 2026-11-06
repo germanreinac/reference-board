@@ -58,6 +58,18 @@ Choose **3D mannequin** from a pane's type button.
 The figure always stays standing on the floor. Its pose, the camera, the light and
 the lens are saved with the board.
 
+#### Typing a pose
+
+Type a description in the box under the top bar, for example *"sitting on the floor
+hugging her knees, looking left"*, and press **Pose it**. Claude works out the joint
+angles and the mannequin moves into the pose. You can then click any body part to
+fine-tune it. Small changes work too: *"now look over the right shoulder"* or
+*"raise the left arm higher"* start from the current pose.
+
+- It needs your own Anthropic API key. Click the key button next to **Pose it** and paste it in. The key is kept only in this browser and is only sent to Anthropic.
+- Each pose is one request to Claude Opus 5.5 and costs a few cents on your Anthropic account.
+- If Anthropic's safety checks decline a request, it is automatically retried on another Claude model (Anthropic's "fallbacks" feature).
+
 ### Drawing and notes
 
 The toolbar at the bottom of a board has the drawing tools, colours, size, and undo/redo.
@@ -118,7 +130,7 @@ doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 - ✅ Pane types: each pane can show the board, image search or a 3D mannequin
 - ✅ Image search (Openverse, Unsplash, Pexels)
 - ✅ 3D posing mannequin with preset poses
-- Typing a pose with AI
+- ✅ Typing a pose with AI
 
 ## How the code is organised
 
@@ -137,6 +149,7 @@ There's no build step: the files are served as they are.
 - `src/search-pane.js`, `src/sources.js`: image search and its sources
 - `src/mannequin.js`: the 3D figure, its joints and the ready-made poses
 - `src/mannequin-pane.js`: the mannequin pane (3D view, posing, light, lens)
+- `src/ai-pose.js`: typing a pose (asks Claude for joint angles)
 - `src/tools.js`: the drawing toolbar and brush outline
 - `src/note-editor.js`: typing into notes
 - `src/history.js`: undo and redo
@@ -144,6 +157,7 @@ There's no build step: the files are served as they are.
 - `vendor/pixi.min.mjs`: [PixiJS](https://pixijs.com) 8.22, the fast WebGL renderer
 - `vendor/perfect-freehand.mjs`: [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.2, for natural-looking pen strokes
 - `vendor/three/`: [Three.js](https://threejs.org) 0.170, for the 3D mannequin (loaded only when a mannequin pane is opened)
+- `vendor/anthropic-sdk.mjs`: the official [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-typescript) 1.1.0, bundled into one file with esbuild (loaded only when you type a pose)
 - `vendor/fflate.mjs`: [fflate](https://github.com/101arrowz/fflate) 0.8.2, for zipping board files
 
 To run it on your own computer, serve the folder with any local web server, for example

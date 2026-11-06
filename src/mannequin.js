@@ -52,6 +52,51 @@ export function poseToRotations(pose) {
   return out;
 }
 
+// The other way round: the figure's current joint rotations -> plain-language degrees.
+// (Used to tell the AI what the pose is now, so you can ask for small changes.)
+export function rotationsToPose(figure) {
+  const pose = { turn: Math.round(THREE.MathUtils.radToDeg(figure.root.rotation.y)) };
+  const e = new THREE.Euler();
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));  // keep an angle within -180..180
+  for (const [joint, axes] of Object.entries(JOINTS)) {
+    const q = figure.joints[joint].quaternion;
+    const names = Object.keys(axes);
+    let angles;
+    if (names.length === 1) {
+      // A hinge (elbow, knee, ankle) turns about one axis only: read that angle directly.
+      angles = { x: wrap(2 * Math.atan2(q.x, q.w)), y: 0, z: 0 };
+    } else {
+      // The same rotation can be written two ways once a bend passes 90 degrees.
+      // Pick the reading with the least twist and sideways tilt, which is how people pose.
+      e.setFromQuaternion(q, 'ZXY');
+      const a = { x: e.x, y: e.y, z: e.z };
+      const b = { x: wrap(Math.PI - e.x), y: wrap(e.y + Math.PI), z: wrap(e.z + Math.PI) };
+      angles = Math.abs(b.y) + Math.abs(b.z) < Math.abs(a.y) + Math.abs(a.z) ? b : a;
+    }
+    const right = joint.endsWith('R');
+    pose[joint] = {};
+    for (const [name, [axis, sign]] of Object.entries(axes)) {
+      const flip = right && MIRRORED_AXES.includes(axis) ? -1 : 1;
+      pose[joint][name] = Math.round(THREE.MathUtils.radToDeg(angles[axis]) * sign * flip);
+    }
+  }
+  return pose;
+}
+
+// Keep angles inside what a body (roughly) can do. Elbows and knees only bend one way.
+export function limitPose(pose) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
+  const out = { turn: clamp(pose.turn, -180, 180) };
+  for (const [joint, axes] of Object.entries(JOINTS)) {
+    out[joint] = {};
+    for (const name of Object.keys(axes)) {
+      const hinge = /^(elbow|knee)/.test(joint) && name === 'bend';
+      out[joint][name] = hinge ? clamp(pose[joint]?.[name], 0, 160) : clamp(pose[joint]?.[name], -180, 180);
+    }
+  }
+  return out;
+}
+
 // ---------- Ready-made poses ----------
 
 export const PRESETS = {
@@ -213,6 +258,16 @@ export function applyPose(figure, pose) {
   const rotations = poseToRotations(pose);
   for (const [name, e] of Object.entries(rotations)) figure.joints[name].rotation.set(e.x, e.y, e.z, 'ZXY');
   figure.root.rotation.y = THREE.MathUtils.degToRad(Number(pose.turn) || 0);
+}
+
+// The rotations a plain-language pose would give, without changing the figure.
+export function targetRotations(pose) {
+  const rotations = poseToRotations(pose);
+  const e = new THREE.Euler();
+  const out = {};
+  for (const [name, r] of Object.entries(rotations)) out[name] = new THREE.Quaternion().setFromEuler(e.set(r.x, r.y, r.z, 'ZXY'));
+  out.turn = THREE.MathUtils.degToRad(Number(pose.turn) || 0);
+  return out;
 }
 
 // Joint rotations as plain numbers (for saving), and back.
