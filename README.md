@@ -34,9 +34,20 @@ the one you're working in, or to jump to it if one is already open.
 
 ### Image search
 
-- **Openverse** works straight away. It searches openly licensed images from Flickr, Wikimedia Commons, museums and more.
-- **Unsplash** and **Pexels** need a free key. Click the gear in the search pane and paste it in. Keys are kept in this browser only. Get them at [unsplash.com/developers](https://unsplash.com/developers) and [pexels.com/api](https://www.pexels.com/api/).
-- Each image keeps a link to its original page (and the photographer's name), so you can always find where it came from. Check the licence before using an image in published work.
+One search box looks in every source at once and mixes the results into a single feed:
+
+- **Openverse** is always on: openly licensed images from Flickr, Wikimedia Commons, museums and more.
+- **Unsplash** and **Pexels** join in once you add their free keys (gear button). Get them at [unsplash.com/developers](https://unsplash.com/developers) and [pexels.com/api](https://www.pexels.com/api/). Keys stay in this browser only. Each source can be switched off there too.
+
+The feed is ranked a bit like Pinterest: how relevant each source thinks a result is, how big
+and sharp it is, whether its words match your search, and what you've added to boards before
+(remembered in this browser only). Duplicates and tiny pictures are dropped, and no source
+takes over the feed.
+
+- **Chips** under the search box suggest words that narrow the search.
+- Hover over a result for **Add to board** and **More like this**. You can also click a result, or drag it onto a board pane.
+- **Fill board** drops a whole mood board of results onto the board, in columns, next to what's already there. Type a subject or a mood (*"moody cyberpunk alley, neon, rain"*), choose how many, and press it. Each press picks a slightly different mix. Ctrl/⌘ + Z removes the whole set.
+- Each image keeps a link to its original page and the photographer's name. Check the licence before using an image in published work.
 - Some sites block full-size downloads. When that happens, a smaller version is added instead.
 
 ### 3D mannequin
@@ -146,7 +157,9 @@ There's no build step: the files are served as they are.
 - `src/storage.js`: board files (.refboard) and your boards in Chrome's storage
 - `src/menu.js`: the right-click menu
 - `src/editors.js`: the tools a pane can show instead of the board
-- `src/search-pane.js`, `src/sources.js`: image search and its sources
+- `src/search-pane.js`: the image search pane
+- `src/search-engine.js`: mixing and ranking results from every source
+- `src/sources.js`: the image sources (Openverse, Unsplash, Pexels)
 - `src/mannequin.js`: the 3D figure, its joints and the ready-made poses
 - `src/mannequin-pane.js`: the mannequin pane (3D view, posing, light, lens)
 - `src/ai-pose.js`: typing a pose (asks Claude for joint angles)

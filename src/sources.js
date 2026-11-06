@@ -1,11 +1,12 @@
 // Where image search results come from. Each source turns a search into a list
 // of results in one shared shape, so the search pane doesn't care which it is:
 //
-//   { source, id, thumb, full, fallback, width, height, title, author, pageUrl, license, useUrl }
+//   { source, id, thumb, full, fallback, width, height, title, tags, author, pageUrl, license, useUrl }
 //
 //   thumb     small picture for the results grid
 //   full      the big version that goes onto the board
 //   fallback  used if `full` can't be downloaded (some sites block it)
+//   tags      describing words (from the source), used for ranking and "More like this"
 //   pageUrl   the image's own page, saved with it so you can find the source again
 //   useUrl    Unsplash asks to be told when one of its photos is used
 //
@@ -39,20 +40,26 @@ export const SOURCES = {
     name: 'Openverse',
     needsKey: false,
     about: 'Free, openly licensed images from Flickr, Wikimedia Commons, museums and more. No key needed.',
+    toResult(r) {
+      const thumb = r.thumbnail || `https://api.openverse.org/v1/images/${r.id}/thumb/`;
+      const license = [r.license ? String(r.license).toUpperCase() : '', r.license_version || ''].join(' ').trim();
+      return {
+        source: 'openverse', id: r.id, thumb, full: r.url || thumb, fallback: thumb,
+        width: r.width || 0, height: r.height || 0,
+        title: r.title || '', tags: (r.tags || []).map((t) => t?.name).filter(Boolean),
+        author: r.creator || '', pageUrl: r.foreign_landing_url || r.url || '',
+        license: license ? `CC ${license}`.replace('CC CC', 'CC').replace('CC PDM', 'Public domain') : '',
+      };
+    },
     async search(query, page) {
       const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page=${page}&page_size=20`;
       const data = await getJSON(url);
-      const results = (data.results || []).map((r) => {
-        const thumb = r.thumbnail || `https://api.openverse.org/v1/images/${r.id}/thumb/`;
-        const license = [r.license ? String(r.license).toUpperCase() : '', r.license_version || ''].join(' ').trim();
-        return {
-          source: 'openverse', id: r.id, thumb, full: r.url || thumb, fallback: thumb,
-          width: r.width || 0, height: r.height || 0,
-          title: r.title || '', author: r.creator || '', pageUrl: r.foreign_landing_url || r.url || '',
-          license: license ? `CC ${license}`.replace('CC CC', 'CC').replace('CC PDM', 'Public domain') : '',
-        };
-      });
-      return { results, more: page < (data.page_count || 0) };
+      return { results: (data.results || []).map((r) => this.toResult(r)), more: page < (data.page_count || 0) };
+    },
+    // Openverse can find images similar to one you pick.
+    async related(result) {
+      const data = await getJSON(`https://api.openverse.org/v1/images/${encodeURIComponent(result.id)}/related/`);
+      return (data.results || []).map((r) => this.toResult(r));
     },
   },
 
@@ -74,6 +81,7 @@ export const SOURCES = {
         fallback: r.urls?.regular,
         width: r.width || 0, height: r.height || 0,
         title: r.alt_description || r.description || '', author: r.user?.name || '',
+        tags: (r.tags || []).map((t) => t?.title).filter(Boolean),
         pageUrl: r.links?.html ? `${r.links.html}?utm_source=reference_board&utm_medium=referral` : '',
         license: 'Unsplash License',
         useUrl: r.links?.download_location || '',
@@ -101,7 +109,7 @@ export const SOURCES = {
         full: p.src?.original ? `${p.src.original}?auto=compress&cs=tinysrgb&w=2400` : p.src?.large2x,
         fallback: p.src?.large2x || p.src?.large,
         width: p.width || 0, height: p.height || 0,
-        title: p.alt || '', author: p.photographer || '', pageUrl: p.url || '',
+        title: p.alt || '', tags: [], author: p.photographer || '', pageUrl: p.url || '',
         license: 'Pexels License',
       }));
       return { results, more: !!data.next_page };

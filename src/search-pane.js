@@ -1,33 +1,41 @@
-// The image search pane: a search box, a choice of source, and a grid of results.
-// Drag a result onto a board pane, or click it, to add it to the board.
+// The image search pane: one search box over every source (see src/search-engine.js),
+// a Pinterest-style grid, suggested words to narrow the search, "More like this",
+// and "Fill board" to drop a whole mood board onto the board at once.
 
 import { SOURCES, loadKeys, saveKeys } from './sources.js';
+import { MixedSearch, activeSources, loadOff, saveOff, rememberTaste, similarQuery } from './search-engine.js';
 
 export const RESULT_DRAG_TYPE = 'application/x-refboard-result';
 
 const GEAR = '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/></svg>';
+const GRID = '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="7" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="11" width="5" height="3" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>';
+const SOURCE_SHORT = { openverse: 'Openverse', unsplash: 'Unsplash', pexels: 'Pexels' };
 
 export class SearchPane {
-  // actions: { add(result), changed(), toast(message) }
+  // actions: { add(result), fill(results, query), changed(), toast(message) }
   constructor(pane, host, actions) {
     this.type = 'search';
     this.pane = pane;
     this.actions = actions;
-    this.state = { source: 'openverse', query: '', ...pane.state };
-    if (!SOURCES[this.state.source]) this.state.source = 'openverse';
-    this.page = 0;
-    this.more = false;
+    this.state = { query: '', fillCount: 20, ...pane.state };
+    this.search = null;     // the MixedSearch in progress
     this.loading = false;
-    this.searchId = 0;
+    this.runId = 0;
 
     this.el = document.createElement('div');
     this.el.className = 'search-pane';
     this.el.innerHTML = `
       <form class="search-bar">
-        <select class="search-source" title="Where to search"></select>
-        <input class="search-input" type="search" placeholder="Search images…" spellcheck="false" autocomplete="off">
-        <button type="button" class="search-gear" title="Search settings (API keys)">${GEAR}</button>
+        <input class="search-input" type="search" placeholder="Search images, or describe a mood…" spellcheck="false" autocomplete="off">
+        <div class="fill-group" title="Drop a mood board of these results onto the board">
+          <button type="button" class="fill-button">${GRID}<span>Fill board</span></button>
+          <select class="fill-count" title="How many images">
+            <option>10</option><option>20</option><option>30</option><option>50</option>
+          </select>
+        </div>
+        <button type="button" class="search-gear" title="Sources and API keys">${GEAR}</button>
       </form>
+      <div class="search-chips"></div>
       <div class="search-settings" hidden></div>
       <div class="search-scroll">
         <div class="search-results"></div>
@@ -36,32 +44,31 @@ export class SearchPane {
       </div>`;
     host.appendChild(this.el);
 
-    this.sourceSelect = this.el.querySelector('.search-source');
-    for (const [id, s] of Object.entries(SOURCES)) this.sourceSelect.add(new Option(s.name, id));
-    this.sourceSelect.value = this.state.source;
-    this.input = this.el.querySelector('.search-input');
+    const $ = (sel) => this.el.querySelector(sel);
+    this.input = $('.search-input');
     this.input.value = this.state.query;
-    this.resultsEl = this.el.querySelector('.search-results');
-    this.statusEl = this.el.querySelector('.search-status');
-    this.scrollEl = this.el.querySelector('.search-scroll');
-    this.settingsEl = this.el.querySelector('.search-settings');
+    this.resultsEl = $('.search-results');
+    this.statusEl = $('.search-status');
+    this.scrollEl = $('.search-scroll');
+    this.settingsEl = $('.search-settings');
+    this.chipsEl = $('.search-chips');
+    this.fillButton = $('.fill-button');
+    this.fillCount = $('.fill-count');
+    this.fillCount.value = String(this.state.fillCount);
 
-    this.el.querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); this.search(); });
-    this.sourceSelect.addEventListener('change', () => {
-      this.state.source = this.sourceSelect.value;
-      this.save();
-      if (this.state.query) this.search();
-      else this.showIntro();
-    });
-    this.el.querySelector('.search-gear').addEventListener('click', () => this.toggleSettings());
+    $('form').addEventListener('submit', (e) => { e.preventDefault(); this.run(this.input.value); });
+    $('.search-gear').addEventListener('click', () => this.toggleSettings());
+    this.fillButton.addEventListener('click', () => this.fill());
+    this.fillCount.addEventListener('change', () => { this.state.fillCount = Number(this.fillCount.value); this.save(); });
+    for (const el of [this.input, this.fillCount]) el.addEventListener('keydown', (e) => e.stopPropagation());
 
     // Load more results when you scroll near the bottom.
     this.observer = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) this.loadMore();
-    }, { root: this.scrollEl, rootMargin: '400px' });
-    this.observer.observe(this.el.querySelector('.search-end'));
+    }, { root: this.scrollEl, rootMargin: '600px' });
+    this.observer.observe($('.search-end'));
 
-    if (this.state.query) this.search();
+    if (this.state.query) this.run(this.state.query);
     else this.showIntro();
   }
 
@@ -70,71 +77,105 @@ export class SearchPane {
     this.input.select();
   }
 
+  layout(rect) {
+    this.el.classList.toggle('compact', rect.w < 440);
+  }
+
   save() {
-    this.pane.state = { source: this.state.source, query: this.state.query };
+    this.pane.state = { query: this.state.query, fillCount: this.state.fillCount };
     this.actions.changed();
+  }
+
+  sourceNames() {
+    return activeSources().map((s) => SOURCE_SHORT[s]).join(', ');
   }
 
   showIntro() {
     this.resultsEl.replaceChildren();
-    const s = SOURCES[this.state.source];
-    const missingKey = s.needsKey && !loadKeys()[this.state.source];
-    this.statusEl.innerHTML = '';
-    const p = document.createElement('p');
-    p.textContent = missingKey ? `${s.about} Click the gear to add it.` : `${s.about} Type something and press Enter.`;
-    const tip = document.createElement('p');
-    tip.className = 'small';
-    tip.textContent = 'Drag a result onto the board, or click it. Each image keeps a link to where it came from. Check its licence before using it in published work.';
-    this.statusEl.append(p, tip);
+    this.chipsEl.replaceChildren();
+    this.statusEl.replaceChildren();
+    const lines = [
+      ['', 'Search for anything: "hands holding a cup", "rainy street at night", "armor details".'],
+      ['small', 'Or describe a mood and press Fill board to drop a whole mood board onto your board.'],
+      ['small', `Searching ${this.sourceNames()}.${activeSources().length < 3 ? ' Add free Unsplash and Pexels keys with the gear button for more and better photos.' : ''}`],
+      ['small', 'Check each image\'s licence before using it in published work.'],
+    ];
+    for (const [cls, text] of lines) {
+      const p = document.createElement('p');
+      if (cls) p.className = cls;
+      p.textContent = text;
+      this.statusEl.appendChild(p);
+    }
   }
 
-  async search() {
-    const query = this.input.value.trim();
+  // Start a new search. `pinned(search)` can return results to show first
+  // (used by "More like this").
+  async run(query, pinned = null) {
+    query = query.trim();
+    this.input.value = query;
     this.state.query = query;
     this.save();
     if (!query) return this.showIntro();
-    const s = SOURCES[this.state.source];
-    if (s.needsKey && !loadKeys()[this.state.source]) {
-      this.showIntro();
-      this.toggleSettings(true);
-      return;
-    }
+    const search = new MixedSearch(query);
+    this.search = search;
+    const id = ++this.runId;
     this.resultsEl.replaceChildren();
+    this.chipsEl.replaceChildren();
     this.scrollEl.scrollTop = 0;
-    this.page = 0;
-    this.more = true;
-    this.searchId++;
+    if (pinned) {
+      this.statusEl.textContent = 'Finding similar images…';
+      const first = await pinned(search).catch(() => []);
+      if (id !== this.runId) return;
+      for (const r of first.slice(0, 12)) this.resultsEl.appendChild(this.resultCard(r));
+      search.all.unshift(...first);
+    }
     await this.loadMore();
   }
 
   async loadMore() {
-    if (this.loading || !this.more || !this.state.query) return;
-    const id = this.searchId;
-    const s = SOURCES[this.state.source];
+    const search = this.search;
+    if (this.loading || !search || !search.hasMore) return;
+    const id = this.runId;
     this.loading = true;
     this.statusEl.textContent = 'Searching…';
     try {
-      const { results, more } = await s.search(this.state.query, this.page + 1, loadKeys()[this.state.source]);
-      if (id !== this.searchId) return;  // a newer search has started
-      this.page++;
-      this.more = more && results.length > 0;
+      const results = await search.next();
+      if (id !== this.runId) return;  // a newer search has started
       for (const r of results) this.resultsEl.appendChild(this.resultCard(r));
-      if (!this.resultsEl.children.length) this.statusEl.textContent = 'Nothing found. Try other words.';
-      else this.statusEl.textContent = this.more ? '' : 'No more results.';
-    } catch (err) {
-      if (id === this.searchId) {
-        this.more = false;
-        this.statusEl.textContent = err.message;
-      }
+      this.showChips();
+      this.updateStatus();
     } finally {
       this.loading = false;
     }
     // If the results don't fill the pane yet, the "near the bottom" signal won't
     // fire again on its own, so check once more.
-    if (this.more && id === this.searchId) {
+    if (search.hasMore && id === this.runId) {
       const end = this.el.querySelector('.search-end');
       this.observer.unobserve(end);
       this.observer.observe(end);
+    }
+  }
+
+  updateStatus() {
+    const s = this.search;
+    const failed = Object.entries(s.errors).map(([src, msg]) => `${SOURCE_SHORT[src]}: ${msg}`);
+    let text = '';
+    if (!this.resultsEl.children.length) text = failed.length ? 'Nothing could be loaded.' : 'Nothing found. Try other words.';
+    else if (!s.hasMore) text = 'No more results.';
+    this.statusEl.textContent = [text, ...failed].filter(Boolean).join(' · ');
+  }
+
+  // Suggested words that narrow the search, like Pinterest's chips.
+  showChips() {
+    if (this.chipsEl.children.length) return;  // keep the first set while scrolling
+    const words = this.search.chips();
+    for (const w of words) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = w;
+      chip.addEventListener('click', () => this.run(`${this.state.query} ${w}`));
+      this.chipsEl.appendChild(chip);
     }
   }
 
@@ -151,15 +192,29 @@ export class SearchPane {
     img.referrerPolicy = 'no-referrer';
     if (r.width && r.height) img.style.aspectRatio = `${r.width} / ${r.height}`;
     img.addEventListener('error', () => card.remove());  // hide pictures that fail to load
-    const caption = document.createElement('figcaption');
-    caption.textContent = r.author || r.title || '';
-    const add = document.createElement('span');
-    add.className = 'result-add';
-    add.textContent = '+';
-    card.append(img, caption, add);
 
-    card.addEventListener('click', () => this.actions.add(r));
+    // Buttons shown on hover.
+    const overlay = document.createElement('div');
+    overlay.className = 'result-overlay';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'result-add';
+    add.textContent = 'Add to board';
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'result-more';
+    more.textContent = 'More like this';
+    const credit = document.createElement('figcaption');
+    credit.textContent = [r.author, SOURCE_SHORT[r.source]].filter(Boolean).join(' · ');
+    overlay.append(add, more, credit);
+    card.append(img, overlay);
+
+    const addIt = (e) => { e.stopPropagation(); rememberTaste(r); this.actions.add(r); };
+    add.addEventListener('click', addIt);
+    card.addEventListener('click', addIt);
+    more.addEventListener('click', (e) => { e.stopPropagation(); this.moreLike(r); });
     card.addEventListener('dragstart', (e) => {
+      rememberTaste(r);
       e.dataTransfer.setData(RESULT_DRAG_TYPE, JSON.stringify(r));
       e.dataTransfer.setData('text/uri-list', r.full);
       e.dataTransfer.effectAllowed = 'copy';
@@ -168,33 +223,85 @@ export class SearchPane {
     return card;
   }
 
+  // A new search built from this image's words, with its closest matches first.
+  async moreLike(r) {
+    const query = similarQuery(r, this.state.query);
+    await this.run(query, (search) => search.similar(r));
+  }
+
+  // Pick a varied set of results and hand them to the board as a mood board.
+  // A bit of randomness means pressing it again gives a different mix.
+  async fill() {
+    const count = Number(this.fillCount.value) || 20;
+    if (this.input.value.trim() !== this.state.query || !this.search) await this.run(this.input.value);
+    if (!this.search) return this.actions.toast('Type a mood or subject first.');
+    this.fillButton.disabled = true;
+    try {
+      // Load enough results to choose from.
+      while (this.search.all.length < count * 2 && this.search.hasMore) {
+        const before = this.search.all.length;
+        await this.loadMore();
+        if (this.search.all.length === before) break;
+      }
+      const pool = this.search.all.slice(0, count * 2);
+      if (!pool.length) return this.actions.toast('Nothing found to fill the board with.');
+      // Shuffle, but keep the best-ranked half more likely to be picked.
+      const picked = pool.map((r, i) => ({ r, k: Math.random() + (1 - i / pool.length) * 0.6 }))
+        .sort((a, b) => b.k - a.k).slice(0, count).map((x) => x.r);
+      await this.actions.fill(picked, this.state.query);
+    } finally {
+      this.fillButton.disabled = false;
+    }
+  }
+
   toggleSettings(open = this.settingsEl.hidden) {
     this.settingsEl.hidden = !open;
     if (!open) return;
     const keys = loadKeys();
     this.settingsEl.replaceChildren();
     const intro = document.createElement('p');
-    intro.textContent = 'Unsplash and Pexels need a free key. It stays in this browser only.';
+    intro.textContent = 'Every search looks in all the sources switched on here and mixes the results. Unsplash and Pexels need a free key, which stays in this browser.';
     this.settingsEl.appendChild(intro);
     for (const [id, s] of Object.entries(SOURCES)) {
-      if (!s.needsKey) continue;
-      const row = document.createElement('label');
-      row.className = 'key-row';
-      const name = document.createElement('span');
-      name.innerHTML = `${s.keyLabel} · <a href="${s.keyHelp}" target="_blank" rel="noopener">get one</a>`;
-      const input = document.createElement('input');
-      input.type = 'password';
-      input.value = keys[id] || '';
-      input.placeholder = 'Paste key';
-      input.autocomplete = 'off';
-      input.addEventListener('change', () => {
-        const k = loadKeys();
-        if (input.value.trim()) k[id] = input.value.trim();
-        else delete k[id];
-        saveKeys(k);
-        if (id === this.state.source && this.state.query) this.search();
+      const row = document.createElement('div');
+      row.className = 'source-row';
+      const toggle = document.createElement('label');
+      toggle.className = 'source-toggle';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !loadOff().includes(id);
+      box.addEventListener('change', () => {
+        const off = new Set(loadOff());
+        if (box.checked) off.delete(id); else off.add(id);
+        saveOff([...off]);
       });
-      row.append(name, input);
+      toggle.append(box, document.createTextNode(` ${s.name}`));
+      row.appendChild(toggle);
+      if (s.needsKey) {
+        const keyLine = document.createElement('label');
+        keyLine.className = 'key-row';
+        const name = document.createElement('span');
+        name.innerHTML = `${s.keyLabel} · <a href="${s.keyHelp}" target="_blank" rel="noopener">get one free</a>`;
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.value = keys[id] || '';
+        input.placeholder = 'Paste key';
+        input.autocomplete = 'off';
+        input.addEventListener('keydown', (e) => e.stopPropagation());
+        input.addEventListener('change', () => {
+          const k = loadKeys();
+          if (input.value.trim()) k[id] = input.value.trim();
+          else delete k[id];
+          saveKeys(k);
+        });
+        keyLine.append(name, input);
+        row.appendChild(keyLine);
+      } else {
+        const note = document.createElement('span');
+        note.className = 'small';
+        note.textContent = 'No key needed.';
+        row.appendChild(note);
+      }
       this.settingsEl.appendChild(row);
     }
     const done = document.createElement('button');
@@ -203,7 +310,7 @@ export class SearchPane {
     done.textContent = 'Done';
     done.addEventListener('click', () => {
       this.toggleSettings(false);
-      if (this.state.query) this.search(); else this.showIntro();
+      if (this.state.query) this.run(this.state.query); else this.showIntro();
     });
     this.settingsEl.appendChild(done);
   }

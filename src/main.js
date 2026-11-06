@@ -56,6 +56,7 @@ const viewports = new Viewports({
   onLayoutChanged: () => viewChanged(),
   createEditor: (pane, host) => createEditor(pane, host, {
     add: (result) => addSearchResult(result),
+    fill: (results, query) => fillBoard(results, query),
     changed: () => viewChanged(),
     toast: (m) => toast(m),
     addImage: (blob, name) => addBlobToBoard(blob, name),
@@ -598,6 +599,81 @@ async function addBlobToBoard(blob, name, sourceUrl = '', at = null) {
   if (at) ({ x: wx, y: wy } = at);
   else if (pane) ({ x: wx, y: wy } = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2));
   await addImages([{ blob, name, sourceUrl }], wx, wy, pane);
+}
+
+// "Fill board": download a set of search results and lay them out on the board
+// as a mood board, in Pinterest-style columns. One undo removes the whole set.
+async function fillBoard(results, query) {
+  if (!current || !results.length) return;
+  const boardId = current.id;
+  const pane = targetBoardPane();
+  const keys = loadKeys();
+  const got = new Array(results.length);
+  let next = 0;
+  let done = 0;
+  toast(`Adding ${results.length} images…`, 120000);
+  // At most six downloads at a time, so the browser stays responsive.
+  const worker = async () => {
+    while (next < results.length) {
+      const i = next++;
+      const r = results[i];
+      try {
+        const { blob } = await downloadResult(r);
+        got[i] = { r, blob, bitmap: await createImageBitmap(blob) };
+        SOURCES[r.source]?.used?.(r, keys[r.source]);
+      } catch {
+        // skip images that can't be downloaded
+      }
+      done++;
+      toast(`Adding images… ${done} of ${results.length}`, 120000);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, results.length) }, worker));
+  if (current?.id !== boardId) return;
+  const ok = got.filter(Boolean);
+  if (!ok.length) return toast("Couldn't download any of those images. Try another search.");
+
+  // Columns of equal width; each image goes into the shortest column.
+  const COL = 600;
+  const GAP = 24;
+  const cols = Math.max(2, Math.min(6, Math.round(Math.sqrt(ok.length * 1.4))));
+  const heights = new Array(cols).fill(0);
+  const placed = ok.map((e) => {
+    const scale = COL / e.bitmap.width;
+    const h = e.bitmap.height * scale;
+    const c = heights.indexOf(Math.min(...heights));
+    const spot = { ...e, scale, col: c, top: heights[c], h };
+    heights[c] += h + GAP;
+    return spot;
+  });
+  const blockW = cols * COL + (cols - 1) * GAP;
+  const blockH = Math.max(...heights) - GAP;
+  // Next to what's already on the board, or in the middle of the view on an empty board.
+  const existing = board.bounds();
+  const centre = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+  const left = existing ? existing.x + existing.width + 300 : centre.x - blockW / 2;
+  const top = existing ? existing.y : centre.y - blockH / 2;
+
+  const added = [];
+  for (const p of placed) {
+    const name = [p.r.title, p.r.author && `by ${p.r.author}`].filter(Boolean).join(' ') || query;
+    const item = board.addImage(p.bitmap, left + p.col * (COL + GAP) + COL / 2, top + p.top + p.h / 2, {
+      name, sourceUrl: p.r.pageUrl || p.r.full, blob: p.blob, scaleX: p.scale, scaleY: p.scale,
+    });
+    store.saveImage(boardId, item.id, p.blob).catch((err) => console.warn('Saving image failed', err));
+    added.push(item);
+  }
+  const saved = added.map((item) => ({ ...board.imageJSON(item), blob: item.blob }));
+  history.push({
+    undo: () => saved.forEach((d) => removeImageById(d.id)),
+    redo: () => Promise.all(saved.map((d) => restoreImage(d))),
+  });
+  board.selected = null;
+  fitPane(pane, added);
+  contentChanged();
+  requestRender();
+  const missed = results.length - ok.length;
+  toast(`Added ${ok.length} images${missed ? ` (${missed} couldn't be downloaded)` : ''}. Ctrl/⌘+Z removes them all.`, 3500);
 }
 
 // ---------- Drag and drop ----------
