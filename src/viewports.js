@@ -10,6 +10,7 @@
 
 import { RenderTexture, Sprite, Matrix } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
+import { Camera } from './camera.js';
 
 const ICONS = {
   'split-row': '<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>',
@@ -183,6 +184,24 @@ export class Viewports {
   paneFromElement(el) {
     const id = Number(el?.closest?.('.pane')?.dataset.pane);
     return this.layout.panes().find((p) => p.id === id) || null;
+  }
+
+  // A small picture of the whole board, for the home screen. Returns a Blob, or null if the board is empty.
+  async snapshot(width = 480, height = 300) {
+    const bounds = this.board.bounds();
+    if (!bounds) return null;
+    const cam = new Camera();
+    cam.frame(bounds, width, height, 16);
+    const texture = RenderTexture.create({ width, height, resolution: 1 });
+    const selected = this.board.selected;
+    this.board.selected = null;  // no blue outline in the preview
+    this.board.drawOverlay(cam.zoom);
+    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
+    this.app.renderer.render({ container: this.board.world, target: texture, clear: true, clearColor: this.background, transform: this.matrix });
+    this.board.selected = selected;
+    const canvas = this.app.renderer.extract.canvas(texture);
+    texture.destroy(true);
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85));
   }
 
   // Draw the board into every visible pane, then put the panes on screen.

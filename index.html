@@ -6,7 +6,35 @@
   <title>Reference Board</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-mode="home">
+  <!-- ===== Home screen: your boards ===== -->
+  <div id="home">
+    <header class="home-header">
+      <div class="brand">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11M8 8h6.5"/></svg>
+        Reference Board
+      </div>
+      <button class="text-button" data-action="open-file" title="Open a .refboard file">Open file…</button>
+    </header>
+
+    <main class="home-main">
+      <h1>Boards</h1>
+      <div class="board-grid">
+        <button class="board-card new" data-action="new">
+          <div class="thumb"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></div>
+          <div class="meta"><div class="name">New board</div><div class="when">Start from an empty canvas</div></div>
+        </button>
+      </div>
+      <p class="home-note">
+        Boards are kept in Chrome on this computer and save as you work.
+        To back one up or send it to someone, use <em>Save to file</em>.
+        You can also drop images or <code>.refboard</code> files anywhere on this page.
+      </p>
+    </main>
+  </div>
+
+  <!-- ===== A board ===== -->
+
   <!-- The drawing surface (a WebGL canvas) gets added in here by src/main.js -->
   <div id="stage"></div>
 
@@ -14,10 +42,13 @@
        and holds the pane buttons. The dividers between panes live here too. -->
   <div id="panes"></div>
 
-  <!-- Board name. Click it for the menu. A dot means changes not yet saved to a file. -->
-  <button id="board-title" title="Board menu (or right-click anywhere)">
-    <span class="name">Untitled board</span><span class="dot"></span>
-  </button>
+  <!-- Top-left: back to your boards, and the board's name (click to rename) -->
+  <div id="board-bar">
+    <button id="home-button" title="All boards">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+    </button>
+    <input id="board-name" spellcheck="false" autocomplete="off" title="Click to rename">
+  </div>
 
   <!-- Shown only while the board is empty -->
   <div id="empty-hint">

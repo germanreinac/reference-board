@@ -1,15 +1,22 @@
-// Starts the app and connects everything: panes, mouse, keyboard, drag-and-drop,
-// paste, the right-click menu, board files and autosave.
+// Starts the app and connects everything: the home screen, panes, mouse, keyboard,
+// drag-and-drop, paste, the right-click menu, board files and saving.
+//
+// The address bar says where you are:
+//   #/              the home screen (your boards)
+//   #/board/<id>    one board
+// so the browser's Back button and bookmarks just work.
 
 import { Application } from '../vendor/pixi.min.mjs';
 import { Board } from './board.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
+import { Home } from './home.js';
 import { imagesFromDrop, imagesFromPaste } from './importer.js';
 import { showMenu, hideMenu } from './menu.js';
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
-  pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob, autosave,
+  pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
+  store, newBoardId, askToKeepStorage,
 } from './storage.js';
 
 const BOARD_COLOUR = '#1b1b1d';
@@ -42,6 +49,18 @@ const viewports = new Viewports({
 });
 const layout = () => viewports.layout;
 
+// Which screen is showing: 'home' or 'board'.
+let mode = 'home';
+function setMode(m) {
+  mode = m;
+  document.body.dataset.mode = m;
+  hideMenu();
+  if (m === 'board') {
+    viewports.position();
+    requestRender();
+  }
+}
+
 // ---------- Redrawing ----------
 
 // Instead of redrawing 60 times a second all the time, we ask for one redraw
@@ -52,11 +71,12 @@ function requestRender() {
   renderQueued = true;
   requestAnimationFrame(() => {
     renderQueued = false;
+    if (mode !== 'board') return;
     viewports.render();
     emptyHint.classList.toggle('hidden', board.items.length > 0);
   });
 }
-window.addEventListener('resize', () => { viewports.position(); requestRender(); });
+window.addEventListener('resize', () => { if (mode === 'board') { viewports.position(); requestRender(); } });
 
 const emptyHint = document.getElementById('empty-hint');
 
@@ -71,53 +91,62 @@ function toast(message, ms = 4000) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
 }
 
-// ---------- The board's file name, unsaved changes and autosave ----------
+// ---------- The open board and saving ----------
 
-const doc = {
-  name: 'Untitled board',  // file name without the extension
-  handle: null,            // the file on disk we save to with Ctrl/⌘+S (Chrome only)
-  unsaved: false,          // changes since the last save to a file
-};
+// The board that's open: { id, name, created, updated, handle }. null on the home screen.
+// (`handle` is the file on disk that Ctrl/⌘+S saves to, once you've saved it to a file.)
+let current = null;
 
-const titleEl = document.getElementById('board-title');
+const nameInput = document.getElementById('board-name');
 function updateTitle() {
-  titleEl.querySelector('.name').textContent = doc.name;
-  titleEl.classList.toggle('unsaved', doc.unsaved);
-  document.title = `${doc.unsaved ? '• ' : ''}${doc.name} – Reference Board`;
+  const name = current?.name || 'Reference Board';
+  if (document.activeElement !== nameInput) nameInput.value = current?.name || '';
+  document.title = current ? `${name} – Reference Board` : 'Reference Board';
 }
 
 // Something on the board changed (images added, moved, removed...).
+let thumbStale = false;
 function contentChanged() {
-  doc.unsaved = true;
-  updateTitle();
-  scheduleAutosave();
+  if (!current) return;
+  current.updated = Date.now();
+  thumbStale = true;
+  scheduleSave();
 }
 
-// Only the view changed (pan, zoom, panes). Remembered, but doesn't count as unsaved.
+// Only the view changed (pan, zoom, panes). Remembered, but doesn't change "last edited".
 function viewChanged() {
-  scheduleAutosave();
+  scheduleSave();
 }
 
-let autosaveTimer;
+let saveTimer;
 let loading = false;
-function scheduleAutosave() {
-  if (loading) return;
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(saveStateNow, 600);
+let lastThumb = 0;
+function scheduleSave() {
+  if (loading || !current) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveNow(), 600);
 }
-async function saveStateNow() {
-  clearTimeout(autosaveTimer);
+
+// Write the open board to Chrome's storage. The preview picture is updated at
+// most every 10 seconds while you work, and always when you leave the board.
+async function saveNow({ thumb = false } = {}) {
+  clearTimeout(saveTimer);
+  if (!current || loading) return;
+  const id = current.id;
   try {
-    await autosave.saveState({
-      board: describeBoard(board, layout()),
-      name: doc.name, handle: doc.handle, unsaved: doc.unsaved,
-    });
+    await store.putBoard({ ...current, board: describeBoard(board, layout()) });
+    if (thumbStale && (thumb || Date.now() - lastThumb > 10000)) {
+      thumbStale = false;
+      lastThumb = Date.now();
+      await store.saveThumb(id, await viewports.snapshot());
+    }
   } catch (err) {
-    console.warn('Autosave failed', err);
+    console.warn('Saving failed', err);
+    toast("Couldn't save to Chrome's storage. Save the board to a file to be safe.");
   }
 }
-// Save one last time when the tab is hidden or closed.
-document.addEventListener('visibilitychange', () => { if (document.hidden) saveStateNow(); });
+// Save when the tab is hidden or closed.
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow({ thumb: true }); });
 
 // ---------- Adding images ----------
 
@@ -132,6 +161,8 @@ async function decode(blob, name) {
 
 // Decode images and place them side by side around a board position.
 async function addImages(list, wx, wy, pane) {
+  if (!current) return;
+  const boardId = current.id;
   const wasEmpty = board.items.length === 0;
   const GAP = 20;
   // createImageBitmap does the heavy decoding off the main thread,
@@ -140,7 +171,7 @@ async function addImages(list, wx, wy, pane) {
     const bitmap = await decode(entry.blob, entry.name);
     return bitmap && { entry, bitmap };
   }))).filter(Boolean);
-  if (!decoded.length) return;
+  if (!decoded.length || current?.id !== boardId) return;
 
   const totalWidth = decoded.reduce((sum, d) => sum + d.bitmap.width, 0) + GAP * (decoded.length - 1);
   let x = wx - totalWidth / 2;
@@ -149,7 +180,7 @@ async function addImages(list, wx, wy, pane) {
     const item = board.addImage(bitmap, x + bitmap.width / 2, wy, entry);
     x += bitmap.width + GAP;
     added.push(item);
-    autosave.saveImage(String(item.id), entry.blob).catch((err) => console.warn('Autosave of image failed', err));
+    store.saveImage(boardId, item.id, entry.blob).catch((err) => console.warn('Saving image failed', err));
   }
   board.selected = added[added.length - 1];
   // On an empty board, zoom so the first images fit nicely.
@@ -159,7 +190,7 @@ async function addImages(list, wx, wy, pane) {
 }
 
 function removeImage(item) {
-  autosave.deleteImage(String(item.id)).catch(() => {});
+  if (current) store.deleteImage(current.id, item.id).catch(() => {});
   board.remove(item);
   contentChanged();
   requestRender();
@@ -173,84 +204,187 @@ function fitPane(pane, items) {
   viewChanged();
 }
 
-// ---------- Opening, saving and new boards ----------
+// ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
 async function loadBoard(data, getBlob) {
   loading = true;
   try {
     board.clear();
-    const blobs = await Promise.all(data.items.map((item) => getBlob(item)));
-    const bitmaps = await Promise.all(data.items.map((item, i) => (blobs[i] ? decode(blobs[i], item.name) : null)));
+    const items = data?.items || [];
+    const blobs = await Promise.all(items.map((item) => Promise.resolve(getBlob(item)).catch(() => null)));
+    const bitmaps = await Promise.all(items.map((item, i) => (blobs[i] ? decode(blobs[i], item.name) : null)));
     let missing = 0;
-    data.items.forEach((item, i) => {
+    items.forEach((item, i) => {
       if (!bitmaps[i]) { missing++; return; }
       board.addImage(bitmaps[i], item.x, item.y, { ...item, blob: blobs[i] });
     });
     board.selected = null;
-    viewports.setLayout(Layout.fromJSON(data.layout));
+    viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
   } finally {
     loading = false;
   }
-  requestRender();
 }
 
-// Only ask when there's something that would be lost.
-function okToReplace() {
-  if (!doc.unsaved || board.items.length === 0) return true;
-  return confirm(`"${doc.name}" has changes that aren't saved to a file. Continue anyway?`);
+async function openBoardById(id) {
+  const record = await store.getBoard(id);
+  if (!record) {
+    toast('That board no longer exists.');
+    location.hash = '#/';
+    return;
+  }
+  const { board: data, ...meta } = record;
+  current = meta;
+  await loadBoard(data, (item) => store.loadImage(id, item.id));
+  // Boards opened from a file, or from the first version, may not have a preview yet.
+  thumbStale = board.items.length > 0 && !(await store.loadThumb(id).catch(() => null));
+  updateTitle();
 }
 
-async function openBoardFile(file, handle = null) {
-  if (!okToReplace()) return;
-  toast(`Opening ${file.name}…`, 60000);
-  try {
-    const { data, images } = await unpackBoard(file);
-    await loadBoard(data, (item) => images.get(item.file));
-    Object.assign(doc, { name: file.name.replace(/\.refboard$/i, ''), handle, unsaved: false });
-    updateTitle();
-    toast(`Opened ${file.name}`, 1500);
-    // Make the opened board the autosaved one.
-    await autosave.clearImages();
-    await Promise.all(board.items.map((item) => autosave.saveImage(String(item.id), item.blob)));
-    await saveStateNow();
-  } catch (err) {
-    toast(err.message || "Couldn't open that file.");
+// Save the open board, then free its images from memory.
+async function leaveBoard() {
+  if (!current) return;
+  await saveNow({ thumb: true });
+  current = null;
+  board.clear();
+  viewports.setLayout(new Layout());
+  updateTitle();
+}
+
+// Work out what to show from the address bar. Runs one at a time, in order.
+let routing = Promise.resolve();
+function route() {
+  routing = routing.then(doRoute).catch((err) => {
+    console.error(err);
+    toast('Something went wrong opening that board.');
+  });
+  return routing;
+}
+async function doRoute() {
+  const id = location.hash.match(/^#\/board\/([\w-]+)/)?.[1];
+  if (id) {
+    if (current?.id !== id) {
+      await leaveBoard();
+      setMode('board');
+      await openBoardById(id);
+    }
+    if (current) setMode('board');
+  } else {
+    await leaveBoard();
+    setMode('home');
+    await home.refresh();
   }
 }
+window.addEventListener('hashchange', route);
 
-async function openBoard() {
+const goHome = () => { location.hash = '#/'; };
+const openBoard = (id) => { location.hash = `#/board/${id}`; };
+// Open a board and wait until it's on screen.
+async function openBoardNow(id) {
+  openBoard(id);
+  await route();
+}
+
+// "Untitled board", "Untitled board 2", ...
+async function freeName(base) {
+  const names = new Set((await store.listBoards()).map((b) => b.name));
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
+}
+
+async function createBoard({ name, data = null } = {}) {
+  const now = Date.now();
+  const id = newBoardId();
+  await store.putBoard({
+    id, name: await freeName(name || 'Untitled board'), created: now, updated: now, handle: null,
+    board: data || { items: [], layout: null },
+  });
+  askToKeepStorage();
+  return id;
+}
+
+async function newBoard() {
+  openBoard(await createBoard());
+}
+
+async function renameBoard(id, name) {
+  if (current?.id === id) {
+    current.name = name;
+    updateTitle();
+    await saveNow();
+    return;
+  }
+  const record = await store.getBoard(id);
+  if (record) await store.putBoard({ ...record, name });
+}
+
+async function deleteBoard(id, name) {
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  await store.deleteBoard(id);
+  await home.refresh();
+}
+
+// ---------- Board files ----------
+
+// Add a .refboard file as a new board. Returns the new board's id.
+async function importBoardFile(file, handle = null) {
+  toast(`Opening ${file.name}…`, 60000);
+  const { data, images } = await unpackBoard(file);
+  const id = newBoardId();
+  await Promise.all(data.items.map((item) => {
+    const blob = images.get(item.file);
+    return blob ? store.saveImage(id, item.id, blob) : null;
+  }));
+  const now = Date.now();
+  await store.putBoard({ id, name: await freeName(file.name.replace(/\.refboard$/i, '')), created: now, updated: now, handle, board: data });
+  askToKeepStorage();
+  toast(`Added ${file.name}`, 1500);
+  return id;
+}
+
+async function openFile() {
   try {
     const picked = await pickBoardToOpen();
-    if (picked) await openBoardFile(picked.file, picked.handle);
+    if (picked) openBoard(await importBoardFile(picked.file, picked.handle));
   } catch (err) {
     toast(err.message || "Couldn't open that file.");
   }
+}
+
+// Save a board to a file. `handle` is where to save (null = ask).
+// Asking happens first, while Chrome still counts it as your click.
+async function writeBoardFile({ name, handle, getData, getBlob }) {
+  if (canPickFiles) {
+    if (handle) await ensureWritePermission(handle);
+    else handle = await pickSaveLocation(name + FILE_EXT);
+    if (!handle) return null;  // cancelled
+    toast('Saving…', 60000);
+    await writeToHandle(handle, await packBoard(getData(), getBlob));
+  } else {
+    // Other browsers: download a copy instead.
+    downloadBlob(await packBoard(getData(), getBlob), name + FILE_EXT);
+  }
+  toast(`Saved ${handle?.name || name + FILE_EXT}`, 1500);
+  return handle;
 }
 
 let saving = false;
-async function saveBoard({ saveAs = false } = {}) {
-  if (saving) return;
+async function saveToFile({ saveAs = false } = {}) {
+  if (saving || !current) return;
   saving = true;
   try {
-    if (canPickFiles) {
-      // Ask where to save (or for permission) first, while Chrome still counts it as your click.
-      let handle = saveAs ? null : doc.handle;
-      if (handle) await ensureWritePermission(handle);
-      else handle = await pickSaveLocation(doc.name + FILE_EXT);
-      if (!handle) return;  // cancelled
-      toast('Saving…', 60000);
-      await writeToHandle(handle, await packBoard(board, layout()));
-      Object.assign(doc, { handle, name: handle.name.replace(/\.refboard$/i, ''), unsaved: false });
-    } else {
-      // Other browsers: download a copy instead.
-      downloadBlob(await packBoard(board, layout()), doc.name + FILE_EXT);
-      doc.unsaved = false;
+    const blobs = new Map(board.items.map((i) => [i.id, i.blob]));
+    const handle = await writeBoardFile({
+      name: current.name,
+      handle: saveAs ? null : current.handle,
+      getData: () => describeBoard(board, layout()),
+      getBlob: (item) => blobs.get(item.id),
+    });
+    if (handle && current) {
+      current.handle = handle;
+      saveNow();
     }
-    updateTitle();
-    toast(`Saved ${doc.name}${FILE_EXT}`, 1500);
-    saveStateNow();
   } catch (err) {
     toast(err.message || "Couldn't save the board.");
   } finally {
@@ -258,16 +392,47 @@ async function saveBoard({ saveAs = false } = {}) {
   }
 }
 
-async function newBoard() {
-  if (!okToReplace()) return;
-  board.clear();
-  viewports.setLayout(new Layout());
-  Object.assign(doc, { name: 'Untitled board', handle: null, unsaved: false });
-  updateTitle();
-  await autosave.clearImages().catch(() => {});
-  await saveStateNow();
-  requestRender();
+// From the home screen: save any board to a file without opening it.
+async function exportBoard(id) {
+  try {
+    const record = await store.getBoard(id);
+    if (!record) return;
+    await writeBoardFile({
+      name: record.name,
+      handle: null,
+      getData: () => record.board,
+      getBlob: (item) => store.loadImage(id, item.id),
+    });
+  } catch (err) {
+    toast(err.message || "Couldn't save the board.");
+  }
 }
+
+// ---------- Home screen ----------
+
+const home = new Home(document.getElementById('home'), {
+  open: openBoard,
+  create: newBoard,
+  importFile: openFile,
+  rename: renameBoard,
+  exportFile: exportBoard,
+  remove: deleteBoard,
+});
+
+// ---------- Board name and home button ----------
+
+document.getElementById('home-button').addEventListener('click', goHome);
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === 'Escape') {
+    if (e.key === 'Escape') nameInput.value = current?.name || '';
+    nameInput.blur();
+  }
+});
+nameInput.addEventListener('blur', () => {
+  const value = nameInput.value.trim();
+  if (current && value && value !== current.name) renameBoard(current.id, value);
+  else updateTitle();
+});
 
 // ---------- Panes ----------
 
@@ -308,15 +473,24 @@ window.addEventListener('drop', async (e) => {
   dragDepth = 0;
   document.body.classList.remove('drag-over');
 
-  // A board file opens the board.
-  const boardFile = [...e.dataTransfer.files].find(isBoardFile);
-  if (boardFile) return openBoardFile(boardFile);
-
-  const pane = viewports.paneAt(e.clientX, e.clientY) || layout().visiblePanes()[0];
-  const at = pane.camera.toWorld(e.clientX - pane.rect.x, e.clientY - pane.rect.y);
   try {
+    // Board files are added to your boards, never replacing one.
+    const boardFiles = [...e.dataTransfer.files].filter(isBoardFile);
+    if (boardFiles.length) {
+      let lastId;
+      for (const f of boardFiles) lastId = await importBoardFile(f);
+      if (boardFiles.length === 1) openBoard(lastId);
+      else if (mode === 'home') home.refresh();
+      return;
+    }
+
     const list = await imagesFromDrop(e.dataTransfer);
     if (list.length === 0) return toast('Nothing to add. Drop image files, images from a web page, or a board file.');
+
+    // Images dropped on the home screen start a new board.
+    if (mode === 'home') await openBoardNow(await createBoard());
+    const pane = viewports.paneAt(e.clientX, e.clientY) || layout().visiblePanes()[0];
+    const at = pane.camera.toWorld(e.clientX - pane.rect.x, e.clientY - pane.rect.y);
     await addImages(list, at.x, at.y, pane);
   } catch (err) {
     toast(err.message);
@@ -326,15 +500,18 @@ window.addEventListener('drop', async (e) => {
 // ---------- Paste ----------
 
 window.addEventListener('paste', async (e) => {
-  // Paste under the mouse if it's over a pane, otherwise in the middle of the first pane.
-  const pane = hoverPane() || layout().visiblePanes()[0];
-  const local = mouse.x === null
-    ? { x: pane.rect.w / 2, y: pane.rect.h / 2 }
-    : { x: mouse.x - pane.rect.x, y: mouse.y - pane.rect.y };
-  const at = pane.camera.toWorld(local.x, local.y);
+  if (e.target.closest?.('input, textarea')) return;
   try {
     const list = await imagesFromPaste(e.clipboardData);
     if (list.length === 0) return toast('There is no image on the clipboard.');
+    // Pasting on the home screen starts a new board.
+    if (mode === 'home') await openBoardNow(await createBoard());
+    // Paste under the mouse if it's over a pane, otherwise in the middle of the first pane.
+    const pane = hoverPane() || layout().visiblePanes()[0];
+    const local = mouse.x === null || !hoverPane()
+      ? { x: pane.rect.w / 2, y: pane.rect.h / 2 }
+      : { x: mouse.x - pane.rect.x, y: mouse.y - pane.rect.y };
+    const at = pane.camera.toWorld(local.x, local.y);
     await addImages(list, at.x, at.y, pane);
   } catch (err) {
     toast(err.message);
@@ -360,6 +537,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   const pane = viewports.paneFromElement(e.target);
   if (!pane) return;
   mouse.x = e.clientX; mouse.y = e.clientY;
+  if (document.activeElement === nameInput) nameInput.blur();
   if (e.button === 2) return;  // right button: handled by the menu
   panesEl.setPointerCapture(e.pointerId);
 
@@ -437,10 +615,11 @@ function openMenu(x, y, pane) {
   const l = layout();
   const several = l.panes().length > 1;
   const items = [
+    { label: 'All boards', action: goHome },
     { label: 'New board', action: newBoard },
-    { label: 'Open…', shortcut: `${MOD}O`, action: openBoard },
-    { label: 'Save', shortcut: `${MOD}S`, action: () => saveBoard() },
-    { label: 'Save as…', shortcut: `${MOD}Shift+S`, action: () => saveBoard({ saveAs: true }) },
+    { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
+    { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
+    { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
   ];
   if (pane) {
     items.push('-',
@@ -469,21 +648,17 @@ panesEl.addEventListener('contextmenu', (e) => {
   openMenu(e.clientX, e.clientY, pane);
 });
 
-titleEl.addEventListener('click', () => {
-  const r = titleEl.getBoundingClientRect();
-  openMenu(r.left, r.bottom + 4, null);
-});
-
 // ---------- Keyboard ----------
 
 window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea')) return;
   const mod = isMac ? e.metaKey : e.ctrlKey;
-  const pane = hoverPane() || layout().visiblePanes()[0];
 
-  // Files
-  if (mod && e.code === 'KeyS') { e.preventDefault(); hideMenu(); saveBoard({ saveAs: e.shiftKey }); return; }
-  if (mod && e.code === 'KeyO') { e.preventDefault(); hideMenu(); openBoard(); return; }
+  if (mod && e.code === 'KeyO') { e.preventDefault(); hideMenu(); openFile(); return; }
+  if (mode !== 'board') return;
+
+  const pane = hoverPane() || layout().visiblePanes()[0];
+  if (mod && e.code === 'KeyS') { e.preventDefault(); hideMenu(); saveToFile({ saveAs: e.shiftKey }); return; }
 
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
   if (e.altKey && !mod) {
@@ -524,19 +699,10 @@ window.addEventListener('keyup', (e) => {
 // If the window loses focus while Space is held, don't get stuck in pan mode.
 window.addEventListener('blur', () => { spaceHeld = false; panesEl.classList.remove('can-pan'); });
 
-// ---------- Start up: bring back the last board ----------
+// ---------- Start up ----------
 
-try {
-  const saved = await autosave.loadState();
-  if (saved?.board) {
-    await loadBoard(saved.board, (item) => autosave.loadImage(String(item.id)));
-    Object.assign(doc, { name: saved.name || 'Untitled board', handle: saved.handle || null, unsaved: !!saved.unsaved });
-  }
-} catch (err) {
-  console.warn("Couldn't restore the last board", err);
-}
 updateTitle();
-requestRender();
+await route();
 
 // Handy for testing from the browser console.
-window.__refboard = { board, viewports, layout, addImages, saveStateNow, doc };
+window.__refboard = { board, viewports, layout, addImages, saveNow, get current() { return current; }, store, routing: () => routing };
