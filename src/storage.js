@@ -5,8 +5,9 @@
 //      it sits, and the pane layout. You can send it to anyone; they open it by
 //      dropping it on the website. Inside, it's an ordinary zip file, so the
 //      images can also be pulled out with any unzip tool.
-//   2. Autosave. Chrome keeps a copy of the current board on your computer, so
-//      closing the tab never loses work. It lives only in this browser.
+//   2. Your boards list. Chrome keeps every board you make on your computer, and
+//      saves changes as you work, so closing the tab never loses anything. These
+//      live only in this browser on this computer: save to a file to back up or share.
 
 import { zip, unzip, strToU8, strFromU8 } from '../vendor/fflate.mjs';
 
@@ -33,14 +34,15 @@ export function describeBoard(board, layout) {
 
 // ---------- Board files ----------
 
-// Pack the board into a single .refboard file (a zip).
-export async function packBoard(board, layout) {
-  const data = describeBoard(board, layout);
+// Pack a board into a single .refboard file (a zip).
+// `data` is a board description; `getBlob(item)` returns each image's file.
+export async function packBoard(data, getBlob) {
   const files = { 'board.json': [strToU8(JSON.stringify(data, null, 1)), { level: 6 }] };
-  await Promise.all(board.items.map(async (item, i) => {
-    if (!item.blob) return;
+  await Promise.all(data.items.map(async (item) => {
+    const blob = await getBlob(item);
+    if (!blob) return;
     // Images are already compressed, so we store them as they are (level 0 = no extra squeezing).
-    files[data.items[i].file] = [new Uint8Array(await item.blob.arrayBuffer()), { level: 0 }];
+    files[item.file] = [new Uint8Array(await blob.arrayBuffer()), { level: 0 }];
   }));
   const bytes = await new Promise((resolve, reject) => zip(files, (err, out) => (err ? reject(err) : resolve(out))));
   return new Blob([bytes], { type: 'application/zip' });
@@ -130,42 +132,99 @@ export function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-// ---------- Autosave (IndexedDB, Chrome's built-in storage) ----------
+// ---------- Your boards (IndexedDB, Chrome's built-in storage) ----------
 //
-// Images are stored one by one, once each, when they're added, and the small
-// board description is rewritten on every change. That keeps autosave fast even
-// for boards with many large images.
+// Four storage areas:
+//   boards  one record per board: name, dates, and the board description
+//   images  every image file, stored once, keyed "<board id>/<image id>"
+//   thumbs  a small preview picture of each board, for the home screen
+//   state   only used by the very first version; moved into "boards" on upgrade
+//
+// Images are written once when they're added, and the small board description is
+// rewritten on every change. That keeps saving fast even for boards with many big images.
+
+export function newBoardId() {
+  return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
 
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('reference-board', 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore('images');
-      req.result.createObjectStore('state');
+    const req = indexedDB.open('reference-board', 2);
+    req.onupgradeneeded = (e) => {
+      const d = req.result;
+      const tx = req.transaction;
+      for (const name of ['images', 'state', 'thumbs']) {
+        if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
+      }
+      if (!d.objectStoreNames.contains('boards')) d.createObjectStore('boards', { keyPath: 'id' });
+      if (e.oldVersion === 1) moveOldAutosave(tx);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('Close other tabs of this app and refresh.'));
   });
   return dbPromise;
 }
 
-async function run(storeName, mode, fn) {
+// The first version kept a single autosaved board. Turn it into the first board in the list.
+function moveOldAutosave(tx) {
+  const get = tx.objectStore('state').get('current');
+  get.onsuccess = () => {
+    const old = get.result;
+    if (!old?.board) return;
+    const id = newBoardId();
+    const now = Date.now();
+    tx.objectStore('boards').put({ id, name: old.name || 'Untitled board', created: now, updated: now, handle: old.handle || null, board: old.board });
+    const images = tx.objectStore('images');
+    images.openCursor().onsuccess = (ev) => {
+      const cursor = ev.target.result;
+      if (!cursor) return;
+      if (!String(cursor.key).includes('/')) {
+        images.put(cursor.value, `${id}/${cursor.key}`);
+        cursor.delete();
+      }
+      cursor.continue();
+    };
+    tx.objectStore('state').delete('current');
+  };
+}
+
+// Run some work on one or more storage areas and wait until it's safely written.
+async function run(stores, mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const tx = d.transaction(storeName, mode);
-    const result = fn(tx.objectStore(storeName));
-    tx.oncomplete = () => resolve(result?.result);
+    const tx = d.transaction(stores, mode);
+    const req = fn(tx);
+    tx.oncomplete = () => resolve(req?.result);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
 }
 
-export const autosave = {
-  saveImage: (id, blob) => run('images', 'readwrite', (s) => s.put(blob, id)),
-  deleteImage: (id) => run('images', 'readwrite', (s) => s.delete(id)),
-  saveState: (state) => run('state', 'readwrite', (s) => s.put(state, 'current')),
-  loadState: () => run('state', 'readonly', (s) => s.get('current')),
-  loadImage: (id) => run('images', 'readonly', (s) => s.get(id)),
-  clearImages: () => run('images', 'readwrite', (s) => s.clear()),
+const imagesOf = (boardId) => IDBKeyRange.bound(`${boardId}/`, `${boardId}/\uffff`);
+
+export const store = {
+  listBoards: () => run('boards', 'readonly', (tx) => tx.objectStore('boards').getAll()),
+  getBoard: (id) => run('boards', 'readonly', (tx) => tx.objectStore('boards').get(id)),
+  putBoard: (record) => run('boards', 'readwrite', (tx) => tx.objectStore('boards').put(record)),
+  // Delete a board with all its images and its preview.
+  deleteBoard: (id) => run(['boards', 'images', 'thumbs'], 'readwrite', (tx) => {
+    tx.objectStore('boards').delete(id);
+    tx.objectStore('thumbs').delete(id);
+    tx.objectStore('images').delete(imagesOf(id));
+  }),
+
+  saveImage: (boardId, imageId, blob) => run('images', 'readwrite', (tx) => tx.objectStore('images').put(blob, `${boardId}/${imageId}`)),
+  deleteImage: (boardId, imageId) => run('images', 'readwrite', (tx) => tx.objectStore('images').delete(`${boardId}/${imageId}`)),
+  loadImage: (boardId, imageId) => run('images', 'readonly', (tx) => tx.objectStore('images').get(`${boardId}/${imageId}`)),
+
+  saveThumb: (boardId, blob) => run('thumbs', 'readwrite', (tx) => tx.objectStore('thumbs').put(blob, boardId)),
+  loadThumb: (boardId) => run('thumbs', 'readonly', (tx) => tx.objectStore('thumbs').get(boardId)),
 };
+
+// Ask Chrome to keep our storage even when the disk is getting full.
+// (Chrome decides by itself; it usually agrees for sites you use often.)
+export function askToKeepStorage() {
+  navigator.storage?.persist?.().catch(() => {});
+}
