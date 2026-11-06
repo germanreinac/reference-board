@@ -19,6 +19,7 @@ Open the GitHub Pages link for this repository in Chrome. There is nothing to in
 | Fit to pane | `F` fits the selected image, or everything when nothing is selected |
 | Actual size | `1` sets the zoom to 100% |
 | Delete | `Delete` or `Backspace` |
+| Lock / unlock | Right-click an image or note, or press `L` with it selected. **Lock everything** / **Unlock everything** are in the same menu. Locked things can't be selected, moved or erased |
 | Menu | Right-click anywhere, or click the board name in the top-left corner |
 
 ### What a pane shows
@@ -113,6 +114,7 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 | Action | How |
 | --- | --- |
 | Select and move | `V` |
+| Hand (move around without touching images) | `H`. Space + drag and the middle mouse button also always pan |
 | Pen | `B` (or `P`). Pressure-sensitive with a tablet pen |
 | Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
 | Note | `T`, then click where the note should go and type. Click away to finish |
@@ -207,3 +209,9 @@ There's no build step: the files are served as they are.
 
 To run it on your own computer, serve the folder with any local web server, for example
 `python3 -m http.server`, then open http://localhost:8000.
+
+## Updating the site
+
+Before publishing changes, run `python3 tools/stamp-version.py`. It gives every code file a
+new version number in `index.html`, so browsers load the new files together instead of
+mixing in old copies they've kept. The version shows at the bottom of the home screen.

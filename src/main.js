@@ -22,6 +22,8 @@ import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
 import { loadTheme, themeColours, toggleTheme, currentTheme } from './theme.js';
+import { VERSION } from './version.js';
+document.querySelector('.home-version').textContent = `Version ${VERSION}`;
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
@@ -902,8 +904,10 @@ panesEl.addEventListener('pointerdown', (e) => {
   const tool = toolbar.tool;
 
   // Middle button, or Space + left button, always pans.
-  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+  if (e.button === 1 || (e.button === 0 && (spaceHeld || tool === 'hand'))) {
+    // Middle button, Space + drag, or the Hand tool: only ever moves the view.
     e.preventDefault();
+    if (tool === 'hand') board.selected = null;
     drag = { kind: 'pan', pane };
   } else if (isPenEraser(e) || (e.button === 0 && tool === 'eraser')) {
     board.selected = null;
@@ -1036,6 +1040,23 @@ panesEl.addEventListener('wheel', (e) => {
 
 // ---------- Right-click menu ----------
 
+// The image or note that was right-clicked (it may be locked), for Lock / Unlock.
+let menuTarget = null;
+
+// Lock or unlock one thing, or everything ('all'). Can be undone.
+function setLocked(target, locked) {
+  const changed = board.setLocked(target, locked).map((x) => [x.kind, x.id]);
+  if (!changed.length) return;
+  const apply = (value) => {
+    for (const [kind, id] of changed) { const x = board.find(kind, id); if (x) board.setLocked(x, value); }
+    requestRender();
+  };
+  history.push({ undo: () => apply(!locked), redo: () => apply(locked) });
+  toast(locked ? `Locked ${changed.length === 1 ? 'it' : `${changed.length} things`}. Right-click to unlock.` : 'Unlocked', 2200);
+  contentChanged();
+  requestRender();
+}
+
 function openMenu(x, y, pane) {
   const l = layout();
   const several = l.panes().length > 1;
@@ -1056,6 +1077,13 @@ function openMenu(x, y, pane) {
       '-',
       { label: board.selected ? 'Fit selection' : 'Fit everything', shortcut: 'F', disabled: board.isEmpty(), action: () => { fitPane(pane, board.selected ? [board.selected] : null); requestRender(); } },
       { label: board.selected?.kind === 'note' ? 'Delete note' : 'Delete image', shortcut: 'Del', disabled: !board.selected, action: removeSelected },
+      ...(menuTarget ? [{
+        label: `${menuTarget.locked ? 'Unlock' : 'Lock'} ${menuTarget.kind === 'note' ? 'note' : 'image'}`,
+        shortcut: 'L',
+        action: () => setLocked(menuTarget, !menuTarget.locked),
+      }] : []),
+      { label: 'Lock everything', action: () => setLocked('all', true) },
+      { label: 'Unlock everything', action: () => setLocked('all', false) },
       '-',
       { label: 'Undo', shortcut: `${MOD}Z`, disabled: !history.done.length, action: undo },
       { label: 'Redo', shortcut: `${MOD}Shift+Z`, disabled: !history.undone.length, action: redo },
@@ -1074,8 +1102,12 @@ panesEl.addEventListener('contextmenu', (e) => {
     // Right-clicking an image selects it, so the menu acts on it.
     const p = localPoint(pane, e);
     const w = pane.camera.toWorld(p.x, p.y);
-    board.selected = board.hitTest(w.x, w.y);
+    const hit = board.hitTest(w.x, w.y, { includeLocked: true });
+    board.selected = hit && !hit.locked ? hit : null;
+    menuTarget = hit;
     requestRender();
+  } else {
+    menuTarget = null;
   }
   openMenu(e.clientX, e.clientY, pane);
 });
@@ -1115,6 +1147,8 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     removeSelected();
+  } else if (e.code === 'KeyL' && board.selected) {
+    setLocked(board.selected, true);
   } else if (TOOL_KEYS[e.code]) {
     toolbar.setTool(TOOL_KEYS[e.code]);
   } else if (e.key === '[' || e.key === ']') {

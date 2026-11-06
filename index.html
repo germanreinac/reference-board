@@ -4,7 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reference Board</title>
-  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+{
+  "imports": {
+    "./src/ai-pose.js": "./src/ai-pose.js?v=2026.11.06-2346",
+    "./src/board.js": "./src/board.js?v=2026.11.06-2346",
+    "./src/camera.js": "./src/camera.js?v=2026.11.06-2346",
+    "./src/editors.js": "./src/editors.js?v=2026.11.06-2346",
+    "./src/history.js": "./src/history.js?v=2026.11.06-2346",
+    "./src/home.js": "./src/home.js?v=2026.11.06-2346",
+    "./src/importer.js": "./src/importer.js?v=2026.11.06-2346",
+    "./src/layout.js": "./src/layout.js?v=2026.11.06-2346",
+    "./src/main.js": "./src/main.js?v=2026.11.06-2346",
+    "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=2026.11.06-2346",
+    "./src/mannequin.js": "./src/mannequin.js?v=2026.11.06-2346",
+    "./src/menu.js": "./src/menu.js?v=2026.11.06-2346",
+    "./src/note-editor.js": "./src/note-editor.js?v=2026.11.06-2346",
+    "./src/pose-words.js": "./src/pose-words.js?v=2026.11.06-2346",
+    "./src/search-engine.js": "./src/search-engine.js?v=2026.11.06-2346",
+    "./src/search-pane.js": "./src/search-pane.js?v=2026.11.06-2346",
+    "./src/sources.js": "./src/sources.js?v=2026.11.06-2346",
+    "./src/storage.js": "./src/storage.js?v=2026.11.06-2346",
+    "./src/theme.js": "./src/theme.js?v=2026.11.06-2346",
+    "./src/tools.js": "./src/tools.js?v=2026.11.06-2346",
+    "./src/version.js": "./src/version.js?v=2026.11.06-2346",
+    "./src/viewports.js": "./src/viewports.js?v=2026.11.06-2346",
+    "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=2026.11.06-2346",
+    "./vendor/fflate.mjs": "./vendor/fflate.mjs?v=2026.11.06-2346",
+    "./vendor/perfect-freehand.mjs": "./vendor/perfect-freehand.mjs?v=2026.11.06-2346",
+    "./vendor/pixi.min.mjs": "./vendor/pixi.min.mjs?v=2026.11.06-2346",
+    "./vendor/three/OrbitControls.js": "./vendor/three/OrbitControls.js?v=2026.11.06-2346",
+    "./vendor/three/TransformControls.js": "./vendor/three/TransformControls.js?v=2026.11.06-2346",
+    "./vendor/three/three.module.min.js": "./vendor/three/three.module.min.js?v=2026.11.06-2346"
+  }
+}
+  </script>
+  <link rel="stylesheet" href="style.css?v=2026.11.06-2346">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -35,6 +70,7 @@
         To back one up or send it to someone, use <em>Save to file</em>.
         You can also drop images or <code>.refboard</code> files anywhere on this page.
       </p>
+      <p class="home-version" title="If this doesn't change after an update, press Ctrl+Shift+R (⌘+Shift+R on a Mac)"></p>
     </main>
   </div>
 
@@ -79,6 +115,6 @@
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js"></script>
+  <script type="module" src="src/main.js?v=2026.11.06-2346"></script>
 </body>
 </html>

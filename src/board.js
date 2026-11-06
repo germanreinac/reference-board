@@ -49,7 +49,7 @@ export class Board {
   // Put a decoded image on the board, centred on (x, y).
   // `blob` is the original image file; we keep it so the board can be saved.
   // `index` puts it at a given place in the stack (used by undo).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false } = {}) {
     // Mipmaps are smaller pre-shrunk copies of the image. They keep big photos
     // looking smooth (not sparkly or jagged) when you zoom far out.
     const source = new ImageSource({ resource: bitmap, autoGenerateMipmaps: true });
@@ -69,6 +69,7 @@ export class Board {
       name,
       sourceUrl,             // where the image came from, when we know it
       blob,
+      locked: !!locked,      // locked things can't be selected, moved or erased
     };
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
     this.items.splice(at, 0, item);
@@ -81,6 +82,7 @@ export class Board {
     return {
       id: item.id, name: item.name, sourceUrl: item.sourceUrl,
       x: s.x, y: s.y, scaleX: s.scale.x, scaleY: s.scale.y, rotation: s.rotation, alpha: s.alpha,
+      ...(item.locked ? { locked: true } : {}),
     };
   }
 
@@ -88,8 +90,8 @@ export class Board {
 
   // A stroke is saved as the points you drew: [x, y, pressure, x, y, pressure, ...]
   // in board units, plus its colour and size. The outline is worked out from them.
-  addStroke({ id, points, color = '#f5f5f5', size = 8, simulatePressure = false }) {
-    const stroke = { kind: 'stroke', id: takeId(id), points, color, size, simulatePressure, graphics: new Graphics() };
+  addStroke({ id, points, color = '#f5f5f5', size = 8, simulatePressure = false, locked = false }) {
+    const stroke = { kind: 'stroke', id: takeId(id), points, color, size, simulatePressure, locked: !!locked, graphics: new Graphics() };
     this.redrawStroke(stroke);
     this.strokes.push(stroke);
     this.strokeLayer.addChild(stroke.graphics);
@@ -124,6 +126,7 @@ export class Board {
   // Strokes touched by a circle at (x, y): what the eraser removes.
   strokesAt(x, y, radius) {
     return this.strokes.filter((s) => {
+      if (s.locked) return false;
       const b = s.box;
       const reach = radius + s.size / 2;
       if (!b || x < b.x - radius || x > b.x + b.width + radius || y < b.y - radius || y > b.y + b.height + radius) return false;
@@ -137,19 +140,19 @@ export class Board {
   }
 
   strokeJSON(s) {
-    return { id: s.id, color: s.color, size: s.size, simulatePressure: s.simulatePressure, points: s.points.map((v) => Math.round(v * 100) / 100) };
+    return { id: s.id, color: s.color, size: s.size, simulatePressure: s.simulatePressure, ...(s.locked ? { locked: true } : {}), points: s.points.map((v) => Math.round(v * 100) / 100) };
   }
 
   // ---------- Notes ----------
 
   // A note is a coloured label with text, centred on (x, y).
-  addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index }) {
+  addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index, locked = false }) {
     const container = new Container();
     const bg = new Graphics();
     const label = new Text({ text: '', style: { fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontSize, lineHeight: fontSize * 1.3, wordWrap: true, breakWords: true } });
     container.addChild(bg, label);
     container.position.set(x, y);
-    const note = { kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, fontSize, width: 0, height: 0 };
+    const note = { kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, fontSize, width: 0, height: 0, locked: !!locked };
     this.setNoteText(note, text);
     const at = index === undefined ? this.notes.length : Math.max(0, Math.min(index, this.notes.length));
     this.notes.splice(at, 0, note);
@@ -174,7 +177,7 @@ export class Board {
   }
 
   noteJSON(n) {
-    return { id: n.id, x: n.sprite.x, y: n.sprite.y, text: n.text, color: n.color, fontSize: n.fontSize };
+    return { id: n.id, x: n.sprite.x, y: n.sprite.y, text: n.text, color: n.color, fontSize: n.fontSize, ...(n.locked ? { locked: true } : {}) };
   }
 
   // Text is drawn as a picture, so it gets blurry when you zoom in. This redraws
@@ -206,6 +209,15 @@ export class Board {
     return list.find((x) => x.id === id) || null;
   }
 
+  // Lock or unlock one thing, or everything on the board. Returns what changed.
+  setLocked(target, locked) {
+    const all = target === 'all' ? [...this.items, ...this.notes, ...this.strokes] : [target];
+    const changed = all.filter((x) => !!x.locked !== locked);
+    for (const x of changed) x.locked = locked;
+    if (locked && changed.includes(this.selected)) this.selected = null;
+    return changed;
+  }
+
   // Remove everything (used when leaving a board).
   clear() {
     for (const item of [...this.items]) this.remove(item);
@@ -227,11 +239,13 @@ export class Board {
 
   // Which note or image is at this board position? Notes are on top, so they're checked first.
   // Written to also work once images can be rotated, scaled and flipped.
-  hitTest(wx, wy) {
+  // Locked things are skipped unless includeLocked is set (the right-click menu uses it to unlock).
+  hitTest(wx, wy, { includeLocked = false } = {}) {
     const lists = [this.notes, this.items];
     for (const list of lists) {
       for (let i = list.length - 1; i >= 0; i--) {
         const item = list[i];
+        if (item.locked && !includeLocked) continue;
         const s = item.sprite;
         // Undo the item's position, rotation and scale to get a point inside it.
         const dx = wx - s.x;
