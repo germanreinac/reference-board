@@ -304,3 +304,63 @@ export function standOnFloor(figure) {
   figure.root.position.y = -box.min.y;
   figure.root.updateMatrixWorld(true);
 }
+
+// ---------- Dragging a hand or foot ----------
+//
+// Move a wrist or ankle to a point in the scene by bending the shoulder and elbow
+// (or the hip and knee), the way a puppet's arm follows its hand. This is "two-joint
+// reaching": from the two bone lengths and the distance to the target, the angle at
+// the elbow follows directly; the elbow (or knee) keeps pointing the way it already
+// pointed, so the limb doesn't flip around while you drag.
+
+const LIMBS = {
+  wristL: ['shoulderL', 'elbowL', 'arm'], wristR: ['shoulderR', 'elbowR', 'arm'],
+  ankleL: ['hipL', 'kneeL', 'leg'], ankleR: ['hipR', 'kneeR', 'leg'],
+};
+export const DRAGGABLE_ENDS = Object.keys(LIMBS);
+
+const _v = new THREE.Vector3();
+export function reachFor(figure, end, targetWorld) {
+  const [upperName, midName, kind] = LIMBS[end];
+  const upper = figure.joints[upperName];
+  const mid = figure.joints[midName];
+  const tip = figure.joints[end];
+  const parent = upper.parent;
+  parent.updateMatrixWorld(true);
+
+  // Everything below is worked out in the parent's own space (the chest for arms,
+  // the hips for legs), where the shoulder or hip sits at a fixed spot.
+  const S = upper.position.clone();
+  const T = parent.worldToLocal(targetWorld.clone());
+  const a = mid.position.length();   // upper arm / thigh
+  const b = tip.position.length();   // forearm / shin
+  const D = T.clone().sub(S);
+  const d = THREE.MathUtils.clamp(D.length(), Math.abs(a - b) + 1e-3, a + b - 1e-4);
+  D.normalize();
+
+  // Which way the elbow or knee points: where it is now, else a natural default.
+  const P = parent.worldToLocal(mid.getWorldPosition(_v)).sub(S);
+  P.sub(D.clone().multiplyScalar(P.dot(D)));
+  if (P.lengthSq() < 1e-8) {
+    P.set(kind === 'arm' ? (end.endsWith('L') ? 0.3 : -0.3) : 0, kind === 'arm' ? -0.4 : 0, kind === 'arm' ? -1 : 1);
+    P.sub(D.clone().multiplyScalar(P.dot(D)));
+  }
+  P.normalize();
+
+  // The elbow position, from the triangle's sides (law of cosines).
+  const alpha = Math.acos(THREE.MathUtils.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1));
+  const E = S.clone().addScaledVector(D, a * Math.cos(alpha)).addScaledVector(P, a * Math.sin(alpha));
+  const U = E.clone().sub(S).normalize();                                  // along the upper bone
+  const F = S.clone().addScaledVector(D, d).sub(E).normalize();            // along the lower bone
+  const bend = Math.acos(THREE.MathUtils.clamp(U.dot(F), -1, 1));
+  const n = P.clone().cross(D).normalize();                                // the hinge's axis
+
+  // Point the upper bone along U with its hinge axis along n. At rest a limb hangs
+  // straight down (-Y); arms hinge around -X, legs around +X.
+  const X = kind === 'arm' ? n.clone().negate() : n.clone();
+  const Y = U.clone().negate();
+  const Z = X.clone().cross(Y);
+  upper.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+  mid.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), kind === 'arm' ? -bend : bend);
+  figure.root.updateMatrixWorld(true);
+}

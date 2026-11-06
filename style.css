@@ -369,6 +369,9 @@ button { font: inherit; color: inherit; }
 .mq-top { top: 8px; right: 150px; }   /* room for the pane buttons */
 .mq-bottom { bottom: 8px; font-size: 12px; }
 .mq-flex { flex: 1; pointer-events: none; }
+.mq-sep { width: 1px; height: 18px; background: var(--panel-border); pointer-events: none; }
+.mq-bar .text-button[hidden] { display: none; }
+.mq-bar .text-button:disabled { opacity: 0.45; cursor: default; }
 .mq-bar select, .mq-bar .text-button {
   padding: 4px 8px;
   border: 1px solid var(--panel-border);

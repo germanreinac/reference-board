@@ -68,18 +68,22 @@ Choose **3D mannequin** from a pane's type button.
 
 | Action | How |
 | --- | --- |
-| Orbit around the figure | Drag |
+| Move a hand or foot | Drag it. The arm or leg bends to follow, like a puppet |
+| Move a figure across the floor | Drag its hips |
+| Fine-tune a joint | Click a body part, then drag the coloured rings. `Esc` deselects |
+| Orbit around the scene | Drag empty space |
 | Move the view | Right-drag |
 | Zoom | Scroll |
-| Pose a joint | Click a body part, then drag the coloured rings. `Esc` deselects |
+| More figures | **+ Figure** adds one (up to 6), **Remove** removes the selected one, and the height menu makes it a child, teen, short, average or tall figure |
 | Ready-made poses | The **Poses…** menu: standing, contrapposto, walking, running, sitting, crouching, kneeling, reaching, fighting stance and more |
 | Mirror / Reset | Swap left and right / back to standing |
 | Light | Move the main light around (**Light**) and up or down (**Height**) to study shadows |
 | Lens | 24, 35, 50 or 85 mm, like a camera. Wider lenses exaggerate perspective |
 | Add to board | Puts a picture of the current view on the board |
 
-The figure always stays standing on the floor. Its pose, the camera, the light and
-the lens are saved with the board.
+Poses, typed poses, Mirror and Reset act on the figure you last clicked; with several
+figures, a blue ring on the floor shows which one. Every figure stays standing on the
+floor. All figures, the camera, the light and the lens are saved with the board.
 
 #### Typing a pose
 
