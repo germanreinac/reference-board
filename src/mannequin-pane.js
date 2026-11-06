@@ -18,6 +18,7 @@ import {
   rotationsToPose, targetRotations, PRESETS, JOINT_NAMES,
 } from './mannequin.js';
 import { poseFromDescription } from './ai-pose.js';
+import { poseFromWords, EXAMPLE_WORDS } from './pose-words.js';
 import { loadKeys, saveKeys } from './sources.js';
 
 const KEY_ICON = '<svg viewBox="0 0 16 16"><circle cx="5" cy="10.5" r="2.8"/><path d="M7 8.5l6-6M11 4.5l1.8 1.8M9.5 6l1.5 1.5"/></svg>';
@@ -57,13 +58,15 @@ export class MannequinPane {
         <button class="text-button primary mq-add" title="Put a picture of this view on the board">Add to board</button>
       </div>
       <form class="mq-ai" autocomplete="off">
-        <input class="mq-ai-input" placeholder="Describe a pose… e.g. sitting on the floor hugging knees, looking left" spellcheck="false">
-        <button class="text-button mq-ai-go" type="submit" title="Ask Claude to pose the mannequin">Pose it</button>
-        <button class="text-button mq-ai-key" type="button" title="Your Anthropic API key">${KEY_ICON}</button>
+        <input class="mq-ai-input" placeholder="Type a pose… e.g. kneeling on one knee, looking left, arms crossed" spellcheck="false">
+        <button class="text-button primary mq-ai-go" type="submit" title="Pose the mannequin (free, works offline)">Pose it</button>
+        <button class="text-button mq-ai-claude" type="button" title="Ask Claude instead: better with unusual descriptions (needs your Anthropic key, a few cents each)">Ask Claude</button>
+        <button class="text-button mq-ai-key" type="button" title="Your Anthropic API key, for Ask Claude">${KEY_ICON}</button>
       </form>
       <div class="mq-ai-status" hidden></div>
       <div class="mq-ai-settings" hidden>
-        <p>Typed poses use Claude with your own Anthropic API key. It stays in this browser and is only sent to Anthropic. Each pose costs a few cents on your Anthropic account.</p>
+        <p><strong>Pose it</strong> is free and works offline: it recognises activities (sitting, kneeling, running, lunge, sword swing…) and body-part words (arms crossed, looking left, leaning forward, weight on the right leg…). Left and right mean the figure's own; "facing left" means toward the left of the screen.</p>
+        <p><strong>Ask Claude</strong> understands any description, using your own Anthropic API key. The key stays in this browser and is only sent to Anthropic. Each pose costs a few cents on your Anthropic account.</p>
         <label class="key-row"><span>Anthropic API key · <a href="https://platform.claude.com/" target="_blank" rel="noopener">get one</a></span>
           <input class="mq-ai-key-input" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
         <button class="text-button mq-ai-done" type="button">Done</button>
@@ -357,10 +360,28 @@ export class MannequinPane {
     // Typing in these boxes must not trigger board shortcuts.
     for (const el of [input, keyInput]) el.addEventListener('keydown', (e) => e.stopPropagation());
 
-    form.addEventListener('submit', async (e) => {
+    // Pose it: the free word engine, right here in the browser.
+    form.addEventListener('submit', (e) => {
       e.preventDefault();
       const description = input.value.trim();
-      if (!description || this.asking) return;
+      if (!description) return;
+      const result = poseFromWords(description, rotationsToPose(this.figure));
+      if (!result) {
+        const some = [...EXAMPLE_WORDS].sort(() => Math.random() - 0.5).slice(0, 6).join(', ');
+        showStatus(`Didn't recognise a pose there. Try words like: ${some}.${loadKeys().anthropic ? ' Or press Ask Claude.' : ''}`, 'error');
+        return;
+      }
+      this.setPose(result.pose);
+      showStatus(`Understood: ${result.understood.join(' · ')}. Click a body part to adjust it.`);
+      clearTimeout(this.statusTimer);
+      this.statusTimer = setTimeout(() => { if (status.dataset.kind === '') showStatus(''); }, 7000);
+    });
+
+    // Ask Claude: any description, with the person's own Anthropic key.
+    $('.mq-ai-claude').addEventListener('click', async () => {
+      const description = input.value.trim();
+      if (!description) return input.focus();
+      if (this.asking) return;
       const key = loadKeys().anthropic;
       if (!key) {
         showStatus('Add your Anthropic API key first (the key button).', 'error');
@@ -369,6 +390,7 @@ export class MannequinPane {
       }
       this.asking = true;
       go.disabled = true;
+      $('.mq-ai-claude').disabled = true;
       showStatus('Claude is posing the mannequin…', 'busy');
       try {
         const { pose, summary } = await poseFromDescription(description, rotationsToPose(this.figure), key);
@@ -381,6 +403,7 @@ export class MannequinPane {
       } finally {
         this.asking = false;
         go.disabled = false;
+        $('.mq-ai-claude').disabled = false;
       }
     });
   }

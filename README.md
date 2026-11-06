@@ -71,15 +71,21 @@ the lens are saved with the board.
 
 #### Typing a pose
 
-Type a description in the box under the top bar, for example *"sitting on the floor
-hugging her knees, looking left"*, and press **Pose it**. Claude works out the joint
-angles and the mannequin moves into the pose. You can then click any body part to
-fine-tune it. Small changes work too: *"now look over the right shoulder"* or
-*"raise the left arm higher"* start from the current pose.
+Type a description in the box under the top bar and press **Pose it**, for example
+*"kneeling on the left knee, arms crossed, looking up"*. It's free, instant and works
+offline. The mannequin moves into the pose, and you can then click any body part to
+fine-tune it.
 
-- It needs your own Anthropic API key. Click the key button next to **Pose it** and paste it in. The key is kept only in this browser and is only sent to Anthropic.
-- Each pose is one request to Claude Opus 5.5 and costs a few cents on your Anthropic account.
-- If Anthropic's safety checks decline a request, it is automatically retried on another Claude model (Anthropic's "fallbacks" feature).
+- It recognises about 40 activities (sitting, cross-legged, hugging knees, kneeling, on one knee, crouching, lying on the back / front / side, walking, running, jumping, lunge, kicking, punching, sword swing, drawing a bow, throwing, dancing, sneaking, superhero landing, tree pose, pushing, pulling, carrying…) and many body-part words (arms crossed, hands on hips, hands behind the head, left arm up, waving, pointing, looking left / up / down / over the right shoulder, leaning forward, slouching, weight on the right leg, wide stance, on tiptoe…).
+- *Slightly* / *a bit* and *very* / *a lot* change how strong a change is.
+- Without an activity word, changes apply to the current pose, so *"now look up"* works.
+- Left and right mean the figure's own. *Facing left* means turned toward the left of the screen. *Facing away*, *profile* and *three-quarter view* turn the figure.
+
+**Ask Claude** is optional, for descriptions the free engine doesn't understand. It uses
+your own Anthropic API key (key button), which stays in this browser and is only sent to
+Anthropic. Each pose is one request to Claude Opus 5.5 and costs a few cents on your
+Anthropic account. If Anthropic's safety checks decline a request, it is automatically
+retried on another Claude model.
 
 ### Drawing and notes
 
@@ -162,7 +168,8 @@ There's no build step: the files are served as they are.
 - `src/sources.js`: the image sources (Openverse, Unsplash, Pexels)
 - `src/mannequin.js`: the 3D figure, its joints and the ready-made poses
 - `src/mannequin-pane.js`: the mannequin pane (3D view, posing, light, lens)
-- `src/ai-pose.js`: typing a pose (asks Claude for joint angles)
+- `src/pose-words.js`: free typed poses (turns words into a pose, in the browser)
+- `src/ai-pose.js`: optional typed poses with Claude
 - `src/tools.js`: the drawing toolbar and brush outline
 - `src/note-editor.js`: typing into notes
 - `src/history.js`: undo and redo

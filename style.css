@@ -353,6 +353,7 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .mq-ai .text-button:disabled { opacity: 0.5; cursor: default; }
+.mannequin-pane.compact .mq-ai-claude { display: none; }
 .mq-ai-key svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; vertical-align: -2px; }
 .mq-ai-status {
   position: absolute;
