@@ -21,6 +21,24 @@ Open the GitHub Pages link for this repository in Chrome. There is nothing to in
 | Delete | `Delete` or `Backspace` |
 | Menu | Right-click anywhere, or click the board name in the top-left corner |
 
+### Drawing and notes
+
+The toolbar at the bottom of a board has the drawing tools, colours, size, and undo/redo.
+
+| Action | How |
+| --- | --- |
+| Select and move | `V` |
+| Pen | `B` (or `P`). Pressure-sensitive with a tablet pen |
+| Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
+| Note | `T`, then click where the note should go and type. Click away to finish |
+| Edit a note | Double-click it |
+| Brush size | `[` and `]`, or the slider |
+| Undo / redo | Ctrl/⌘ + `Z` / Ctrl/⌘ + Shift + `Z` |
+
+Strokes and notes are part of the board, so every pane shows them. Strokes are
+saved as shapes rather than pixels, so they stay sharp at any zoom. Notes take
+the selected colour.
+
 ### Split view
 
 Hover over a pane to see its buttons in the top-right corner.
@@ -55,11 +73,15 @@ doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 
 ## Roadmap
 
-1. ✅ Canvas with drag-and-drop images, pan and zoom
-2. ✅ Split viewports sharing the same canvas
-3. ✅ Saving and loading (board files + autosave)
-4. Drawing and notes
-5. Image search (Unsplash, Pexels, Openverse)
+- ✅ Canvas with drag-and-drop images, pan and zoom
+- ✅ Split viewports sharing the same canvas
+- ✅ Board files and saving as you work
+- ✅ Home screen with multiple boards
+- ✅ Drawing and notes
+- Pane types: each pane can show the board, image search or a 3D mannequin
+- Image search (Openverse, Unsplash, Pexels)
+- 3D posing mannequin with preset poses
+- Typing a pose with AI
 
 ## How the code is organised
 
@@ -74,8 +96,12 @@ There's no build step: the files are served as they are.
 - `src/viewports.js`: draws the board into every pane; pane buttons and dividers
 - `src/storage.js`: board files (.refboard) and your boards in Chrome's storage
 - `src/menu.js`: the right-click menu
+- `src/tools.js`: the drawing toolbar and brush outline
+- `src/note-editor.js`: typing into notes
+- `src/history.js`: undo and redo
 - `src/importer.js`: getting images in from files, other tabs and the clipboard
 - `vendor/pixi.min.mjs`: [PixiJS](https://pixijs.com) 8.22, the fast WebGL renderer
+- `vendor/perfect-freehand.mjs`: [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.2, for natural-looking pen strokes
 - `vendor/fflate.mjs`: [fflate](https://github.com/101arrowz/fflate) 0.8.2, for zipping board files
 
 To run it on your own computer, serve the folder with any local web server, for example

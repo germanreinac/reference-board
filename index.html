@@ -50,11 +50,18 @@
     <input id="board-name" spellcheck="false" autocomplete="off" title="Click to rename">
   </div>
 
+  <!-- Bottom: drawing tools, colours, size, undo/redo (filled in by src/tools.js) -->
+  <div id="toolbar"></div>
+
+  <!-- The round outline that shows the pen or eraser size -->
+  <div id="brush-cursor"></div>
+
   <!-- Shown only while the board is empty -->
   <div id="empty-hint">
     <p><strong>Drop images here</strong> or paste with <kbd class="mod-key">Ctrl</kbd> + <kbd>V</kbd></p>
     <p class="small">Scroll to zoom · drag empty space to pan · right-click for the menu</p>
     <p class="small">Split the view with the buttons in the corner of a pane, or <kbd>Alt</kbd> + <kbd>V</kbd> / <kbd>H</kbd></p>
+    <p class="small">Draw with <kbd>B</kbd>, erase with <kbd>E</kbd>, add notes with <kbd>T</kbd>, back to moving with <kbd>V</kbd></p>
   </div>
 
   <!-- Short messages, e.g. when an image can't be loaded -->

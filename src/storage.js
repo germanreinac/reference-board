@@ -22,14 +22,16 @@ const EXT_FOR_TYPE = {
 const TYPE_FOR_EXT = Object.fromEntries(Object.entries(EXT_FOR_TYPE).map(([t, e]) => [e, t]));
 TYPE_FOR_EXT.jpeg = 'image/jpeg';
 
-// A plain description of the board: images (without their pixels) and layout.
+// A plain description of the board: images (without their pixels), pen strokes,
+// notes and the pane layout.
 export function describeBoard(board, layout) {
-  const items = board.toJSON().map((d, i) => {
+  const { items, strokes, notes } = board.toJSON();
+  const withFiles = items.map((d, i) => {
     const blob = board.items[i].blob;
     const ext = EXT_FOR_TYPE[blob?.type] || 'png';
     return { ...d, file: `images/${d.id}.${ext}` };
   });
-  return { format: FORMAT, version: VERSION, items, layout: layout.toJSON() };
+  return { format: FORMAT, version: VERSION, items: withFiles, strokes, notes, layout: layout.toJSON() };
 }
 
 // ---------- Board files ----------

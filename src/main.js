@@ -13,6 +13,9 @@ import { Viewports } from './viewports.js';
 import { Home } from './home.js';
 import { imagesFromDrop, imagesFromPaste } from './importer.js';
 import { showMenu, hideMenu } from './menu.js';
+import { History } from './history.js';
+import { Toolbar, BrushCursor, TOOL_KEYS } from './tools.js';
+import { NoteEditor } from './note-editor.js';
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
@@ -72,8 +75,12 @@ function requestRender() {
   requestAnimationFrame(() => {
     renderQueued = false;
     if (mode !== 'board') return;
+    // Keep note text sharp for the most zoomed-in pane.
+    const maxZoom = Math.max(...layout().visiblePanes().map((p) => p.camera.zoom));
+    board.updateTextSharpness(maxZoom, app.renderer.resolution);
     viewports.render();
-    emptyHint.classList.toggle('hidden', board.items.length > 0);
+    noteEditor.position();
+    emptyHint.classList.toggle('hidden', !board.isEmpty() || noteEditor.editing);
   });
 }
 window.addEventListener('resize', () => { if (mode === 'board') { viewports.position(); requestRender(); } });
@@ -163,7 +170,7 @@ async function decode(blob, name) {
 async function addImages(list, wx, wy, pane) {
   if (!current) return;
   const boardId = current.id;
-  const wasEmpty = board.items.length === 0;
+  const wasEmpty = board.isEmpty();
   const GAP = 20;
   // createImageBitmap does the heavy decoding off the main thread,
   // so the app stays responsive while big files load.
@@ -184,19 +191,58 @@ async function addImages(list, wx, wy, pane) {
   }
   board.selected = added[added.length - 1];
   // On an empty board, zoom so the first images fit nicely.
-  if (wasEmpty) fitPane(pane, board.items);
+  if (wasEmpty) fitPane(pane, null);
+  const saved = added.map((item) => ({ ...board.imageJSON(item), blob: item.blob }));
+  history.push({
+    undo: () => saved.forEach((d) => removeImageById(d.id)),
+    redo: () => Promise.all(saved.map((d) => restoreImage(d))),
+  });
   contentChanged();
   requestRender();
 }
 
-function removeImage(item) {
+// Put an image back (undo and redo use this).
+async function restoreImage(data) {
+  const bitmap = await decode(data.blob, data.name);
+  if (!bitmap || !current) return;
+  board.addImage(bitmap, data.x, data.y, data);
+  store.saveImage(current.id, data.id, data.blob).catch(() => {});
+  requestRender();
+}
+
+function removeImageById(id) {
+  const item = board.find('image', id);
+  if (!item) return;
   if (current) store.deleteImage(current.id, item.id).catch(() => {});
   board.remove(item);
+  requestRender();
+}
+
+// Delete the selected image or note.
+function removeSelected() {
+  const item = board.selected;
+  if (!item) return;
+  if (item.kind === 'note') {
+    const data = board.noteJSON(item);
+    data.index = board.remove(item);
+    history.push({ undo: () => { board.addNote(data); requestRender(); }, redo: () => removeNoteById(data.id) });
+  } else {
+    const data = { ...board.imageJSON(item), blob: item.blob, index: board.items.indexOf(item) };
+    removeImageById(item.id);
+    history.push({ undo: () => restoreImage(data), redo: () => removeImageById(data.id) });
+  }
   contentChanged();
   requestRender();
 }
 
-// Zoom a pane so these images fill it. With no pane given, every visible pane.
+function removeNoteById(id) {
+  const note = board.find('note', id);
+  if (note) board.remove(note);
+  requestRender();
+}
+
+// Zoom a pane so these images and notes fill it (null = everything on the board).
+// With no pane given, every visible pane.
 function fitPane(pane, items) {
   const bounds = board.bounds(items);
   if (!bounds) return;
@@ -219,6 +265,8 @@ async function loadBoard(data, getBlob) {
       if (!bitmaps[i]) { missing++; return; }
       board.addImage(bitmaps[i], item.x, item.y, { ...item, blob: blobs[i] });
     });
+    for (const s of data?.strokes || []) board.addStroke(s);
+    for (const n of data?.notes || []) board.addNote(n);
     board.selected = null;
     viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
@@ -236,16 +284,20 @@ async function openBoardById(id) {
   }
   const { board: data, ...meta } = record;
   current = meta;
+  history.clear();
+  updateHistoryButtons();
   await loadBoard(data, (item) => store.loadImage(id, item.id));
   // Boards opened from a file, or from the first version, may not have a preview yet.
-  thumbStale = board.items.length > 0 && !(await store.loadThumb(id).catch(() => null));
+  thumbStale = !board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
   updateTitle();
 }
 
 // Save the open board, then free its images from memory.
 async function leaveBoard() {
   if (!current) return;
+  noteEditor.finish();
   await saveNow({ thumb: true });
+  history.clear();
   current = null;
   board.clear();
   viewports.setLayout(new Layout());
@@ -518,11 +570,86 @@ window.addEventListener('paste', async (e) => {
   }
 });
 
+// ---------- Undo, tools and notes ----------
+
+const history = new History(() => updateHistoryButtons());
+function updateHistoryButtons() {
+  toolbar.setHistory(history.done.length > 0, history.undone.length > 0);
+}
+async function undo() {
+  noteEditor.finish();
+  await history.undo();
+  board.selected = null;
+  contentChanged();
+  requestRender();
+}
+async function redo() {
+  noteEditor.finish();
+  await history.redo();
+  board.selected = null;
+  contentChanged();
+  requestRender();
+}
+
+const toolbar = new Toolbar(document.getElementById('toolbar'), {
+  onChange: () => { updateCursor(); requestRender(); },
+  onUndo: undo,
+  onRedo: redo,
+});
+const brushCursor = new BrushCursor(document.getElementById('brush-cursor'));
+
+// When a note's editing ends: save the text, or remove the note if it's empty.
+const noteEditor = new NoteEditor((note, text, oldText) => {
+  if (!board.notes.includes(note)) return;
+  const isNew = note.isNew;
+  delete note.isNew;
+  // After placing a note, go back to moving things (like Figma and Miro do).
+  if (isNew && toolbar.tool === 'note') toolbar.setTool('select');
+  if (!text) {
+    board.remove(note);
+    if (!isNew) {
+      const data = { ...board.noteJSON(note), text: oldText };
+      history.push({ undo: () => { board.addNote(data); requestRender(); }, redo: () => removeNoteById(data.id) });
+      contentChanged();
+    }
+  } else if (isNew) {
+    board.setNoteText(note, text);
+    const data = board.noteJSON(note);
+    history.push({ undo: () => removeNoteById(data.id), redo: () => { board.addNote(data); requestRender(); } });
+    contentChanged();
+  } else if (text !== oldText) {
+    board.setNoteText(note, text);
+    const id = note.id;
+    const setText = (t) => { const n = board.find('note', id); if (n) board.setNoteText(n, t); requestRender(); };
+    history.push({ undo: () => setText(oldText), redo: () => setText(text) });
+    contentChanged();
+  }
+  requestRender();
+});
+
+function editNote(note, pane) {
+  board.selected = null;
+  noteEditor.start(note, pane);
+  requestRender();
+}
+
+// Add a new note where you clicked and start typing in it.
+function addNoteAt(pane, wx, wy) {
+  // Sized so the text is about 18 pixels tall at the zoom you're working at.
+  const note = board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: 18 / pane.camera.zoom });
+  note.isNew = true;
+  editNote(note, pane);
+}
+
 // ---------- Mouse and pen ----------
 
 const mouse = { x: null, y: null };
 let spaceHeld = false;
-// What the current drag is doing: { kind: 'pan', pane } or { kind: 'move', pane, item, offsetX, offsetY }
+// What the current drag is doing:
+//   { kind: 'pan', pane }
+//   { kind: 'move', pane, item, offsetX, offsetY, from }
+//   { kind: 'draw', pane, stroke }
+//   { kind: 'erase', pane, removed }
 let drag = null;
 
 function hoverPane() {
@@ -531,6 +658,34 @@ function hoverPane() {
 
 function localPoint(pane, e) {
   return { x: e.clientX - pane.rect.x, y: e.clientY - pane.rect.y };
+}
+
+// The tablet pen's eraser end reports itself as button 5.
+const isPenEraser = (e) => e.pointerType === 'pen' && (e.button === 5 || (e.buttons & 32) !== 0);
+
+function updateCursor() {
+  panesEl.dataset.tool = toolbar.tool;
+  const t = toolbar.tool;
+  if (mouse.x !== null && hoverPane() && (t === 'pen' || t === 'eraser') && !spaceHeld) brushCursor.show(mouse.x, mouse.y, toolbar.size, t === 'eraser');
+  else brushCursor.hide();
+}
+
+// Remove the strokes under the eraser.
+function eraseAt(pane, e) {
+  const p = localPoint(pane, e);
+  const w = pane.camera.toWorld(p.x, p.y);
+  const radius = toolbar.state.eraserSize / 2 / pane.camera.zoom;
+  for (const s of board.strokesAt(w.x, w.y, radius)) {
+    drag.removed.push(board.strokeJSON(s));
+    board.removeStroke(s);
+  }
+}
+
+function addPoint(stroke, pane, e) {
+  const p = localPoint(pane, e);
+  const w = pane.camera.toWorld(p.x, p.y);
+  const pressure = e.pointerType === 'pen' ? Math.max(0.05, e.pressure) : 0.5;
+  stroke.points.push(w.x, w.y, pressure);
 }
 
 panesEl.addEventListener('pointerdown', (e) => {
@@ -542,18 +697,40 @@ panesEl.addEventListener('pointerdown', (e) => {
   panesEl.setPointerCapture(e.pointerId);
 
   const p = localPoint(pane, e);
+  const w = pane.camera.toWorld(p.x, p.y);
+  const tool = toolbar.tool;
+
   // Middle button, or Space + left button, always pans.
   if (e.button === 1 || (e.button === 0 && spaceHeld)) {
     e.preventDefault();
     drag = { kind: 'pan', pane };
+  } else if (isPenEraser(e) || (e.button === 0 && tool === 'eraser')) {
+    board.selected = null;
+    drag = { kind: 'erase', pane, removed: [] };
+    eraseAt(pane, e);
+  } else if (e.button === 0 && tool === 'pen') {
+    board.selected = null;
+    const stroke = board.addStroke({ points: [], color: toolbar.color, size: toolbar.state.penSize / pane.camera.zoom, simulatePressure: e.pointerType !== 'pen' });
+    addPoint(stroke, pane, e);
+    board.redrawStroke(stroke, false);
+    drag = { kind: 'draw', pane, stroke };
+  } else if (e.button === 0 && tool === 'note') {
+    e.preventDefault();  // keep the text box focused
+    drag = null;
+    // While typing, a click elsewhere just finishes the note.
+    if (noteEditor.editing) noteEditor.finish();
+    else {
+      const hit = board.hitTest(w.x, w.y);
+      if (hit?.kind === 'note') editNote(hit, pane);
+      else addNoteAt(pane, w.x, w.y);
+    }
   } else if (e.button === 0) {
-    const w = pane.camera.toWorld(p.x, p.y);
     const hit = board.hitTest(w.x, w.y);
     if (hit) {
-      // Clicked an image: select it, raise it to the top and start moving it.
+      // Clicked an image or note: select it, raise it to the top and start moving it.
       board.selected = hit;
       board.bringToFront(hit);
-      drag = { kind: 'move', pane, item: hit, offsetX: w.x - hit.sprite.x, offsetY: w.y - hit.sprite.y, moved: false };
+      drag = { kind: 'move', pane, item: hit, offsetX: w.x - hit.sprite.x, offsetY: w.y - hit.sprite.y, from: { x: hit.sprite.x, y: hit.sprite.y }, moved: false };
     } else {
       // Clicked empty space: deselect and pan.
       board.selected = null;
@@ -561,6 +738,7 @@ panesEl.addEventListener('pointerdown', (e) => {
     }
   }
   panesEl.classList.toggle('panning', drag?.kind === 'pan');
+  updateCursor();
   requestRender();
 });
 
@@ -568,28 +746,74 @@ panesEl.addEventListener('pointermove', (e) => {
   const dx = e.clientX - (mouse.x ?? e.clientX);
   const dy = e.clientY - (mouse.y ?? e.clientY);
   mouse.x = e.clientX; mouse.y = e.clientY;
+  updateCursor();
   if (!drag) return;
   if (drag.kind === 'pan') {
     drag.pane.camera.panBy(dx, dy);
   } else if (drag.kind === 'move') {
-    // The image follows the mouse in the pane you're dragging in; every other pane updates too.
+    // It follows the mouse in the pane you're dragging in; every other pane updates too.
     const p = localPoint(drag.pane, e);
     const w = drag.pane.camera.toWorld(p.x, p.y);
     drag.item.sprite.position.set(w.x - drag.offsetX, w.y - drag.offsetY);
     drag.moved = true;
+  } else if (drag.kind === 'draw') {
+    // A tablet sends more points than there are frames; use them all for smooth lines.
+    const events = e.getCoalescedEvents?.() || [e];
+    for (const ev of events.length ? events : [e]) addPoint(drag.stroke, drag.pane, ev);
+    board.redrawStroke(drag.stroke, false);
+  } else if (drag.kind === 'erase') {
+    eraseAt(drag.pane, e);
   }
   requestRender();
 });
 
 function endDrag() {
-  if (drag?.kind === 'move' && drag.moved) contentChanged();
-  else if (drag?.kind === 'pan') viewChanged();
+  if (!drag) return;
+  const d = drag;
   drag = null;
   panesEl.classList.remove('panning');
+
+  if (d.kind === 'move' && d.moved) {
+    const { kind, id } = d.item;
+    const from = d.from;
+    const to = { x: d.item.sprite.x, y: d.item.sprite.y };
+    const place = (pos) => { const it = board.find(kind, id); if (it) it.sprite.position.set(pos.x, pos.y); requestRender(); };
+    history.push({ undo: () => place(from), redo: () => place(to) });
+    contentChanged();
+  } else if (d.kind === 'draw') {
+    board.redrawStroke(d.stroke, true);
+    const data = board.strokeJSON(d.stroke);
+    history.push({
+      undo: () => { const s = board.find('stroke', data.id); if (s) board.removeStroke(s); },
+      redo: () => board.addStroke(data),
+    });
+    contentChanged();
+  } else if (d.kind === 'erase' && d.removed.length) {
+    const removed = d.removed;
+    history.push({
+      undo: () => removed.forEach((s) => board.addStroke(s)),
+      redo: () => removed.forEach((s) => { const x = board.find('stroke', s.id); if (x) board.removeStroke(x); }),
+    });
+    contentChanged();
+  } else if (d.kind === 'pan') {
+    viewChanged();
+  }
+  requestRender();
 }
 panesEl.addEventListener('pointerup', endDrag);
 panesEl.addEventListener('pointercancel', endDrag);
+panesEl.addEventListener('pointerleave', () => { if (!drag) brushCursor.hide(); });
 document.addEventListener('pointerleave', () => { if (!drag) { mouse.x = null; mouse.y = null; } });
+
+// Double-click a note to edit it (with any tool).
+panesEl.addEventListener('dblclick', (e) => {
+  const pane = viewports.paneFromElement(e.target);
+  if (!pane) return;
+  const p = localPoint(pane, e);
+  const w = pane.camera.toWorld(p.x, p.y);
+  const hit = board.hitTest(w.x, w.y);
+  if (hit?.kind === 'note') editNote(hit, pane);
+});
 
 // Stop the middle button from starting Chrome's auto-scroll.
 panesEl.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
@@ -628,8 +852,11 @@ function openMenu(x, y, pane) {
       { label: l.maximized ? 'Restore panes' : 'Maximize pane', shortcut: 'Ctrl+Space', disabled: !several, action: () => paneAction('maximize', pane) },
       { label: 'Close pane', shortcut: 'Alt+W', disabled: !several, action: () => paneAction('close', pane) },
       '-',
-      { label: board.selected ? 'Fit selected image' : 'Fit everything', shortcut: 'F', disabled: !board.items.length, action: () => { fitPane(pane, board.selected ? [board.selected] : board.items); requestRender(); } },
-      { label: 'Delete image', shortcut: 'Del', disabled: !board.selected, action: () => removeImage(board.selected) },
+      { label: board.selected ? 'Fit selection' : 'Fit everything', shortcut: 'F', disabled: board.isEmpty(), action: () => { fitPane(pane, board.selected ? [board.selected] : null); requestRender(); } },
+      { label: board.selected?.kind === 'note' ? 'Delete note' : 'Delete image', shortcut: 'Del', disabled: !board.selected, action: removeSelected },
+      '-',
+      { label: 'Undo', shortcut: `${MOD}Z`, disabled: !history.done.length, action: undo },
+      { label: 'Redo', shortcut: `${MOD}Shift+Z`, disabled: !history.undone.length, action: redo },
     );
   }
   showMenu(x, y, items);
@@ -659,6 +886,8 @@ window.addEventListener('keydown', (e) => {
 
   const pane = hoverPane() || layout().visiblePanes()[0];
   if (mod && e.code === 'KeyS') { e.preventDefault(); hideMenu(); saveToFile({ saveAs: e.shiftKey }); return; }
+  if (mod && e.code === 'KeyZ') { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
+  if (mod && e.code === 'KeyY') { e.preventDefault(); redo(); return; }
 
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
   if (e.altKey && !mod) {
@@ -676,12 +905,17 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     spaceHeld = true;
     panesEl.classList.add('can-pan');
+    updateCursor();
     e.preventDefault();
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (board.selected) removeImage(board.selected);
+    removeSelected();
+  } else if (TOOL_KEYS[e.code]) {
+    toolbar.setTool(TOOL_KEYS[e.code]);
+  } else if (e.key === '[' || e.key === ']') {
+    toolbar.nudgeSize(e.key === ']' ? 1 : -1);
   } else if (e.key === 'f' || e.key === 'F') {
-    // Fit the selected image, or everything if nothing is selected.
-    fitPane(pane, board.selected ? [board.selected] : board.items);
+    // Fit the selection, or everything if nothing is selected.
+    fitPane(pane, board.selected ? [board.selected] : null);
     requestRender();
   } else if (e.key === '1') {
     // Back to 100% (actual pixels), around the middle of the pane.
@@ -694,6 +928,7 @@ window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') {
     spaceHeld = false;
     panesEl.classList.remove('can-pan');
+    updateCursor();
   }
 });
 // If the window loses focus while Space is held, don't get stuck in pan mode.
