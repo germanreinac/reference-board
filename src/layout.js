@@ -15,9 +15,15 @@ export const MAX_PANES = 16;
 
 let nextPaneId = 1;
 
+// What a pane can show. 'board' is the reference board itself; the others are tools
+// that sit next to it (see src/editors.js).
+export const PANE_TYPES = ['board', 'search', 'mannequin'];
+
 export class Pane {
   constructor(camera = new Camera()) {
     this.id = nextPaneId++;
+    this.type = 'board';
+    this.state = {};   // what a tool pane remembers (e.g. the search words), saved with the board
     this.camera = camera;
     this.rect = null;  // where the pane is in the window: { x, y, w, h }
     this.pendingView = null;  // a saved { cx, cy, zoom } to apply once we know the size
@@ -96,6 +102,8 @@ export class Layout {
     if (r && (dir === 'row' ? r.w : r.h) < MIN_PANE * 2 + GAP) return null;  // too small to split
 
     const copy = new Pane();
+    copy.type = pane.type;
+    copy.state = JSON.parse(JSON.stringify(pane.state || {}));
     copy.camera.zoom = pane.camera.zoom;
     copy.camera.x = pane.camera.x;
     copy.camera.y = pane.camera.y;
@@ -161,7 +169,8 @@ export class Layout {
     const walk = (node) => {
       if (node.type === 'pane') {
         const c = node.pane.centre();
-        return { pane: { cx: c.x, cy: c.y, zoom: node.pane.camera.zoom, maximized: this.maximized === node.pane } };
+        const p = node.pane;
+        return { pane: { cx: c.x, cy: c.y, zoom: p.camera.zoom, maximized: this.maximized === p, type: p.type, state: p.state } };
       }
       return { dir: node.dir, ratio: node.ratio, a: walk(node.a), b: walk(node.b) };
     };
@@ -174,6 +183,8 @@ export class Layout {
       if (d.pane) {
         const pane = new Pane();
         pane.pendingView = { cx: d.pane.cx || 0, cy: d.pane.cy || 0, zoom: d.pane.zoom || 1 };
+        if (PANE_TYPES.includes(d.pane.type)) pane.type = d.pane.type;
+        pane.state = d.pane.state || {};
         if (d.pane.maximized) layout.maximized = pane;
         return { type: 'pane', pane };
       }

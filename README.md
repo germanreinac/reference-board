@@ -21,6 +21,23 @@ Open the GitHub Pages link for this repository in Chrome. There is nothing to in
 | Delete | `Delete` or `Backspace` |
 | Menu | Right-click anywhere, or click the board name in the top-left corner |
 
+### What a pane shows
+
+The first button in a pane's corner chooses what the pane shows:
+
+- **Board:** your references.
+- **Image search:** search for images and drag them onto the board, or click one to add it.
+
+Splitting a pane copies what it shows. Press **Ctrl/⌘ + F** to open a search pane next to
+the one you're working in, or to jump to it if one is already open.
+
+### Image search
+
+- **Openverse** works straight away. It searches openly licensed images from Flickr, Wikimedia Commons, museums and more.
+- **Unsplash** and **Pexels** need a free key. Click the gear in the search pane and paste it in. Keys are kept in this browser only. Get them at [unsplash.com/developers](https://unsplash.com/developers) and [pexels.com/api](https://www.pexels.com/api/).
+- Each image keeps a link to its original page (and the photographer's name), so you can always find where it came from. Check the licence before using an image in published work.
+- Some sites block full-size downloads. When that happens, a smaller version is added instead.
+
 ### Drawing and notes
 
 The toolbar at the bottom of a board has the drawing tools, colours, size, and undo/redo.
@@ -78,8 +95,8 @@ doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 - ✅ Board files and saving as you work
 - ✅ Home screen with multiple boards
 - ✅ Drawing and notes
-- Pane types: each pane can show the board, image search or a 3D mannequin
-- Image search (Openverse, Unsplash, Pexels)
+- ✅ Pane types: each pane can show the board or image search
+- ✅ Image search (Openverse, Unsplash, Pexels)
 - 3D posing mannequin with preset poses
 - Typing a pose with AI
 
@@ -96,6 +113,8 @@ There's no build step: the files are served as they are.
 - `src/viewports.js`: draws the board into every pane; pane buttons and dividers
 - `src/storage.js`: board files (.refboard) and your boards in Chrome's storage
 - `src/menu.js`: the right-click menu
+- `src/editors.js`: the tools a pane can show instead of the board
+- `src/search-pane.js`, `src/sources.js`: image search and its sources
 - `src/tools.js`: the drawing toolbar and brush outline
 - `src/note-editor.js`: typing into notes
 - `src/history.js`: undo and redo

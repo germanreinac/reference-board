@@ -16,6 +16,11 @@ import { showMenu, hideMenu } from './menu.js';
 import { History } from './history.js';
 import { Toolbar, BrushCursor, TOOL_KEYS } from './tools.js';
 import { NoteEditor } from './note-editor.js';
+import { createEditor } from './editors.js';
+import { RESULT_DRAG_TYPE } from './search-pane.js';
+import { SOURCES, loadKeys, downloadResult } from './sources.js';
+import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
+import { PANE_TYPES } from './layout.js';
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
@@ -47,10 +52,24 @@ const panesEl = document.getElementById('panes');
 const viewports = new Viewports({
   app, board, layout: new Layout(), element: panesEl, background: BOARD_COLOUR,
   requestRender: () => requestRender(),
-  onPaneAction: (action, pane) => paneAction(action, pane),
+  onPaneAction: (action, pane, button) => paneAction(action, pane, button),
   onLayoutChanged: () => viewChanged(),
+  createEditor: (pane, host) => createEditor(pane, host, {
+    add: (result) => addSearchResult(result),
+    changed: () => viewChanged(),
+    toast: (m) => toast(m),
+    addImage: (blob, name) => addBlobToBoard(blob, name),
+  }),
 });
 const layout = () => viewports.layout;
+
+// The panes showing the board (not search or the mannequin).
+const boardPanes = () => layout().visiblePanes().filter((p) => p.type === 'board');
+// The board pane under the mouse, or else the first one on screen. Can be null.
+function targetBoardPane(x = mouse.x, y = mouse.y) {
+  const p = x === null ? null : viewports.paneAt(x, y);
+  return p?.type === 'board' ? p : boardPanes()[0] || null;
+}
 
 // Which screen is showing: 'home' or 'board'.
 let mode = 'home';
@@ -76,16 +95,31 @@ function requestRender() {
     renderQueued = false;
     if (mode !== 'board') return;
     // Keep note text sharp for the most zoomed-in pane.
-    const maxZoom = Math.max(...layout().visiblePanes().map((p) => p.camera.zoom));
+    const maxZoom = Math.max(1, ...boardPanes().map((p) => p.camera.zoom));
     board.updateTextSharpness(maxZoom, app.renderer.resolution);
     viewports.render();
     noteEditor.position();
+    placeToolbar();
     emptyHint.classList.toggle('hidden', !board.isEmpty() || noteEditor.editing);
   });
 }
 window.addEventListener('resize', () => { if (mode === 'board') { viewports.position(); requestRender(); } });
 
 const emptyHint = document.getElementById('empty-hint');
+
+// Keep the drawing toolbar at the bottom middle of the biggest board pane
+// (hidden when no pane shows the board).
+function placeToolbar() {
+  const el = document.getElementById('toolbar');
+  const panes = boardPanes();
+  el.classList.toggle('no-board', panes.length === 0);
+  if (!panes.length) return;
+  const r = panes.reduce((a, b) => (b.rect.w * b.rect.h > a.rect.w * a.rect.h ? b : a)).rect;
+  const half = el.offsetWidth / 2;
+  const x = Math.min(Math.max(r.x + r.w / 2, half + 8), window.innerWidth - half - 8);
+  el.style.left = `${x}px`;
+  el.style.bottom = `${window.innerHeight - (r.y + r.h) + 12}px`;
+}
 
 // ---------- Messages ----------
 
@@ -246,7 +280,7 @@ function removeNoteById(id) {
 function fitPane(pane, items) {
   const bounds = board.bounds(items);
   if (!bounds) return;
-  for (const p of pane ? [pane] : layout().visiblePanes()) p.camera.frame(bounds, p.rect.w, p.rect.h, 60);
+  for (const p of pane ? [pane] : boardPanes()) p.camera.frame(bounds, p.rect.w, p.rect.h, 60);
   viewChanged();
 }
 
@@ -488,8 +522,16 @@ nameInput.addEventListener('blur', () => {
 
 // ---------- Panes ----------
 
-function paneAction(action, pane) {
+function paneAction(action, pane, button) {
   const l = layout();
+  if (action === 'type') {
+    const r = button.getBoundingClientRect();
+    showMenu(r.left, r.bottom + 4, PANE_TYPES.filter((t) => t !== 'mannequin').map((t) => ({
+      label: `${pane.type === t ? '✓ ' : ''}${TYPE_NAMES[t]}`,
+      action: () => setPaneType(pane, t),
+    })));
+    return;
+  }
   if (action === 'split-row' || action === 'split-col') {
     if (!l.split(pane, action === 'split-row' ? 'row' : 'col')) {
       toast(l.panes().length >= 16 ? 'That\'s the most panes there can be.' : 'That pane is too small to split.', 2000);
@@ -503,6 +545,56 @@ function paneAction(action, pane) {
   viewports.rebuild();
   viewChanged();
   requestRender();
+}
+
+function setPaneType(pane, type) {
+  if (pane.type === type) return;
+  pane.type = type;
+  pane.state = {};
+  viewports.rebuild();
+  viewChanged();
+  requestRender();
+  viewports.editorOf(pane)?.focus?.();
+}
+
+// Ctrl/⌘+F: go to the search pane, or open one next to the pane you're in.
+function openSearch() {
+  const existing = layout().visiblePanes().find((p) => p.type === 'search');
+  if (existing) return viewports.editorOf(existing)?.focus();
+  const pane = hoverPane() || layout().visiblePanes()[0];
+  const copy = layout().split(pane, pane.rect.w >= pane.rect.h ? 'row' : 'col');
+  if (!copy) return toast('There\'s no room for a search pane here. Make a pane bigger first.');
+  copy.type = 'search';
+  copy.state = {};
+  viewports.rebuild();
+  viewChanged();
+  requestRender();
+  viewports.editorOf(copy)?.focus();
+}
+
+// Put an image from search (or from the mannequin) onto the board.
+// With no position given: the middle of the board pane you last worked in.
+async function addSearchResult(result, at = null) {
+  if (!current) return;
+  toast('Adding image…', 30000);
+  try {
+    const { blob, smaller } = await downloadResult(result);
+    const source = SOURCES[result.source];
+    source?.used?.(result, loadKeys()[result.source]);
+    const name = [result.title, result.author && `by ${result.author}`].filter(Boolean).join(' ') || 'image';
+    await addBlobToBoard(blob, name, result.pageUrl || result.full, at);
+    toast(smaller ? 'Added a smaller version (the original site blocks full-size downloads).' : 'Added to the board', smaller ? 4000 : 1200);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function addBlobToBoard(blob, name, sourceUrl = '', at = null) {
+  const pane = at?.pane || targetBoardPane();
+  let wx = 0, wy = 0;
+  if (at) ({ x: wx, y: wy } = at);
+  else if (pane) ({ x: wx, y: wy } = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2));
+  await addImages([{ blob, name, sourceUrl }], wx, wy, pane);
 }
 
 // ---------- Drag and drop ----------
@@ -526,6 +618,16 @@ window.addEventListener('drop', async (e) => {
   document.body.classList.remove('drag-over');
 
   try {
+    // A result dragged from the search pane.
+    const result = e.dataTransfer.getData(RESULT_DRAG_TYPE);
+    if (result && mode === 'board') {
+      const pane = targetBoardPane(e.clientX, e.clientY);
+      const over = viewports.paneAt(e.clientX, e.clientY);
+      // Dropped on the board: put it where it was dropped. Dropped elsewhere: middle of a board pane.
+      const at = pane && over === pane ? { ...pane.camera.toWorld(e.clientX - pane.rect.x, e.clientY - pane.rect.y), pane } : null;
+      return addSearchResult(JSON.parse(result), at);
+    }
+
     // Board files are added to your boards, never replacing one.
     const boardFiles = [...e.dataTransfer.files].filter(isBoardFile);
     if (boardFiles.length) {
@@ -541,8 +643,11 @@ window.addEventListener('drop', async (e) => {
 
     // Images dropped on the home screen start a new board.
     if (mode === 'home') await openBoardNow(await createBoard());
-    const pane = viewports.paneAt(e.clientX, e.clientY) || layout().visiblePanes()[0];
-    const at = pane.camera.toWorld(e.clientX - pane.rect.x, e.clientY - pane.rect.y);
+    const pane = targetBoardPane(e.clientX, e.clientY);
+    const over = viewports.paneAt(e.clientX, e.clientY);
+    const at = !pane ? { x: 0, y: 0 } : over === pane
+      ? pane.camera.toWorld(e.clientX - pane.rect.x, e.clientY - pane.rect.y)
+      : pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2);
     await addImages(list, at.x, at.y, pane);
   } catch (err) {
     toast(err.message);
@@ -559,8 +664,9 @@ window.addEventListener('paste', async (e) => {
     // Pasting on the home screen starts a new board.
     if (mode === 'home') await openBoardNow(await createBoard());
     // Paste under the mouse if it's over a pane, otherwise in the middle of the first pane.
-    const pane = hoverPane() || layout().visiblePanes()[0];
-    const local = mouse.x === null || !hoverPane()
+    const pane = targetBoardPane();
+    if (!pane) return addImages(list, 0, 0, null);
+    const local = hoverPane() !== pane
       ? { x: pane.rect.w / 2, y: pane.rect.h / 2 }
       : { x: mouse.x - pane.rect.x, y: mouse.y - pane.rect.y };
     const at = pane.camera.toWorld(local.x, local.y);
@@ -666,7 +772,7 @@ const isPenEraser = (e) => e.pointerType === 'pen' && (e.button === 5 || (e.butt
 function updateCursor() {
   panesEl.dataset.tool = toolbar.tool;
   const t = toolbar.tool;
-  if (mouse.x !== null && hoverPane() && (t === 'pen' || t === 'eraser') && !spaceHeld) brushCursor.show(mouse.x, mouse.y, toolbar.size, t === 'eraser');
+  if (mouse.x !== null && hoverPane()?.type === 'board' && (t === 'pen' || t === 'eraser') && !spaceHeld) brushCursor.show(mouse.x, mouse.y, toolbar.size, t === 'eraser');
   else brushCursor.hide();
 }
 
@@ -692,6 +798,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   const pane = viewports.paneFromElement(e.target);
   if (!pane) return;
   mouse.x = e.clientX; mouse.y = e.clientY;
+  if (pane.type !== 'board') return;  // search and the mannequin handle their own mouse
   if (document.activeElement === nameInput) nameInput.blur();
   if (e.button === 2) return;  // right button: handled by the menu
   panesEl.setPointerCapture(e.pointerId);
@@ -808,7 +915,7 @@ document.addEventListener('pointerleave', () => { if (!drag) { mouse.x = null; m
 // Double-click a note to edit it (with any tool).
 panesEl.addEventListener('dblclick', (e) => {
   const pane = viewports.paneFromElement(e.target);
-  if (!pane) return;
+  if (pane?.type !== 'board') return;
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const hit = board.hitTest(w.x, w.y);
@@ -820,9 +927,9 @@ panesEl.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefa
 
 // Scroll wheel / trackpad: zoom the pane under the mouse, towards the mouse.
 panesEl.addEventListener('wheel', (e) => {
-  e.preventDefault();
   const pane = viewports.paneAt(e.clientX, e.clientY);
-  if (!pane) return;
+  if (pane?.type !== 'board') return;  // let search results scroll normally
+  e.preventDefault();
   let delta = e.deltaY;
   if (e.deltaMode === 1) delta *= 16;   // some mice report "lines" instead of pixels
   // Trackpad pinch arrives as a wheel event with Ctrl held; it needs a stronger factor.
@@ -863,8 +970,11 @@ function openMenu(x, y, pane) {
 }
 
 panesEl.addEventListener('contextmenu', (e) => {
+  const clicked = viewports.paneFromElement(e.target);
+  // Inside a tool pane, keep Chrome's own menu (e.g. to copy an image or open its page).
+  if (clicked && clicked.type !== 'board' && e.target.closest('.pane-editor')) return;
   e.preventDefault();
-  const pane = viewports.paneFromElement(e.target);
+  const pane = clicked?.type === 'board' ? clicked : null;
   if (pane) {
     // Right-clicking an image selects it, so the menu acts on it.
     const p = localPoint(pane, e);
@@ -878,8 +988,9 @@ panesEl.addEventListener('contextmenu', (e) => {
 // ---------- Keyboard ----------
 
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest?.('input, textarea')) return;
   const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
+  if (e.target.closest?.('input, textarea, select')) return;
 
   if (mod && e.code === 'KeyO') { e.preventDefault(); hideMenu(); openFile(); return; }
   if (mode !== 'board') return;
@@ -915,11 +1026,12 @@ window.addEventListener('keydown', (e) => {
     toolbar.nudgeSize(e.key === ']' ? 1 : -1);
   } else if (e.key === 'f' || e.key === 'F') {
     // Fit the selection, or everything if nothing is selected.
-    fitPane(pane, board.selected ? [board.selected] : null);
+    fitPane(targetBoardPane(), board.selected ? [board.selected] : null);
     requestRender();
   } else if (e.key === '1') {
     // Back to 100% (actual pixels), around the middle of the pane.
-    pane.camera.zoomAt(pane.rect.w / 2, pane.rect.h / 2, 1 / pane.camera.zoom);
+    const bp = targetBoardPane();
+    if (bp) bp.camera.zoomAt(bp.rect.w / 2, bp.rect.h / 2, 1 / bp.camera.zoom);
     viewChanged();
     requestRender();
   }

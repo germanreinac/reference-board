@@ -7,6 +7,9 @@
 //
 // On top of the canvas sit plain HTML boxes, one per pane (they catch the mouse
 // and hold the small pane buttons), plus the draggable dividers.
+//
+// A pane can also show a tool instead of the board (image search, the 3D
+// mannequin). Those tools live inside the pane's HTML box; see src/editors.js.
 
 import { RenderTexture, Sprite, Matrix } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
@@ -20,7 +23,16 @@ const ICONS = {
   close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
 };
 
+// Icons for what a pane shows (the first pane button).
+export const TYPE_ICONS = {
+  board: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="7" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/></svg>',
+  search: '<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3.5 3.5"/></svg>',
+  mannequin: '<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>',
+};
+export const TYPE_NAMES = { board: 'Board', search: 'Image search', mannequin: '3D mannequin' };
+
 const TOOL_TITLES = {
+  type: 'What this pane shows',
   'split-row': 'Split side by side (Alt+V)',
   'split-col': 'Split top and bottom (Alt+H)',
   maximize: 'Maximize / restore (Ctrl+Space)',
@@ -28,7 +40,9 @@ const TOOL_TITLES = {
 };
 
 export class Viewports {
-  constructor({ app, board, layout, element, background, requestRender, onPaneAction, onLayoutChanged }) {
+  // createEditor(pane, hostElement) makes the tool shown in a non-board pane.
+  constructor({ app, board, layout, element, background, requestRender, onPaneAction, onLayoutChanged, createEditor }) {
+    this.createEditor = createEditor;
     this.app = app;
     this.board = board;
     this.el = element;              // the HTML layer above the canvas
@@ -53,6 +67,7 @@ export class Viewports {
     // Remove views for panes that no longer exist.
     for (const [pane, view] of this.views) {
       if (!panes.includes(pane)) {
+        view.editor?.destroy();
         view.el.remove();
         view.sprite.destroy();
         view.texture.destroy(true);
@@ -60,6 +75,7 @@ export class Viewports {
       }
     }
     for (const pane of panes) if (!this.views.has(pane)) this.views.set(pane, this._createView(pane));
+    for (const pane of panes) this._syncEditor(pane, this.views.get(pane));
 
     for (const d of this.dividers) d.el.remove();
     this.dividers = this.layout.splits().map((split) => this._createDivider(split));
@@ -74,24 +90,45 @@ export class Viewports {
     el.dataset.pane = pane.id;
     const tools = document.createElement('div');
     tools.className = 'pane-tools';
-    for (const action of ['split-row', 'split-col', 'maximize', 'close']) {
+    for (const action of ['type', 'split-row', 'split-col', 'maximize', 'close']) {
       const b = document.createElement('button');
       b.dataset.action = action;
       b.title = TOOL_TITLES[action];
-      b.innerHTML = ICONS[action];
+      b.innerHTML = ICONS[action] || '';
       b.addEventListener('pointerdown', (e) => e.stopPropagation());  // don't pan when clicking a button
-      b.addEventListener('click', (e) => { e.stopPropagation(); this.onPaneAction(action, pane); });
+      b.addEventListener('click', (e) => { e.stopPropagation(); this.onPaneAction(action, pane, b); });
       tools.appendChild(b);
     }
     const zoomEl = document.createElement('div');
     zoomEl.className = 'pane-zoom';
-    el.append(tools, zoomEl);
+    // Tools such as image search are put in here.
+    const host = document.createElement('div');
+    host.className = 'pane-editor';
+    el.append(host, tools, zoomEl);
     this.el.appendChild(el);
 
     const texture = RenderTexture.create({ width: 1, height: 1, resolution: this.app.renderer.resolution });
     const sprite = new Sprite(texture);
     this.app.stage.addChild(sprite);
-    return { el, zoomEl, tools, texture, sprite };
+    return { el, zoomEl, tools, host, texture, sprite, editor: null, editorType: 'board' };
+  }
+
+  // Make sure a pane shows the right thing: the board, or a tool.
+  _syncEditor(pane, view) {
+    view.el.dataset.type = pane.type;
+    const typeButton = view.tools.querySelector('[data-action="type"]');
+    typeButton.innerHTML = TYPE_ICONS[pane.type];
+    typeButton.title = `Showing: ${TYPE_NAMES[pane.type]}. Click to change`;
+    if (view.editorType === pane.type) return;
+    view.editor?.destroy();
+    view.editor = null;
+    view.host.replaceChildren();
+    view.editorType = pane.type;
+    if (pane.type !== 'board') view.editor = this.createEditor(pane, view.host);
+  }
+
+  editorOf(pane) {
+    return this.views.get(pane)?.editor || null;
   }
 
   _createDivider(split) {
@@ -140,10 +177,11 @@ export class Viewports {
     for (const [pane, view] of this.views) {
       const show = visible.has(pane);
       view.el.style.display = show ? '' : 'none';
-      view.sprite.visible = show;
+      view.sprite.visible = show && pane.type === 'board';
       if (!show) continue;
       const r = pane.rect;
       Object.assign(view.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+      view.editor?.layout?.(r);
       view.el.classList.toggle('narrow', r.w < 150 || r.h < 60);
       view.tools.querySelector('[data-action="maximize"]').innerHTML = this.layout.maximized ? ICONS.restore : ICONS.maximize;
       // Match the off-screen picture to the pane's size.
@@ -208,6 +246,7 @@ export class Viewports {
   render() {
     const renderer = this.app.renderer;
     for (const pane of this.layout.visiblePanes()) {
+      if (pane.type !== 'board') continue;
       const view = this.views.get(pane);
       const cam = pane.camera;
       this.board.drawOverlay(cam.zoom);
