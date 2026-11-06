@@ -34,21 +34,33 @@ the one you're working in, or to jump to it if one is already open.
 
 ### Image search
 
-One search box looks in every source at once and mixes the results into a single feed:
+The search pane has two tabs: **Search** and **Mood board**.
 
-- **Openverse** is always on: openly licensed images from Flickr, Wikimedia Commons, museums and more.
-- **Unsplash** and **Pexels** join in once you add their free keys (gear button). Get them at [unsplash.com/developers](https://unsplash.com/developers) and [pexels.com/api](https://www.pexels.com/api/). Keys stay in this browser only. Each source can be switched off there too.
+**Search** looks in every source at once and mixes the results into one feed:
 
-The feed is ranked a bit like Pinterest: how relevant each source thinks a result is, how big
-and sharp it is, whether its words match your search, and what you've added to boards before
-(remembered in this browser only). Duplicates and tiny pictures are dropped, and no source
-takes over the feed.
+| Needs no key | Needs a free key (**Sources** button) |
+| --- | --- |
+| Openverse, Wikimedia Commons, Art Institute of Chicago, Cleveland Museum of Art, iNaturalist (animals and plants), NASA | Unsplash, Pexels, Pixabay, Flickr |
 
-- **Chips** under the search box suggest words that narrow the search.
+Keys are kept in this browser only. Each source can be switched off in **Sources**.
+
+- **All / Photos / Art / Nature** narrows the feed to one kind of source.
+- The feed is ranked a bit like Pinterest: how relevant each source thinks a result is, how big and sharp it is, whether its words match your search, and what you've added to boards before (remembered in this browser only). Duplicates and tiny pictures are dropped, off-topic museum results sink, and no source takes over the feed.
+- **Chips** next to the filter suggest words that narrow the search.
 - Hover over a result for **Add to board** and **More like this**. You can also click a result, or drag it onto a board pane.
-- **Fill board** drops a whole mood board of results onto the board, in columns, next to what's already there. Type a subject or a mood (*"moody cyberpunk alley, neon, rain"*), choose how many, and press it. Each press picks a slightly different mix. Ctrl/⌘ + Z removes the whole set.
-- Each image keeps a link to its original page and the photographer's name. Check the licence before using an image in published work.
-- Some sites block full-size downloads. When that happens, a smaller version is added instead.
+
+**Mood board** makes a ready-made mood board from a description. Separate ideas with
+commas to mix them (*"foggy forest, lanterns, old wooden house"*): each idea gets its
+share of the images. Choose how many, remove any you don't like with ×, press **Shuffle**
+for a different mix, then **Add to board**. They're laid out in columns next to what's
+already on the board, and Ctrl/⌘ + Z removes the whole set.
+
+Each image keeps a link to its original page and author. Check the licence before
+using an image in published work. Some sites block full-size downloads; a smaller
+version is added instead.
+
+Google Images isn't included: Google doesn't offer free image search to other apps,
+and its paid service can't be called straight from a web page.
 
 ### 3D mannequin
 
@@ -122,8 +134,8 @@ Keyboard shortcuts act on the pane under the mouse.
 ### Your boards
 
 Opening the site shows your boards: click **New board**, or click a board to open it.
-The button in the top-left corner of a board takes you back, and you can rename a board
-by clicking its name there. The **⋯** button on a board's card can rename it, save it
+On a board, the bar across the top takes you back to your boards (**Boards**), shows the
+board's name (click it to rename) and has the board menu (**⋯**). The **⋯** button on a board's card can rename it, save it
 to a file, or delete it.
 
 - **Boards save as you work.** They're kept in Chrome on this computer, so closing the tab doesn't lose anything.

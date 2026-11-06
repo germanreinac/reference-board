@@ -14,13 +14,15 @@
 
 import { SOURCES, loadKeys } from './sources.js';
 
-// Sources searched: Openverse always, Unsplash and Pexels once a key is added
-// (each can be switched off in the search settings).
-export function activeSources() {
+// Sources searched: every source that needs no key, plus those whose free key has
+// been added (each can be switched off with the Sources button).
+// kind narrows it: 'photo', 'art' or 'nature' keep those sources plus the mixed ones.
+export function activeSources(kind = 'all') {
   const keys = loadKeys();
   const off = loadOff();
   return Object.entries(SOURCES)
     .filter(([id, s]) => !off.includes(id) && (!s.needsKey || keys[id]))
+    .filter(([, s]) => kind === 'all' || s.kind === kind || s.kind === 'mixed' || (kind === 'nature' && s.kind === 'space'))
     .map(([id]) => id);
 }
 
@@ -34,7 +36,10 @@ export function saveOff(list) {
 
 // How much each source's photos tend to be worth for reference (curated photo
 // sites first; Openverse is huge but mixed in quality).
-const SOURCE_QUALITY = { unsplash: 1, pexels: 0.95, openverse: 0.75 };
+const SOURCE_QUALITY = {
+  unsplash: 1, pexels: 0.95, pixabay: 0.9, flickr: 0.85, artic: 0.9, cleveland: 0.85,
+  inaturalist: 0.85, wikimedia: 0.8, nasa: 0.8, openverse: 0.75,
+};
 
 // ---------- Words ----------
 
@@ -72,8 +77,13 @@ function score(r, rank, total, queryWords, taste, tasteMax) {
   const ws = wordsOf(r);
   const matched = queryWords.length ? queryWords.filter((q) => ws.some((w) => w.startsWith(q) || q.startsWith(w))).length / queryWords.length : 0;
   const liked = tasteMax ? Math.min(1, ws.reduce((sum, w) => sum + (taste[w] || 0), 0) / (tasteMax * 3)) : 0;
-  return 0.4 * relevance + 0.15 * size + 0.2 * (SOURCE_QUALITY[r.source] ?? 0.7) + 0.2 * matched + 0.15 * liked;
+  let points = 0.35 * relevance + 0.15 * size + 0.15 * (SOURCE_QUALITY[r.source] ?? 0.7) + 0.25 * matched + 0.15 * liked;
+  // Museums, nature and space sources return something for almost any search; when
+  // none of the search words appear, it's usually off-topic, so it sinks.
+  if (queryWords.length && matched === 0 && SPECIALIST.has(r.source)) points *= 0.45;
+  return points;
 }
+const SPECIALIST = new Set(Object.entries(SOURCES).filter(([, s]) => ['art', 'nature', 'space'].includes(s.kind)).map(([id]) => id));
 
 // Too small to be useful as a reference (when the size is known).
 const tooSmall = (r) => r.width && r.height && Math.max(r.width, r.height) < 500;
@@ -94,10 +104,10 @@ function varied(list) {
 // ---------- One search ----------
 
 export class MixedSearch {
-  constructor(query) {
+  constructor(query, kind = 'all') {
     this.query = query;
     this.queryWords = words(query);
-    this.sources = activeSources();
+    this.sources = activeSources(kind);
     this.page = Object.fromEntries(this.sources.map((s) => [s, 0]));
     this.more = Object.fromEntries(this.sources.map((s) => [s, true]));
     this.seen = new Set();
@@ -154,7 +164,9 @@ export class MixedSearch {
   add(r) {
     if (!r.thumb || tooSmall(r)) return false;
     const key = r.full || `${r.source}:${r.id}`;
-    const titleKey = `${words(r.title).join(' ')}|${(r.author || '').toLowerCase()}`;
+    // The same picture on two sites usually has the same title and author. (Numbers
+    // count: "Forest 1" and "Forest 2" are different pictures.)
+    const titleKey = `${String(r.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}|${(r.author || '').toLowerCase()}`;
     if (this.seen.has(key) || (titleKey.length > 6 && this.seen.has(titleKey))) return false;
     this.seen.add(key);
     if (titleKey.length > 6) this.seen.add(titleKey);

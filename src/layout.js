@@ -53,11 +53,13 @@ export class Layout {
     return this.maximized ? [this.maximized] : this.panes();
   }
 
-  // Work out where every pane and divider goes for a window of this size.
-  computeRects(width, height) {
+  // Work out where every pane and divider goes in the window area below `top`
+  // (the top bar with the board's name sits above the panes).
+  computeRects(width, height, top = 0) {
     for (const p of this.panes()) p.nextRect = null;
-    if (this.maximized) this.maximized.nextRect = { x: 0, y: 0, w: width, h: height };
-    else this._place(this.root, { x: 0, y: 0, w: width, h: height });
+    const area = { x: 0, y: top, w: width, h: Math.max(1, height - top) };
+    if (this.maximized) this.maximized.nextRect = { ...area };
+    else this._place(this.root, area);
 
     for (const p of this.panes()) {
       const next = p.nextRect;

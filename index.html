@@ -42,12 +42,19 @@
        and holds the pane buttons. The dividers between panes live here too. -->
   <div id="panes"></div>
 
-  <!-- Top-left: back to your boards, and the board's name (click to rename) -->
+  <!-- Top bar: back to your boards, the board's name (click to rename), and the board menu.
+       The panes start below it, so it never covers anything. -->
   <div id="board-bar">
     <button id="home-button" title="All boards">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+      <span>Boards</span>
     </button>
+    <span class="bar-sep">/</span>
     <input id="board-name" spellcheck="false" autocomplete="off" title="Click to rename">
+    <span class="bar-flex"></span>
+    <button id="board-menu-button" title="Board menu (or right-click a board pane)">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>
+    </button>
   </div>
 
   <!-- Bottom: drawing tools, colours, size, undo/redo (filled in by src/tools.js) -->

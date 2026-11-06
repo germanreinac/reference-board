@@ -233,45 +233,117 @@ button { font: inherit; color: inherit; }
 }
 .chip:hover { background: var(--panel); border-color: #55555c; }
 
-/* Fill board */
-.fill-group {
-  flex: none;
-  display: flex;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.fill-button {
+/* Tabs: Search | Mood board, and the Sources button */
+.search-tabs {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
+  gap: 2px;
+  padding: 6px 150px 0 8px;   /* room for the pane buttons on the right */
+  border-bottom: 1px solid var(--panel-border);
+}
+.pane.narrow .search-tabs { padding-right: 8px; }
+.search-tabs button {
+  padding: 6px 10px 7px;
   border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.search-tabs button:hover { color: var(--text-strong); }
+.search-tabs button.active { color: var(--text-strong); border-bottom-color: var(--accent); }
+.search-tabs .sources-button { margin-left: auto; }
+.search-tabs .sources-button.active { border-bottom-color: var(--text); }
+
+.tab-search, .tab-mood { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.search-pane[data-tab="search"] .tab-search, .search-pane[data-tab="mood"] .tab-mood { display: flex; }
+.tab-search .search-bar, .mood-bar { padding-right: 8px; border-bottom: 0; }
+
+/* All / Photos / Art / Nature, then the suggested words */
+.search-filters { display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; min-width: 0; }
+.kind-filter { flex: none; display: flex; border: 1px solid var(--panel-border); border-radius: 999px; overflow: hidden; }
+.kind-filter button {
+  padding: 3px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kind-filter button + button { border-left: 1px solid var(--panel-border); }
+.kind-filter button.active { background: var(--panel); color: var(--text-strong); }
+.search-filters .search-chips { flex: 1; min-width: 0; padding: 0; }
+.search-filters .search-chips:not(:empty) { padding: 0; }
+
+/* Mood board tab */
+.mood-bar { display: flex; gap: 6px; padding: 8px; }
+.mood-input, .mood-count {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: #141416;
+  color: var(--text-strong);
+  font: inherit;
+  outline: none;
+}
+.mood-input { flex: 1; }
+.mood-input:focus { border-color: var(--accent); }
+.mood-make, .mood-add {
+  flex: none;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
   background: var(--accent);
   color: #fff;
   font: inherit;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
 }
-.fill-button:disabled { opacity: 0.6; cursor: default; }
-.fill-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; }
-.fill-count {
-  border: 0;
-  border-left: 1px solid var(--panel-border);
-  background: #141416;
-  color: var(--text-strong);
-  font: inherit;
-  font-size: 12px;
-  outline: none;
+.mood-make:disabled, .mood-add:disabled { opacity: 0.6; cursor: default; }
+.mood-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--panel-border);
 }
-.search-pane.compact .fill-button span { display: none; }
+.mood-actions[hidden] { display: none; }
+.mood-actions .mood-note { flex: 1; font-size: 12px; }
+.mood-actions .text-button { padding: 5px 12px; }
+.result-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 20, 22, 0.85);
+  color: #fff;
+  font-size: 15px;
+  line-height: 22px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.result:hover .result-remove { opacity: 1; }
+.result-remove:hover { background: #d64545; }
+.search-pane.compact .mood-make { padding: 5px 8px; }
 
 /* Sources in the search settings */
+.source-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; max-height: 50vh; overflow-y: auto; }
 .source-row { display: flex; flex-direction: column; gap: 4px; }
+.source-toggle strong { font-weight: 500; }
 .source-toggle { display: flex; align-items: center; gap: 4px; color: var(--text-strong); }
 .source-toggle input { accent-color: var(--accent); }
-.source-row .small { font-size: 12px; opacity: 0.7; margin-left: 20px; }
+.source-row .small { font-size: 11px; opacity: 0.7; margin-left: 20px; line-height: 1.4; }
 .source-row .key-row { margin-left: 20px; }
 
 .search-status { padding: 12px 4px; text-align: center; }
@@ -445,43 +517,50 @@ body[data-mode="home"] #toolbar,
 body[data-mode="home"] #brush-cursor { display: none; }
 body[data-mode="board"] #home { display: none; }
 
-/* ---------- Top-left bar on a board ---------- */
+/* ---------- Top bar on a board ---------- */
 
 #board-bar {
   position: fixed;
-  top: 6px;
-  left: 6px;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 3;
+  box-sizing: border-box;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s;
+  gap: 4px;
+  padding: 0 6px;
+  border-bottom: 1px solid #26262b;
+  background: #141416;
 }
-#board-bar:hover, #board-bar:focus-within { opacity: 1; background: rgba(20, 20, 22, 0.8); }
 
-#home-button {
-  width: 26px;
+#home-button, #board-menu-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   height: 26px;
-  padding: 5px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: none;
+  font-size: 12px;
   cursor: pointer;
 }
-#home-button:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-strong); }
-#home-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
+#home-button:hover, #board-menu-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
+#home-button svg, #board-menu-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
   width: 16px;
   height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.3;
 }
+#board-menu-button svg { fill: currentColor; stroke: none; }
+.bar-sep { opacity: 0.4; }
+.bar-flex { flex: 1; }
 
 #board-name {
-  width: 220px;
+  width: min(320px, 40vw);
   padding: 3px 6px;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -489,11 +568,16 @@ body[data-mode="board"] #home { display: none; }
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
+  font-weight: 500;
   text-overflow: ellipsis;
   outline: none;
 }
 #board-name:hover { border-color: var(--panel-border); }
 #board-name:focus { border-color: var(--accent); background: var(--bg); }
+
+@media (max-width: 520px) {
+  #home-button span, .bar-sep { display: none; }
+}
 
 /* ---------- Home screen ---------- */
 

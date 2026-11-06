@@ -170,7 +170,9 @@ export class Viewports {
   position() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.layout.computeRects(w, h);
+    // Panes start below the top bar.
+    const top = document.getElementById('board-bar')?.offsetHeight || 0;
+    this.layout.computeRects(w, h, top);
     const visible = new Set(this.layout.visiblePanes());
     const res = this.app.renderer.resolution;
 

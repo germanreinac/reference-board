@@ -512,6 +512,10 @@ const home = new Home(document.getElementById('home'), {
 // ---------- Board name and home button ----------
 
 document.getElementById('home-button').addEventListener('click', goHome);
+document.getElementById('board-menu-button').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  openMenu(r.right - 230, r.bottom + 4, null);
+});
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === 'Escape') {
     if (e.key === 'Escape') nameInput.value = current?.name || '';
