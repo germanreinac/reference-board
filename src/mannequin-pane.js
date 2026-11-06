@@ -25,6 +25,7 @@ import {
 import { poseFromDescription } from './ai-pose.js';
 import { poseFromWords, EXAMPLE_WORDS } from './pose-words.js';
 import { loadKeys, saveKeys } from './sources.js';
+import { themeColours } from './theme.js';
 
 const KEY_ICON = '<svg viewBox="0 0 16 16"><circle cx="5" cy="10.5" r="2.8"/><path d="M7 8.5l6-6M11 4.5l1.8 1.8M9.5 6l1.5 1.5"/></svg>';
 
@@ -133,7 +134,7 @@ export class MannequinPane {
     this.renderer = renderer;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(BACKGROUND);
+    scene.background = new THREE.Color(themeColours().scene ?? BACKGROUND);
     this.scene = scene;
 
     this.camera = new THREE.PerspectiveCamera(lensToFov(this.settings.lens), 1, 0.05, 100);
@@ -159,9 +160,12 @@ export class MannequinPane {
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.receiveShadow = true;
     scene.add(this.floor);
-    const grid = new THREE.GridHelper(8, 32, 0x3a3a40, 0x323237);
-    grid.position.y = 0.001;
-    scene.add(grid);
+    this.grid = new THREE.GridHelper(8, 32, 0x3a3a40, 0x323237);
+    this.grid.position.y = 0.001;
+    scene.add(this.grid);
+    this.applyTheme(themeColours());
+    this.onTheme = (e) => { this.applyTheme(e.detail); this.render(); };
+    window.addEventListener('themechange', this.onTheme);
     // A ring on the floor under the figure that poses act on (when there are several).
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.33, 48), new THREE.MeshBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: 0.8 }));
     this.marker.rotation.x = -Math.PI / 2;
@@ -387,6 +391,23 @@ export class MannequinPane {
     this.marker.visible = several;
     this.placeMarker();
     this.render();
+  }
+
+  // Light or dark mode for the 3D scene.
+  applyTheme(t) {
+    this.scene.background.setHex(t.scene);
+    this.floor.material.color.setHex(t.floor);
+    const [a, b] = t.grid;
+    const colours = this.grid.geometry.attributes.color;
+    // GridHelper stores a colour per line end: the centre lines use the first colour.
+    const centre = new THREE.Color(a), other = new THREE.Color(b);
+    const positions = this.grid.geometry.attributes.position;
+    for (let i = 0; i < colours.count; i++) {
+      const onAxis = Math.abs(positions.getX(i)) < 1e-6 || Math.abs(positions.getZ(i)) < 1e-6;
+      const c = onAxis && (Math.abs(positions.getX(i)) < 1e-6) !== (Math.abs(positions.getZ(i)) < 1e-6) ? centre : other;
+      colours.setXYZ(i, c.r, c.g, c.b);
+    }
+    colours.needsUpdate = true;
   }
 
   placeMarker() {
@@ -657,6 +678,7 @@ export class MannequinPane {
     cancelAnimationFrame(this.tween);
     if (this.pane.type === 'mannequin') this.save();  // not when the pane is switching to something else
     window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('themechange', this.onTheme);
     this.el.removeEventListener('pointerdown', this.onDown, true);
     this.gizmo.detach();
     this.gizmo.dispose();

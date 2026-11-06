@@ -21,14 +21,16 @@ import { RESULT_DRAG_TYPE } from './search-pane.js';
 import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
+import { loadTheme, themeColours, toggleTheme, currentTheme } from './theme.js';
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
   store, newBoardId, askToKeepStorage,
 } from './storage.js';
 
-const BOARD_COLOUR = '#1b1b1d';
-const GAP_COLOUR = '#0e0e0f';
+loadTheme();
+const BOARD_COLOUR = themeColours().board;
+const GAP_COLOUR = themeColours().gap;
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? '⌘' : 'Ctrl+';
 document.querySelectorAll('.mod-key').forEach((el) => (el.textContent = isMac ? '⌘' : 'Ctrl'));
@@ -63,6 +65,7 @@ const viewports = new Viewports({
   }),
 });
 const layout = () => viewports.layout;
+viewports.setColours(themeColours());
 
 // The panes showing the board (not search or the mannequin).
 const boardPanes = () => layout().visiblePanes().filter((p) => p.type === 'board');
@@ -108,8 +111,9 @@ window.addEventListener('resize', () => { if (mode === 'board') { viewports.posi
 
 const emptyHint = document.getElementById('empty-hint');
 
-// Keep the drawing toolbar at the bottom middle of the biggest board pane
-// (hidden when no pane shows the board).
+// The drawing toolbar always sits at the bottom middle of the window (see style.css);
+// it's hidden when no pane shows the board. The "drop images here" hint goes in the
+// middle of the biggest board pane.
 function placeToolbar() {
   const el = document.getElementById('toolbar');
   const panes = boardPanes();
@@ -117,13 +121,15 @@ function placeToolbar() {
   emptyHint.style.visibility = panes.length ? '' : 'hidden';
   if (!panes.length) return;
   const r = panes.reduce((a, b) => (b.rect.w * b.rect.h > a.rect.w * a.rect.h ? b : a)).rect;
-  // The "drop images here" hint goes in the middle of that pane too.
   Object.assign(emptyHint.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
-  const half = el.offsetWidth / 2;
-  const x = Math.min(Math.max(r.x + r.w / 2, half + 8), window.innerWidth - half - 8);
-  el.style.left = `${x}px`;
-  el.style.bottom = `${window.innerHeight - (r.y + r.h) + 12}px`;
 }
+
+// Light and dark mode: redraw the board in the new colours.
+window.addEventListener('themechange', (e) => {
+  viewports.setColours(e.detail);
+  app.renderer.background.color = e.detail.gap;
+  requestRender();
+});
 
 // ---------- Messages ----------
 
@@ -512,6 +518,7 @@ const home = new Home(document.getElementById('home'), {
 // ---------- Board name and home button ----------
 
 document.getElementById('home-button').addEventListener('click', goHome);
+document.getElementById('theme-button').addEventListener('click', toggleTheme);
 document.getElementById('board-menu-button').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   openMenu(r.right - 230, r.bottom + 4, null);
@@ -854,6 +861,10 @@ const isPenEraser = (e) => e.pointerType === 'pen' && (e.button === 5 || (e.butt
 
 function updateCursor() {
   panesEl.dataset.tool = toolbar.tool;
+  // The drawing toolbar fades out while you work in a search or mannequin pane,
+  // so it never covers their buttons.
+  const over = hoverPane();
+  document.getElementById('toolbar').classList.toggle('away', !!over && over.type !== 'board');
   const t = toolbar.tool;
   if (mouse.x !== null && hoverPane()?.type === 'board' && (t === 'pen' || t === 'eraser') && !spaceHeld) brushCursor.show(mouse.x, mouse.y, toolbar.size, t === 'eraser');
   else brushCursor.hide();
@@ -1034,6 +1045,7 @@ function openMenu(x, y, pane) {
     { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
     { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
+    { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
   ];
   if (pane) {
     items.push('-',

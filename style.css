@@ -1,19 +1,46 @@
-/* Minimal dark look, like PureRef: the images are the only thing that should stand out. */
+/* Minimal look, like PureRef: the images are the only thing that should stand out.
+   Dark mode is the default; light mode swaps these colours (body[data-theme="light"]). */
 
-:root {
-  --bg: #1b1b1d;
+:root, body[data-theme="dark"] {
+  --bg: #1b1b1d;            /* board and pane background */
+  --gap: #08080a;           /* the lines between panes */
+  --line: #26262b;          /* thin separators */
+  --input: var(--input);         /* text boxes and the top bar */
+  --card: var(--card);          /* cards and chips */
+  --panel: #2a2a2f;         /* menus */
+  --panel-2: var(--panel-2);       /* settings panels */
+  --panel-border: #3a3a40;
+  --border-strong: var(--border-strong);
+  --overlay: var(--overlay);  /* floating bars over a pane */
+  --dot: #34343a;           /* background dots */
   --text: #8a8a90;
   --text-strong: #c8c8cc;
   --accent: #4da3ff;
-  --panel: #2a2a2f;
-  --panel-border: #3a3a40;
+  color-scheme: dark;
+}
+body[data-theme="light"] {
+  --bg: #f1f1ef;
+  --gap: #c9c9c6;
+  --line: #dcdcd8;
+  --input: #ffffff;
+  --card: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f7f7f5;
+  --panel-border: #d6d6d2;
+  --border-strong: #b5b5b0;
+  --overlay: rgba(255, 255, 255, 0.92);
+  --dot: #c4c4c0;
+  --text: #6c6c70;
+  --text-strong: #1f1f22;
+  --accent: #2f86e8;
+  color-scheme: light;
 }
 
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #0e0e0f;
+  background: var(--gap);
   color: var(--text);
   font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   user-select: none;
@@ -47,7 +74,7 @@ button { font: inherit; color: inherit; }
   gap: 2px;
   padding: 2px;
   border-radius: 6px;
-  background: rgba(20, 20, 22, 0.75);
+  background: var(--overlay);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -127,7 +154,7 @@ button { font: inherit; color: inherit; }
   padding: 5px 8px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: #141416;
+  background: var(--input);
   color: var(--text-strong);
   font: inherit;
   outline: none;
@@ -153,7 +180,7 @@ button { font: inherit; color: inherit; }
   gap: 10px;
   padding: 12px;
   border-bottom: 1px solid var(--panel-border);
-  background: #202024;
+  background: var(--panel-2);
 }
 .search-settings[hidden] { display: none; }
 .search-settings p { margin: 0; }
@@ -169,7 +196,7 @@ button { font: inherit; color: inherit; }
   break-inside: avoid;
   border-radius: 6px;
   overflow: hidden;
-  background: #26262b;
+  background: var(--card);
   cursor: grab;
 }
 .result img { display: block; width: 100%; height: auto; min-height: 40px; }
@@ -225,13 +252,13 @@ button { font: inherit; color: inherit; }
   padding: 4px 11px;
   border: 1px solid var(--panel-border);
   border-radius: 999px;
-  background: #222226;
+  background: var(--card);
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
-.chip:hover { background: var(--panel); border-color: #55555c; }
+.chip:hover { background: var(--panel); border-color: var(--border-strong); }
 
 /* Tabs: Search | Mood board, and the Sources button */
 .search-tabs {
@@ -285,7 +312,7 @@ button { font: inherit; color: inherit; }
   padding: 5px 8px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: #141416;
+  background: var(--input);
   color: var(--text-strong);
   font: inherit;
   outline: none;
@@ -325,7 +352,7 @@ button { font: inherit; color: inherit; }
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(20, 20, 22, 0.85);
+  background: var(--overlay);
   color: #fff;
   font-size: 15px;
   line-height: 22px;
@@ -376,7 +403,7 @@ button { font: inherit; color: inherit; }
   padding: 4px 8px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: rgba(24, 24, 27, 0.85);
+  background: var(--overlay);
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
@@ -390,7 +417,7 @@ button { font: inherit; color: inherit; }
   gap: 6px;
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(24, 24, 27, 0.85);
+  background: var(--overlay);
   color: var(--text-strong);
 }
 .mq-bottom label select { padding: 1px 4px; border: 0; background: none; }
@@ -411,7 +438,7 @@ button { font: inherit; color: inherit; }
   padding: 5px 9px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: rgba(20, 20, 23, 0.9);
+  background: var(--overlay);
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
@@ -422,7 +449,7 @@ button { font: inherit; color: inherit; }
   padding: 4px 9px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: rgba(24, 24, 27, 0.9);
+  background: var(--overlay);
   color: var(--text-strong);
   font-size: 12px;
   cursor: pointer;
@@ -437,7 +464,7 @@ button { font: inherit; color: inherit; }
   max-width: min(620px, calc(100% - 16px));
   padding: 4px 9px;
   border-radius: 6px;
-  background: rgba(24, 24, 27, 0.9);
+  background: var(--overlay);
   color: var(--text-strong);
   font-size: 12px;
 }
@@ -469,7 +496,7 @@ button { font: inherit; color: inherit; }
   padding: 12px;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
-  background: #202024;
+  background: var(--panel-2);
   font-size: 12px;
 }
 .mq-ai-settings p { margin: 0; line-height: 1.5; }
@@ -501,14 +528,33 @@ button { font: inherit; color: inherit; }
 .mannequin-pane.compact .mq-bottom input[type="range"] { width: 56px; }
 .pane.narrow .mq-top { right: 8px; }
 
-/* Dividers: a thin line, with a wider invisible area so they're easy to grab. */
+/* With several panes, each gets a soft edge so the split is easy to see:
+   a faint outline and a gentle shadow inside its border. */
+#panes:not(.single) .pane::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 0 22px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+body[data-theme="light"] #panes:not(.single) .pane::before {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), inset 0 0 22px rgba(0, 0, 0, 0.09);
+}
+.pane-tools, .pane-zoom { z-index: 2; }
+
+/* Dividers: the gap between panes, which you can drag. A line shows on hover. */
 .divider { position: absolute; z-index: 2; }
 .divider::before { content: ""; position: absolute; }
 .divider.row { cursor: col-resize; }
 .divider.col { cursor: row-resize; }
-.divider.row::before { inset: 0 -4px; }
-.divider.col::before { inset: -4px 0; }
-.divider:hover, .divider.dragging { background: var(--accent); }
+.divider.row::before { inset: 0 -3px; }
+.divider.col::before { inset: -3px 0; }
+.divider::after { content: ""; position: absolute; background: var(--accent); opacity: 0; transition: opacity 0.15s; }
+.divider.row::after { left: 2px; right: 2px; top: 0; bottom: 0; border-radius: 2px; }
+.divider.col::after { top: 2px; bottom: 2px; left: 0; right: 0; border-radius: 2px; }
+.divider:hover::after, .divider.dragging::after { opacity: 1; }
 
 /* ---------- Which screen is showing ---------- */
 
@@ -534,8 +580,8 @@ body[data-mode="board"] #home { display: none; }
   align-items: center;
   gap: 4px;
   padding: 0 6px;
-  border-bottom: 1px solid #26262b;
-  background: #141416;
+  border-bottom: 1px solid var(--line);
+  background: var(--input);
 }
 
 #home-button, #board-menu-button {
@@ -643,14 +689,14 @@ body[data-mode="board"] #home { display: none; }
   padding: 0;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
-  background: #222226;
+  background: var(--card);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
   outline: none;
   transition: border-color 0.15s, transform 0.15s;
 }
-.board-card:hover, .board-card:focus-visible { border-color: #55555c; }
+.board-card:hover, .board-card:focus-visible { border-color: var(--border-strong); }
 .board-card:active { transform: scale(0.99); }
 
 .board-card .thumb {
@@ -658,7 +704,7 @@ body[data-mode="board"] #home { display: none; }
   background: var(--bg) center / cover no-repeat;
   border-bottom: 1px solid var(--panel-border);
 }
-.board-card .thumb.empty { background-image: radial-gradient(circle, #2c2c31 1px, transparent 1px); background-size: 14px 14px; }
+.board-card .thumb.empty { background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px); background-size: 14px 14px; }
 .board-card.new .thumb {
   display: flex;
   align-items: center;
@@ -701,7 +747,7 @@ body[data-mode="board"] #home { display: none; }
   padding: 6px;
   border: 0;
   border-radius: 6px;
-  background: rgba(20, 20, 22, 0.8);
+  background: var(--overlay);
   color: var(--text-strong);
   opacity: 0;
   cursor: pointer;
@@ -730,7 +776,7 @@ body[data-mode="board"] #home { display: none; }
 
 #toolbar {
   position: fixed;
-  left: 50%;          /* moved to the middle of the board pane by src/main.js */
+  left: 50%;          /* always the bottom middle of the window */
   bottom: 12px;
   z-index: 4;
   transform: translateX(-50%);
@@ -740,10 +786,9 @@ body[data-mode="board"] #home { display: none; }
   padding: 4px;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
-  background: rgba(34, 34, 38, 0.92);
+  background: var(--overlay);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
   max-width: calc(100vw - 24px);
-  overflow-x: auto;
 }
 .tool-group { display: flex; align-items: center; gap: 2px; }
 .tool-group + .tool-group { padding-left: 4px; border-left: 1px solid var(--panel-border); }
@@ -791,9 +836,39 @@ body[data-mode="board"] #home { display: none; }
 
 /* The size slider only matters for the pen and eraser. */
 #toolbar .size input { width: 90px; accent-color: var(--accent); }
+
+/* The colour palette opens above the toolbar */
+#toolbar { overflow: visible; }
+.colour-palette {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+.colour-palette[hidden] { display: none; }
+.colour-palette .swatch { width: 22px; height: 22px; }
+.swatch.current-colour { width: 24px; height: 24px; margin: 0 3px; }
+
+/* Folded away: just a small pill with the tool in use */
+#toolbar .tool.mini { display: none; width: auto; padding: 6px 8px; gap: 6px; align-items: center; }
+#toolbar.collapsed .tool-group, #toolbar.collapsed .colour-palette { display: none; }
+#toolbar.collapsed .tool.mini { display: flex; }
+#toolbar.collapsed { padding: 2px; }
+.mini-colour { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.tool-group.fold .tool svg { width: 16px; height: 16px; }
 #toolbar[data-tool="select"] .size,
 #toolbar[data-tool="note"] .size { display: none; }
 #toolbar.no-board { display: none; }
+#toolbar { transition: opacity 0.2s; }
+#toolbar.away { opacity: 0; pointer-events: none; }
 
 /* Cursors for each tool */
 #panes[data-tool="pen"] .pane,
@@ -917,3 +992,7 @@ body.drag-over::after {
   pointer-events: none;
 }
 #toast.show { opacity: 1; }
+
+.home-actions { display: flex; gap: 8px; }
+#theme-button { display: flex; align-items: center; padding: 5px 8px; }
+#theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }

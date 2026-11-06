@@ -9,7 +9,7 @@
 
 import { Camera } from './camera.js';
 
-export const GAP = 2;          // pixels of dark line between panes
+export const GAP = 6;          // pixels of space between panes
 export const MIN_PANE = 80;    // panes can't be dragged smaller than this
 export const MAX_PANES = 16;
 

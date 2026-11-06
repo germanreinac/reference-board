@@ -11,7 +11,7 @@
 // A pane can also show a tool instead of the board (image search, the 3D
 // mannequin). Those tools live inside the pane's HTML box; see src/editors.js.
 
-import { RenderTexture, Sprite, Matrix } from '../vendor/pixi.min.mjs';
+import { RenderTexture, Sprite, Matrix, TilingSprite, Texture } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
 
@@ -47,6 +47,8 @@ export class Viewports {
     this.board = board;
     this.el = element;              // the HTML layer above the canvas
     this.background = background;   // board colour
+    this.dots = makeDots();         // the dotted background, drawn behind the board in each pane
+    this.dotColour = '#3a3a40';
     this.requestRender = requestRender;
     this.onPaneAction = onPaneAction;
     this.onLayoutChanged = onLayoutChanged;
@@ -244,6 +246,27 @@ export class Viewports {
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85));
   }
 
+  setColours({ board, dot }) {
+    this.background = board;
+    this.dotColour = dot;
+  }
+
+  // The dotted background: one dot every 24 board units, doubling or halving the spacing
+  // as you zoom so the dots on screen always stay 17 to 34 pixels apart (like Figma).
+  drawDots(pane, target) {
+    const cam = pane.camera;
+    const level = Math.round(-Math.log2(cam.zoom));
+    const spacing = 24 * 2 ** level * cam.zoom;    // on screen, in pixels
+    const d = this.dots;
+    d.width = pane.rect.w;
+    d.height = pane.rect.h;
+    d.tint = this.dotColour;
+    d.tileScale.set(spacing / DOT_CELL);
+    // Keep the dots fixed to the board as you pan.
+    d.tilePosition.set(cam.x % spacing, cam.y % spacing);
+    this.app.renderer.render({ container: d, target, clear: true, clearColor: this.background });
+  }
+
   // Draw the board into every visible pane, then put the panes on screen.
   render() {
     const renderer = this.app.renderer;
@@ -252,10 +275,24 @@ export class Viewports {
       const view = this.views.get(pane);
       const cam = pane.camera;
       this.board.drawOverlay(cam.zoom);
+      this.drawDots(pane, view.texture);
       this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
-      renderer.render({ container: this.board.world, target: view.texture, clear: true, clearColor: this.background, transform: this.matrix });
+      renderer.render({ container: this.board.world, target: view.texture, clear: false, transform: this.matrix });
       view.zoomEl.textContent = `${Math.round(cam.zoom * 100)}%`;
     }
     this.app.render();
   }
+}
+
+// One dot in the middle of a square tile, repeated across the pane.
+const DOT_CELL = 64;
+function makeDots() {
+  const c = document.createElement('canvas');
+  c.width = c.height = DOT_CELL;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.arc(DOT_CELL / 2, DOT_CELL / 2, 4, 0, Math.PI * 2);
+  g.fill();
+  return new TilingSprite({ texture: Texture.from(c), width: 1, height: 1 });
 }

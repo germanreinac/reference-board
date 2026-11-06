@@ -105,7 +105,10 @@ retried on another Claude model.
 
 ### Drawing and notes
 
-The toolbar at the bottom of a board has the drawing tools, colours, size, and undo/redo.
+The toolbar sits at the bottom middle of the window. It has the drawing tools, the colour
+(click it for the palette, including any colour you like), size, and undo/redo. The **⌄**
+button folds it into a small pill; click the pill to bring it back. It fades out while
+your mouse is over a search or mannequin pane, so it never covers their buttons.
 
 | Action | How |
 | --- | --- |
@@ -134,6 +137,12 @@ Hover over a pane to see its buttons in the top-right corner.
 | Resize panes | Drag the line between them. Double-click it to make both sides equal |
 
 Keyboard shortcuts act on the pane under the mouse.
+
+### Light and dark mode
+
+Switch with the moon button on the home screen, or **Light mode** / **Dark mode** in the board
+menu (**⋯**). Boards have a dotted background that stays fixed to the board as you pan and
+zoom; the dots double or halve their spacing as you zoom so they never get too dense.
 
 ### Your boards
 

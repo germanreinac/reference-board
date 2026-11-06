@@ -1,5 +1,6 @@
-// The drawing toolbar at the bottom of a board: Select, Pen, Eraser, Note,
-// colours, size, and undo/redo. Also the round brush outline that follows the mouse.
+// The drawing toolbar at the bottom middle of the window: Select, Pen, Eraser, Note,
+// the colour (click it for the palette), size, undo/redo, and a button to fold the
+// toolbar away into a small pill. Also the round brush outline that follows the mouse.
 
 export const COLOURS = ['#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '#4cd07d', '#4da3ff', '#b57bff'];
 
@@ -12,6 +13,8 @@ const ICONS = {
   note: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
   undo: '<svg viewBox="0 0 16 16"><path d="M5.5 4L2.5 7l3 3M3 7h7a3.5 3.5 0 010 7H8"/></svg>',
   redo: '<svg viewBox="0 0 16 16"><path d="M10.5 4l3 3-3 3M13 7H6a3.5 3.5 0 000 7h2"/></svg>',
+  collapse: '<svg viewBox="0 0 16 16"><path d="M4 6.5l4 4 4-4"/></svg>',
+  expand: '<svg viewBox="0 0 16 16"><path d="M4 9.5l4-4 4 4"/></svg>',
 };
 
 const TITLES = {
@@ -26,7 +29,7 @@ export class Toolbar {
   constructor(element, { onChange, onUndo, onRedo }) {
     this.el = element;
     this.onChange = onChange;
-    this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30 };
+    this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, collapsed: false };
     this.load();
 
     const toolGroup = this.group();
@@ -37,14 +40,28 @@ export class Toolbar {
       toolGroup.appendChild(b);
     }
 
+    // The colour: one swatch; clicking it opens the palette above the toolbar.
     const colourGroup = this.group('colours');
+    this.colourButton = document.createElement('button');
+    this.colourButton.className = 'swatch current-colour';
+    this.colourButton.title = 'Colour';
+    colourGroup.appendChild(this.colourButton);
+    this.palette = document.createElement('div');
+    this.palette.className = 'colour-palette';
+    this.palette.hidden = true;
+    element.appendChild(this.palette);
+    this.colourButton.addEventListener('click', () => { this.palette.hidden = !this.palette.hidden; });
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.palette.hidden && !this.palette.contains(e.target) && e.target !== this.colourButton) this.palette.hidden = true;
+    }, true);
+    const paletteRow = this.palette;
     this.swatches = COLOURS.map((c) => {
       const b = document.createElement('button');
       b.className = 'swatch';
       b.style.setProperty('--c', c);
       b.title = c;
-      b.addEventListener('click', () => this.setColour(c));
-      colourGroup.appendChild(b);
+      b.addEventListener('click', () => { this.setColour(c); this.palette.hidden = true; });
+      paletteRow.appendChild(b);
       return b;
     });
     // Any other colour, with Chrome's colour picker.
@@ -55,7 +72,7 @@ export class Toolbar {
     this.colourInput.type = 'color';
     this.colourInput.addEventListener('input', () => this.setColour(this.colourInput.value));
     custom.appendChild(this.colourInput);
-    colourGroup.appendChild(custom);
+    paletteRow.appendChild(custom);
 
     const sizeGroup = this.group('size');
     this.sizeInput = document.createElement('input');
@@ -70,6 +87,15 @@ export class Toolbar {
     this.undoButton = this.button(ICONS.undo, 'Undo (Ctrl/⌘+Z)', onUndo);
     this.redoButton = this.button(ICONS.redo, 'Redo (Ctrl/⌘+Shift+Z)', onRedo);
     historyGroup.append(this.undoButton, this.redoButton);
+
+    // Fold the toolbar away into a small pill (showing the tool in use), and back.
+    const foldGroup = this.group('fold');
+    foldGroup.appendChild(this.button(ICONS.collapse, 'Hide the toolbar', () => this.setCollapsed(true)));
+    this.mini = document.createElement('button');
+    this.mini.className = 'tool mini';
+    this.mini.title = 'Show the toolbar';
+    this.mini.addEventListener('click', () => this.setCollapsed(false));
+    element.appendChild(this.mini);
 
     // Clicking the toolbar must not start drawing or panning on the board.
     element.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -90,6 +116,13 @@ export class Toolbar {
     b.innerHTML = icon;
     b.addEventListener('click', onClick);
     return b;
+  }
+
+  setCollapsed(on) {
+    this.state.collapsed = on;
+    this.palette.hidden = true;
+    this.save();
+    this.refresh();
   }
 
   get tool() { return this.state.tool; }
@@ -131,6 +164,9 @@ export class Toolbar {
     this.colourInput.parentElement.style.setProperty('--c', COLOURS.includes(color) ? 'transparent' : color);
     this.sizeInput.value = this.size;
     this.el.dataset.tool = tool;
+    this.colourButton.style.setProperty('--c', color);
+    this.el.classList.toggle('collapsed', this.state.collapsed);
+    this.mini.innerHTML = `${ICONS[tool]}<span class="mini-colour" style="--c:${color}"></span>${ICONS.expand}`;
   }
 
   // Remember the tool settings between visits (only a convenience, so failures are ignored).
@@ -139,6 +175,7 @@ export class Toolbar {
   }
   load() {
     try { Object.assign(this.state, JSON.parse(localStorage.getItem('refboard-tools')) || {}, { tool: 'select' }); } catch {}
+    this.state.collapsed = !!this.state.collapsed;
   }
 }
 
