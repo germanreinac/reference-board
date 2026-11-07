@@ -565,6 +565,12 @@ function route() {
   return routing;
 }
 async function doRoute() {
+  // #/inbox: the Inbox board, where the browser extension puts images while no
+  // board is open. Made the first time it's needed.
+  if (location.hash.startsWith('#/inbox')) {
+    location.replace(`#/board/${await inboxId()}`);
+    return doRoute();
+  }
   const id = location.hash.match(/^#\/board\/([\w-]+)/)?.[1];
   if (id) {
     if (current?.id !== id) {
@@ -894,6 +900,56 @@ async function fillBoard(results, query) {
   requestRender();
   const missed = results.length - ok.length;
   toast(`Added ${ok.length} images${missed ? ` (${missed} couldn't be downloaded)` : ''}. Ctrl/⌘+Z removes them all.`, 3500);
+}
+
+// ---------- From the browser extension and screen capture ----------
+
+async function inboxId() {
+  const found = (await store.listBoards()).find((b) => b.name === 'Inbox');
+  return found ? found.id : createBoard({ name: 'Inbox' });
+}
+
+// Images arrive from the extension one at a time, in order.
+let incoming = Promise.resolve();
+window.addEventListener('message', (e) => {
+  if (e.source !== window || e.origin !== location.origin) return;
+  const d = e.data;
+  if (d?.source !== 'refboard-extension' || d.type !== 'add' || !d.item?.dataUrl) return;
+  incoming = incoming.then(() => receive(d.item)).catch((err) => { console.error(err); toast("Couldn't add the image from the extension."); });
+});
+
+async function receive(item) {
+  const blob = await (await fetch(item.dataUrl)).blob();
+  // On the home screen, images go to the Inbox board.
+  if (mode !== 'board') await openBoardNow(await inboxId());
+  await routing;
+  await addBlobToBoard(blob, item.name || 'image', item.sourceUrl || '');
+  toast(`Added to ${current?.name || 'the board'}`, 1600);
+}
+
+// Capture screen: a picture of any window or screen (Chrome asks which one).
+async function captureScreen() {
+  if (!navigator.mediaDevices?.getDisplayMedia) return toast("This browser can't capture the screen.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch {
+    return;  // cancelled
+  }
+  try {
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    await new Promise((r) => setTimeout(r, 250));  // let the first real frame arrive
+    const canvas = new OffscreenCanvas(video.videoWidth, video.videoHeight);
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    await addBlobToBoard(blob, 'Screen capture');
+    toast('Screen captured. Crop it with the bar above the image.', 3000);
+  } finally {
+    stream.getTracks().forEach((t) => t.stop());
+  }
 }
 
 // ---------- Drag and drop ----------
@@ -1388,6 +1444,8 @@ panesEl.addEventListener('wheel', (e) => {
 
 // ---------- Right-click menu ----------
 
+const EXTENSION_HELP = 'https://github.com/germanreinac/reference-board#browser-extension';
+
 // The image or note that was right-clicked (it may be locked), for Lock / Unlock.
 let menuTarget = null;
 
@@ -1416,6 +1474,9 @@ function openMenu(x, y, pane) {
     { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
     { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
+    '-',
+    { label: 'Capture screen…', action: captureScreen },
+    { label: document.documentElement.dataset.refboardExtension ? 'Browser extension: installed ✓' : 'Get the browser extension…', action: () => window.open(EXTENSION_HELP, '_blank', 'noopener') },
   ];
   if (pane) {
     items.push('-',

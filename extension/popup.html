@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { margin: 0; width: 250px; padding: 10px; background: #1b1b1d; color: #c8c8cc; font: 13px system-ui, sans-serif; }
+    h1 { margin: 2px 4px 10px; font-size: 13px; font-weight: 600; color: #fff; }
+    button { display: block; width: 100%; margin: 0 0 6px; padding: 8px 10px; border: 1px solid #3a3a40; border-radius: 8px; background: #26262b; color: #e6e6ea; font: inherit; text-align: left; cursor: pointer; }
+    button:hover { background: #2f2f35; }
+    button.primary { background: #4da3ff; border-color: #4da3ff; color: #fff; }
+    p { margin: 8px 4px 0; font-size: 11px; line-height: 1.5; opacity: 0.7; }
+    kbd { font: inherit; padding: 0 4px; border: 1px solid #3a3a40; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Reference Board</h1>
+  <button class="primary" data-action="capture-area">Capture part of this page</button>
+  <button data-action="capture-visible">Capture the whole visible page</button>
+  <button data-action="open">Open Reference Board</button>
+  <p>Right-click any image and choose <b>Send image to Reference Board</b>. Shortcut for capturing: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

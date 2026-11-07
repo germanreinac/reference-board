@@ -167,6 +167,28 @@ A `.refboard` file is a normal zip file, so you can also unzip it to get the ima
 Some websites block other pages from loading their images. If dragging one in
 doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 
+## Browser extension
+
+Send any image from any website to a board with one click, or capture part of a page,
+without downloading anything first.
+
+**Install (once, about a minute):**
+
+1. Download [reference-board-extension.zip](https://germanreinac.github.io/reference-board/reference-board-extension.zip) and unzip it.
+2. In Chrome, go to `chrome://extensions` and switch on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the unzipped `reference-board-extension` folder.
+4. Optional: click the puzzle-piece icon in Chrome's toolbar and pin **Reference Board**.
+
+(It isn't on the Chrome Web Store, which costs a fee and needs a review, so it's installed from the folder.
+Chrome may remind you that a developer-mode extension is on; that's expected.)
+
+**Use it:**
+
+- **Right-click any image → Send image to Reference Board.** It works even on sites that block downloads.
+- **Capture part of a page:** the extension's button → **Capture part of this page**, the right-click menu, or **Alt+Shift+S**. Drag a box; Esc cancels.
+- The image lands on the board you have open. If Reference Board isn't open, it opens it and puts the image in a board called **Inbox**.
+- To capture **other apps** (a game, a film, a video call), use **Capture screen…** in the board menu (**⋯**). Chrome asks which window or screen to share.
+
 ## Roadmap
 
 - ✅ Canvas with drag-and-drop images, pan and zoom
@@ -206,6 +228,7 @@ There's no build step: the files are served as they are.
 - `src/importer.js`: getting images in from files, other tabs and the clipboard
 - `vendor/pixi.min.mjs`: [PixiJS](https://pixijs.com) 8.22, the fast WebGL renderer
 - `vendor/perfect-freehand.mjs`: [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.2, for natural-looking pen strokes
+- `extension/`: the Chrome extension (also packed as `reference-board-extension.zip`)
 - `vendor/three/`: [Three.js](https://threejs.org) 0.170, for the 3D mannequin (loaded only when a mannequin pane is opened)
 - `vendor/anthropic-sdk.mjs`: the official [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-typescript) 1.1.0, bundled into one file with esbuild (loaded only when you type a pose)
 - `vendor/fflate.mjs`: [fflate](https://github.com/101arrowz/fflate) 0.8.2, for zipping board files

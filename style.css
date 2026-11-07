@@ -1064,3 +1064,4 @@ body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
   box-shadow: 0 0 0 12px var(--gap);
   pointer-events: none;
 }
+.home-note a { color: var(--accent); }
