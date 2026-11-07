@@ -292,7 +292,7 @@ function makeDots() {
   const g = c.getContext('2d');
   g.fillStyle = '#ffffff';
   g.beginPath();
-  g.arc(DOT_CELL / 2, DOT_CELL / 2, 4, 0, Math.PI * 2);
+  g.arc(DOT_CELL / 2, DOT_CELL / 2, 2.4, 0, Math.PI * 2);  // small and subtle
   g.fill();
   return new TilingSprite({ texture: Texture.from(c), width: 1, height: 1 });
 }

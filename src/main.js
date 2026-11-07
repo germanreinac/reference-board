@@ -521,6 +521,7 @@ const home = new Home(document.getElementById('home'), {
 
 document.getElementById('home-button').addEventListener('click', goHome);
 document.getElementById('theme-button').addEventListener('click', toggleTheme);
+document.getElementById('bar-theme-button').addEventListener('click', toggleTheme);
 document.getElementById('board-menu-button').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   openMenu(r.right - 230, r.bottom + 4, null);

@@ -142,7 +142,7 @@ Keyboard shortcuts act on the pane under the mouse.
 
 ### Light and dark mode
 
-Switch with the moon button on the home screen, or **Light mode** / **Dark mode** in the board
+Switch with the sun / moon button in the top bar or on the home screen, or **Light mode** / **Dark mode** in the board
 menu (**⋯**). Boards have a dotted background that stays fixed to the board as you pan and
 zoom; the dots double or halve their spacing as you zoom so they never get too dense.
 

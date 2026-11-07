@@ -584,7 +584,7 @@ body[data-mode="board"] #home { display: none; }
   background: var(--input);
 }
 
-#home-button, #board-menu-button {
+#home-button, #board-menu-button, #bar-theme-button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -596,7 +596,7 @@ body[data-mode="board"] #home { display: none; }
   font-size: 12px;
   cursor: pointer;
 }
-#home-button:hover, #board-menu-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
+#home-button:hover, #board-menu-button:hover, #bar-theme-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
 #home-button svg, #board-menu-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
   width: 16px;
   height: 16px;
@@ -999,3 +999,11 @@ body.drag-over::after {
 #theme-button { display: flex; align-items: center; padding: 5px 8px; }
 #theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .home-version { margin-top: 10px; font-size: 11px; opacity: 0.5; }
+
+/* Light/dark switch in the top bar: shows the sun in dark mode, the moon in light mode */
+#bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+#bar-theme-button .icon-moon, body[data-theme="light"] #bar-theme-button .icon-sun { display: none; }
+body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
+/* Folded toolbar: a single, clear "show" button */
+#toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
+#toolbar.collapsed .tool.mini svg { width: 18px; height: 18px; stroke-width: 1.8; }

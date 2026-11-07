@@ -168,7 +168,7 @@ export class Toolbar {
     this.el.dataset.tool = tool;
     this.colourButton.style.setProperty('--c', color);
     this.el.classList.toggle('collapsed', this.state.collapsed);
-    this.mini.innerHTML = `${ICONS[tool]}<span class="mini-colour" style="--c:${color}"></span>${ICONS.expand}`;
+    this.mini.innerHTML = ICONS.expand;
   }
 
   // Remember the tool settings between visits (only a convenience, so failures are ignored).
