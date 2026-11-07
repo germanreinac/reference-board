@@ -1,4 +1,4 @@
-// The pane layout: how the window is divided into viewports, Blender-style.
+// The pane layout: how the window is divided into panes (viewports).
 //
 // The layout is a tree. Each node is either
 //   - a pane:  { type: 'pane', pane }                  one view onto the board

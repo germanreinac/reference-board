@@ -1713,7 +1713,7 @@ async function addBlobToBoard(blob, name, sourceUrl = '', at = null) {
 }
 
 // "Fill board": download a set of search results and lay them out on the board
-// as a mood board, in Pinterest-style columns. One undo removes the whole set.
+// as a mood board, in columns. One undo removes the whole set.
 async function fillBoard(results, query) {
   if (!current || !results.length) return;
   const boardId = current.id;
@@ -1966,12 +1966,12 @@ const noteEditor = new NoteEditor((note, text, oldText) => {
   if (!board.notes.includes(note)) return;
   const isNew = note.isNew;
   delete note.isNew;
-  // After placing a note or text, go back to moving things (like Figma and Miro do).
+  // After placing a note or text, go back to moving things.
   if (isNew && (toolbar.tool === 'note' || toolbar.tool === 'text')) toolbar.setTool('select');
   const before = { ...stateOf(note), text: oldText };
   // Lines starting with "- " or "* " become bullets.
   text = text.replace(/^([ \t]*)[-*] /gm, '$1• ');
-  // Like Notion: text starting with "# ", "## " or "### " becomes a heading.
+  // Text starting with "# ", "## " or "### " becomes a heading (a common shortcut).
   if (note.style === 'text') {
     const m = text.match(/^(#{1,3}) +/);
     if (m) {
@@ -2173,7 +2173,7 @@ function dragTo(d, w, e) {
   }
 }
 
-// The bar of buttons above what's selected (like Miro).
+// The bar of buttons above what's selected.
 const selectionBar = document.getElementById('selection-bar');
 const SEL_ICONS = {
   lock: '<svg viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>',

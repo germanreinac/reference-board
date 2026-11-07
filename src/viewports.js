@@ -270,7 +270,7 @@ export class Viewports {
   }
 
   // The dotted background: one dot every 24 board units, doubling or halving the spacing
-  // as you zoom so the dots on screen always stay 17 to 34 pixels apart (like Figma).
+  // as you zoom so the dots on screen always stay 17 to 34 pixels apart.
   drawDots(pane, target) {
     const cam = pane.camera;
     const level = Math.round(-Math.log2(cam.zoom));

@@ -1,4 +1,4 @@
-/* Minimal look, like PureRef: the images are the only thing that should stand out.
+/* Minimal look: the images are the only thing that should stand out.
    Dark mode is the default; light mode swaps these colours (body[data-theme="light"]). */
 
 :root, body[data-theme="dark"] {

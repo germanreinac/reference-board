@@ -8,7 +8,7 @@ import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, Col
 import { getStroke } from '../vendor/perfect-freehand.mjs';
 import { fontStack } from './fonts.js';
 
-// Text levels, like Notion: size as a multiple of Body text, and default weight.
+// Text levels: size as a multiple of Body text, and default weight.
 export const LEVELS = {
   title: { label: 'Title', size: 3.2, weight: 700 },
   h1: { label: 'Heading 1', size: 2.2, weight: 700 },
@@ -445,7 +445,7 @@ export class Board {
   //
   // Two kinds, made the same way:
   //   sticky  a coloured label with text on it (the Note tool)
-  //   text    free text with no background, in levels like Notion (the Text tool)
+  //   text    free text with no background, in levels (the Text tool)
   // Text has a font, a level (Title, Heading 1-3, Body, Caption), bold, italic and
   // alignment. `base` is the size Body text would have; each level is a multiple of it.
 

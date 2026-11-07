@@ -1,7 +1,7 @@
 // One search across every image source at once, ranked into a single feed.
 //
-// Pinterest's real ranking learns from what millions of people save, which no one
-// else can see. This copies the parts we can do ourselves:
+// Big image sites rank with data about what millions of people save, which we don't
+// have. This does what we can with what we do have:
 //   - ask every source at once and mix their results
 //   - rank by how relevant each source thinks a result is, how big and sharp it is,
 //     whether its words match your search, and what you've added to boards before
@@ -173,7 +173,7 @@ export class MixedSearch {
     return true;
   }
 
-  // Words to narrow the search, like Pinterest's chips: common in the results but not
+  // Suggested words to narrow the search: common in the results but not
   // already in the search.
   chips(max = 8) {
     const counts = new Map();

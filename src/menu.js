@@ -1,4 +1,4 @@
-// A small right-click menu, PureRef style.
+// A small right-click menu.
 //
 // showMenu(x, y, items) where items is a list of
 //   { label, shortcut, action, disabled }   or   '-' for a separator line.

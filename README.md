@@ -1,8 +1,7 @@
 # Reference Board
 
-A reference board for artists that runs in Chrome. Think PureRef, but with
-Blender-style split views: one shared infinite canvas, seen through several
-panes, each with its own pan and zoom.
+A reference board for artists that runs in Chrome: one shared infinite canvas,
+seen through several split panes, each with its own pan and zoom.
 
 ## Try it
 
@@ -25,7 +24,7 @@ Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing 
 | Copy and paste | Ctrl/⌘ + `C`, then Ctrl/⌘ + `V` where the mouse is. Works between boards too |
 | Nudge | Arrow keys move the selection a little, Shift + arrow a lot |
 | Bring to front / send to back | Right-click |
-| Copy or download an image | Right-click it: **Copy image** (to paste into Photoshop, Krita, etc.) or **Download image** |
+| Copy or download an image | Right-click it: **Copy image** (to paste into your painting or editing app) or **Download image** |
 | Caption | Double-click an image (or select it and press `Enter`) and type. The text sits under the image and moves, scales and turns with it. `Enter` finishes, `Shift` + `Enter` starts a new line |
 | Star a favourite | `M`, or ★ in the bar above the selection. The ★ in the top bar lists your starred images: click one to go to it |
 | Focus on starred | `Shift` + `M`, or in the ★ list. Everything that isn't starred fades back |
@@ -61,7 +60,7 @@ The search pane has two tabs: **Search** and **Mood board**.
 Keys are kept in this browser only. Each source can be switched off in **Sources**.
 
 - **All / Photos / Art / Nature** narrows the feed to one kind of source.
-- The feed is ranked a bit like Pinterest: how relevant each source thinks a result is, how big and sharp it is, whether its words match your search, and what you've added to boards before (remembered in this browser only). Duplicates and tiny pictures are dropped, off-topic museum results sink, and no source takes over the feed.
+- The feed is ranked by how relevant each source thinks a result is, how big and sharp it is, whether its words match your search, and what you've added to boards before (remembered in this browser only). Duplicates and tiny pictures are dropped, off-topic museum results sink, and no source takes over the feed.
 - **Chips** next to the filter suggest words that narrow the search.
 - Hover over a result for **Add to board** and **More like this**. You can also click a result, or drag it onto a board pane. Added images go to the nearest empty spot in the middle of your view, so they never pile up on top of each other.
 
@@ -88,7 +87,7 @@ and its paid service can't be called straight from a web page.
 
 Select a text (or sticky note) to get its controls in the bar above it:
 
-- **Level:** Title, Heading 1, 2 and 3, Body, Caption (like Notion). New text starts at the level you last chose.
+- **Level:** Title, Heading 1, 2 and 3, Body, Caption. New text starts at the level you last chose.
 - **Font:** the board's own fonts are Inter, Space Grotesk, Instrument Serif, Bebas Neue, Bangers and JetBrains Mono. **Upload a font…** adds your own (.ttf, .otf, .woff, .woff2), or drop a font file onto the page. Uploaded fonts are kept for all your boards and travel inside board files, so they look right for whoever opens them.
 - **Bold** (Ctrl/⌘ + B), **italic** (Ctrl/⌘ + I), **alignment** and **colour**.
 - Corner handles scale text and the round handle rotates it, like images. Double-click to edit.

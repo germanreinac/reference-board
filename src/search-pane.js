@@ -1,7 +1,7 @@
 // The image search pane, with two tabs:
 //
 //   Search       one search box over every source (see src/search-engine.js), a
-//                Pinterest-style grid, suggested words, All / Photos / Art / Nature,
+//                grid of results in columns, suggested words, All / Photos / Art / Nature,
 //                and "More like this".
 //   Mood board   describe a mood or theme; it picks a varied set of images (each idea
 //                separated by commas gets its share), you remove any you don't like or
@@ -252,7 +252,7 @@ export class SearchPane {
     this.statusEl.title = failed.join('\n');
   }
 
-  // Suggested words that narrow the search, like Pinterest's chips.
+  // Suggested words that narrow the search.
   showChips() {
     if (this.chipsEl.children.length) return;  // keep the first set while scrolling
     for (const w of this.search.chips()) {

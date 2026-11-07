@@ -1,7 +1,7 @@
 // Fonts for text on the board.
 //
 // Built in (the board's own look): a few free fonts chosen to work together, from a
-// clean Notion-like sans to comic lettering. They're in vendor/fonts.
+// clean sans for notes to comic lettering. They're in vendor/fonts.
 // Your own: upload a .ttf, .otf, .woff or .woff2 file. It's kept in this browser for
 // all your boards, and packed into board files that use it, so a board you send
 // someone shows the same font.

@@ -1,4 +1,4 @@
-// The home screen: a minimal list of your boards, Notion style.
+// The home screen: a minimal list of your boards.
 // "New board", "Open file…", and a grid of boards with a preview and when each was last edited.
 
 import { store } from './storage.js';
