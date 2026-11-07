@@ -6,8 +6,9 @@
 //   #/board/<id>    one board
 // so the browser's Back button and bookmarks just work.
 
-import { Application } from '../vendor/pixi.min.mjs';
+import { Application, Graphics } from '../vendor/pixi.min.mjs';
 import { Board } from './board.js';
+import { Camera } from './camera.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
 import { Home } from './home.js';
@@ -70,6 +71,7 @@ const viewports = new Viewports({
 });
 const layout = () => viewports.layout;
 viewports.setColours(themeColours());
+board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
 
 // The panes showing the board (not search or the mannequin).
 const boardPanes = () => layout().visiblePanes().filter((p) => p.type === 'board');
@@ -132,6 +134,7 @@ function placeToolbar() {
 // Light and dark mode: redraw the board in the new colours.
 window.addEventListener('themechange', (e) => {
   viewports.setColours(e.detail);
+  board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
   app.renderer.background.color = e.detail.gap;
   requestRender();
 });
@@ -277,18 +280,35 @@ function removeImageById(id) {
 function removeSelected() {
   const items = [...board.selection];
   if (!items.length) return;
-  const gone = items.map((item) => (item.kind === 'note'
-    ? { kind: 'note', data: board.noteJSON(item) }
-    : { kind: 'image', data: { ...board.imageJSON(item), blob: item.blob, index: board.items.indexOf(item) } }));
-  for (const item of items) {
-    if (item.kind === 'note') board.remove(item);
-    else removeImageById(item.id);
-  }
+  const gone = items.map(thingData);
+  for (const item of items) removeThing(item.kind, item.id);
   history.push({
-    undo: () => Promise.all(gone.map((g) => (g.kind === 'note' ? board.addNote(g.data) : restoreImage(g.data)))).then(requestRender),
-    redo: () => gone.forEach((g) => (g.kind === 'note' ? removeNoteById(g.data.id) : removeImageById(g.data.id))),
+    undo: () => Promise.all(gone.map(restoreThing)).then(requestRender),
+    redo: () => gone.forEach((g) => removeThing(g.kind, g.data.id)),
   });
   contentChanged();
+  requestRender();
+}
+
+// Any image, note, shape or frame as plain data (with its picture, for images),
+// and back again. Used by delete, undo, copy and paste.
+function thingData(item) {
+  const index = board.listOf(item.kind).indexOf(item);
+  if (item.kind === 'image') return { kind: 'image', data: { ...board.imageJSON(item), blob: item.blob, index } };
+  if (item.kind === 'note') return { kind: 'note', data: { ...board.noteJSON(item), index } };
+  if (item.kind === 'shape') return { kind: 'shape', data: { ...board.shapeJSON(item), index } };
+  return { kind: 'frame', data: { ...board.frameJSON(item), index } };
+}
+function restoreThing({ kind, data }) {
+  if (kind === 'image') return restoreImage(data);
+  const item = kind === 'note' ? board.addNote(data) : kind === 'shape' ? board.addShape(data) : board.addFrame(data);
+  requestRender();
+  return item;
+}
+function removeThing(kind, id) {
+  if (kind === 'image') return removeImageById(id);
+  const x = board.find(kind, id);
+  if (x) board.remove(x);
   requestRender();
 }
 
@@ -296,11 +316,15 @@ function removeSelected() {
 
 // The parts of an image or note that moving, scaling, rotating, flipping, cropping
 // and greyscale change. Saved before and after an edit, for undo.
-const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align'];
+const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
+const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
+const FRAME_PROPS = ['w', 'h', 'name'];
+const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
   const st = { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
-  if (item.kind === 'note') for (const k of TEXT_PROPS) st[k] = item[k];
+  for (const k of propsOf(item.kind)) st[k] = item[k];
+  st.group = item.group || null;
   return st;
 }
 function applyState(st) {
@@ -310,10 +334,11 @@ function applyState(st) {
     if (JSON.stringify(it.crop || null) !== JSON.stringify(st.crop)) board.setCrop(it, st.crop, { keepPlace: false });
     if (!!it.grey !== st.grey) board.setGrey(it, st.grey);
   }
-  if (it.kind === 'note') {
-    for (const k of TEXT_PROPS) if (k in st) it[k] = st[k];
-    board.layoutNote(it);
-  }
+  for (const k of propsOf(it.kind)) if (k in st) it[k] = st[k];
+  if ('group' in st) it.group = st.group;
+  if (it.kind === 'note') board.layoutNote(it);
+  if (it.kind === 'shape') board.drawShape(it);
+  if (it.kind === 'frame') board.drawFrame(it);
   it.sprite.position.set(st.x, st.y);
   it.sprite.scale.set(st.sx, st.sy);
   it.sprite.rotation = st.r;
@@ -384,6 +409,216 @@ function arrangeSelection() {
   }
   recordChange(order, before);
   requestRender();
+}
+
+// ---------- Groups, alignment, frames, layer order ----------
+
+const newGroupId = () => 'g' + Math.random().toString(36).slice(2, 9);
+
+function groupSelection() {
+  const items = board.selection.filter((x) => x.kind !== 'frame');
+  if (items.length < 2) return;
+  const id = newGroupId();
+  editSelection((x) => { x.group = id; }, items);
+  toast('Grouped. Click any of them to select the whole group. Ctrl/⌘+Shift+G ungroups.', 2600);
+}
+function ungroupSelection() {
+  const items = board.selection.filter((x) => x.group);
+  if (!items.length) return;
+  editSelection((x) => { x.group = null; }, items);
+  toast('Ungrouped', 1400);
+}
+
+// Line the selection up: 'left', 'center', 'right', 'top', 'middle', 'bottom',
+// or spread it out evenly: 'spread-x', 'spread-y'. Groups move as one piece.
+function alignSelection(how) {
+  const sel = [...board.selection];
+  if (sel.length < 2) return;
+  // Treat each group as one block.
+  const blocks = [];
+  const seen = new Set();
+  for (const x of sel) {
+    if (seen.has(x)) continue;
+    const members = x.group ? sel.filter((y) => y.group === x.group) : [x];
+    members.forEach((m) => seen.add(m));
+    blocks.push({ members, box: board.bounds(members) });
+  }
+  if (blocks.length < 2) return;
+  const all = board.bounds(sel);
+  const moveBlock = (b, dx, dy) => b.members.forEach((m) => { m.sprite.x += dx; m.sprite.y += dy; });
+  const before = sel.map(stateOf);
+  if (how === 'spread-x' || how === 'spread-y') {
+    const horiz = how === 'spread-x';
+    const sorted = [...blocks].sort((a, b) => (horiz ? a.box.x - b.box.x : a.box.y - b.box.y));
+    const total = sorted.reduce((n, b) => n + (horiz ? b.box.width : b.box.height), 0);
+    const space = ((horiz ? all.width : all.height) - total) / (sorted.length - 1);
+    let at = horiz ? all.x : all.y;
+    for (const b of sorted) {
+      if (horiz) moveBlock(b, at - b.box.x, 0); else moveBlock(b, 0, at - b.box.y);
+      at += (horiz ? b.box.width : b.box.height) + space;
+    }
+  } else {
+    for (const b of blocks) {
+      const x = { left: all.x - b.box.x, center: all.x + all.width / 2 - (b.box.x + b.box.width / 2), right: all.x + all.width - (b.box.x + b.box.width) }[how] || 0;
+      const y = { top: all.y - b.box.y, middle: all.y + all.height / 2 - (b.box.y + b.box.height / 2), bottom: all.y + all.height - (b.box.y + b.box.height) }[how] || 0;
+      moveBlock(b, x, y);
+    }
+  }
+  recordChange(sel, before);
+  requestRender();
+}
+
+function alignMenu(x, y) {
+  showMenu(x, y, [
+    { label: 'Align left', action: () => alignSelection('left') },
+    { label: 'Align centres', action: () => alignSelection('center') },
+    { label: 'Align right', action: () => alignSelection('right') },
+    '-',
+    { label: 'Align top', action: () => alignSelection('top') },
+    { label: 'Align middles', action: () => alignSelection('middle') },
+    { label: 'Align bottom', action: () => alignSelection('bottom') },
+    '-',
+    { label: 'Spread evenly across', action: () => alignSelection('spread-x') },
+    { label: 'Spread evenly down', action: () => alignSelection('spread-y') },
+    '-',
+    { label: 'Arrange in a grid', action: arrangeSelection },
+  ]);
+}
+
+// A frame around what's selected, with a little room around it.
+function frameSelection() {
+  const sel = board.selection.filter((x) => x.kind !== 'frame');
+  if (!sel.length) return;
+  const b = board.bounds(sel);
+  const pane = activePane || targetBoardPane();
+  const pad = Math.max(b.width, b.height) * 0.06 + 20 / (pane?.camera.zoom || 1);
+  const f = board.addFrame({
+    x: b.x + b.width / 2, y: b.y + b.height / 2, w: b.width + pad * 2, h: b.height + pad * 2,
+    name: `Frame ${board.frames.length + 1}`, titleSize: 15 / (pane?.camera.zoom || 1),
+  });
+  const data = board.frameJSON(f);
+  history.push({ undo: () => removeThing('frame', data.id), redo: () => restoreThing({ kind: 'frame', data }) });
+  board.selected = f;
+  contentChanged();
+  requestRender();
+  toast('Frame added. Double-click its name to rename it. Frames are the slides of Present mode.', 3200);
+}
+
+// Rename a frame: a text box over its name.
+function renameFrame(f, pane) {
+  const input = document.createElement('input');
+  input.className = 'frame-rename';
+  input.value = f.name;
+  const z = pane.camera.zoom;
+  Object.assign(input.style, {
+    left: `${pane.rect.x + pane.camera.x + (f.sprite.x + f.title.x) * z}px`,
+    top: `${pane.rect.y + pane.camera.y + (f.sprite.y + f.title.y) * z}px`,
+    fontSize: `${Math.max(11, f.titleSize * z)}px`,
+  });
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  const before = [stateOf(f)];
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    if (save && input.value.trim()) { f.name = input.value.trim(); board.drawFrame(f); recordChange([f], before); }
+    input.remove();
+    requestRender();
+  };
+  input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  input.addEventListener('blur', () => finish(true));
+}
+
+function reorderSelection(front) {
+  const sel = [...board.selection];
+  if (!sel.length) return;
+  for (const x of sel) (front ? board.bringToFront(x) : board.sendToBack(x));
+  contentChanged();
+  requestRender();
+}
+
+// ---------- Copy, paste, duplicate, nudge ----------
+
+let clipboard = null;  // things copied with Ctrl/⌘+C: { things, box }
+
+function copySelection() {
+  const sel = [...board.selection];
+  if (!sel.length) return false;
+  clipboard = { things: sel.map(thingData), box: board.bounds(sel) };
+  toast(`Copied ${sel.length === 1 ? 'it' : `${sel.length} things`}. Ctrl/⌘+V pastes, on this board or another.`, 1600);
+  return true;
+}
+
+// Paste copied things, centred on a board position (default: a little offset).
+async function pasteThings(clip, at = null) {
+  if (!clip || !current) return;
+  const box = clip.box;
+  const dx = at ? at.x - (box.x + box.width / 2) : 30 / (activePane?.camera.zoom || 1);
+  const dy = at ? at.y - (box.y + box.height / 2) : 30 / (activePane?.camera.zoom || 1);
+  const groups = new Map();
+  const added = [];
+  for (const t of clip.things) {
+    const data = { ...t.data, id: undefined, index: undefined, x: t.data.x + dx, y: t.data.y + dy, locked: false };
+    if (data.group) { if (!groups.has(data.group)) groups.set(data.group, newGroupId()); data.group = groups.get(data.group); }
+    if (t.kind === 'image') {
+      const bitmap = await decode(t.data.blob, t.data.name);
+      if (!bitmap) continue;
+      const item = board.addImage(bitmap, data.x, data.y, data);
+      store.saveImage(current.id, item.id, t.data.blob).catch(() => {});
+      added.push(item);
+    } else {
+      added.push(restoreThing({ kind: t.kind, data }));
+    }
+  }
+  const saved = added.map(thingData);
+  history.push({ undo: () => saved.forEach((g) => removeThing(g.kind, g.data.id)), redo: () => Promise.all(saved.map(restoreThing)).then(requestRender) });
+  board.selection = added;
+  contentChanged();
+  requestRender();
+}
+
+function duplicateSelection() {
+  const sel = [...board.selection];
+  if (!sel.length) return;
+  pasteThings({ things: sel.map(thingData), box: board.bounds(sel) });
+}
+
+// Arrow keys move the selection a pixel (or ten with Shift) on screen.
+let nudgeTimer = null;
+let nudgeBefore = null;
+function nudge(dx, dy, big) {
+  const sel = [...board.selection];
+  if (!sel.length) return;
+  const z = (activePane || targetBoardPane())?.camera.zoom || 1;
+  const step = (big ? 10 : 1) / z;
+  if (!nudgeBefore) nudgeBefore = sel.map(stateOf);
+  for (const x of sel) { x.sprite.x += dx * step; x.sprite.y += dy * step; }
+  requestRender();
+  // Several quick nudges count as one step for undo.
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(() => { recordChange(sel, nudgeBefore); nudgeBefore = null; }, 500);
+}
+
+// ---------- Copy and download an image ----------
+
+async function copyImage(item) {
+  try {
+    const bitmap = await createImageBitmap(item.blob);
+    const c = item.crop || { x: 0, y: 0, w: bitmap.width, h: bitmap.height };
+    const canvas = new OffscreenCanvas(c.w, c.h);
+    canvas.getContext('2d').drawImage(bitmap, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+    const png = await canvas.convertToBlob({ type: 'image/png' });
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    toast('Image copied. Paste it into any app.', 1800);
+  } catch {
+    toast("Couldn't copy the image. Try Download image instead.");
+  }
+}
+function downloadImage(item) {
+  const ext = (item.blob?.type || 'image/png').split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+  downloadBlob(item.blob, `${(item.name || 'image').replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80)}.${ext}`);
 }
 
 // Crop: the next box you drag over the selected image becomes the part that's kept.
@@ -527,6 +762,8 @@ async function loadBoard(data, getBlob) {
     });
     for (const s of data?.strokes || []) board.addStroke(s);
     for (const n of data?.notes || []) board.addNote(n);
+    for (const x of data?.shapes || []) board.addShape(x);
+    for (const f of data?.frames || []) board.addFrame(f);
     // Make sure the fonts the text uses are loaded, then lay the text out again.
     const used = [...new Set(board.notes.map((n) => `${n.font}|${n.weight}|${n.italic}`))];
     Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
@@ -1039,6 +1276,12 @@ window.addEventListener('paste', async (e) => {
   if (e.target.closest?.('input, textarea')) return;
   try {
     const list = await imagesFromPaste(e.clipboardData);
+    // Nothing from outside the app: paste what was copied on a board (Ctrl/⌘+C), at the mouse.
+    if (list.length === 0 && clipboard && mode === 'board') {
+      const pane = targetBoardPane();
+      const at = pane && hoverPane() === pane ? pane.camera.toWorld(mouse.x - pane.rect.x, mouse.y - pane.rect.y) : null;
+      return pasteThings(clipboard, at);
+    }
     if (list.length === 0) return toast('There is no image on the clipboard.');
     // Pasting on the home screen starts a new board.
     if (mode === 'home') await openBoardNow(await createBoard());
@@ -1091,6 +1334,8 @@ const noteEditor = new NoteEditor((note, text, oldText) => {
   // After placing a note or text, go back to moving things (like Figma and Miro do).
   if (isNew && (toolbar.tool === 'note' || toolbar.tool === 'text')) toolbar.setTool('select');
   const before = { ...stateOf(note), text: oldText };
+  // Lines starting with "- " or "* " become bullets.
+  text = text.replace(/^([ \t]*)[-*] /gm, '$1• ');
   // Like Notion: text starting with "# ", "## " or "### " becomes a heading.
   if (note.style === 'text') {
     const m = text.match(/^(#{1,3}) +/);
@@ -1176,7 +1421,8 @@ function dragTo(d, w, e) {
     d.items.forEach((item, i) => {
       const b = d.before[i];
       item.sprite.position.set(d.anchor.x + (b.x - d.anchor.x) * f, d.anchor.y + (b.y - d.anchor.y) * f);
-      if (item.kind === 'image' || item.style === 'text') item.sprite.scale.set(b.sx * f, b.sy * f);
+      if (item.kind === 'image' || item.style === 'text' || item.kind === 'shape') item.sprite.scale.set(b.sx * f, b.sy * f);
+      if (item.kind === 'frame') { item.w = b.w * f; item.h = b.h * f; board.drawFrame(item); }
     });
   } else if (d.kind === 'rotate') {
     // Turn around the middle of the selection. Shift snaps to 15° steps.
@@ -1191,15 +1437,32 @@ function dragTo(d, w, e) {
       const b = d.before[i];
       const rx = b.x - d.cx, ry = b.y - d.cy;
       item.sprite.position.set(d.cx + rx * cos - ry * sin, d.cy + rx * sin + ry * cos);
-      if (item.kind === 'image' || item.style === 'text') item.sprite.rotation = b.r + a;
+      if (item.kind === 'image' || item.style === 'text' || item.kind === 'shape') item.sprite.rotation = b.r + a;
     });
+  } else if (d.kind === 'create') {
+    d.moved = true;
+    const it = d.item;
+    if (it.kind === 'frame' || it.shape === 'rect' || it.shape === 'ellipse') {
+      let wx = w.x - d.start.x, wy = w.y - d.start.y;
+      if (e.shiftKey && it.kind === 'shape') { const m = Math.max(Math.abs(wx), Math.abs(wy)); wx = Math.sign(wx || 1) * m; wy = Math.sign(wy || 1) * m; }
+      it.sprite.position.set(d.start.x + wx / 2, d.start.y + wy / 2);
+      if (it.kind === 'frame') { it.w = Math.max(1, Math.abs(wx)); it.h = Math.max(1, Math.abs(wy)); board.drawFrame(it); }
+      else { it.w = Math.max(1, Math.abs(wx)); it.h = Math.max(1, Math.abs(wy)); board.drawShape(it); }
+    } else {
+      // Lines and arrows: Shift keeps them to 45° steps.
+      let dx = w.x - d.start.x, dy = w.y - d.start.y;
+      if (e.shiftKey) { const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4); const l = Math.hypot(dx, dy); dx = Math.cos(a) * l; dy = Math.sin(a) * l; }
+      it.dx = dx; it.dy = dy;
+      it.sprite.position.set(d.start.x + dx / 2, d.start.y + dy / 2);
+      board.drawShape(it);
+    }
   } else if (d.kind === 'marquee' || d.kind === 'crop') {
     board.marquee.x1 = w.x;
     board.marquee.y1 = w.y;
     if (d.kind === 'marquee') {
       const m = board.marquee;
       const inside = board.inRect(m.x0, m.y0, m.x1, m.y1);
-      board.selection = [...new Set([...d.base, ...inside])];
+      board.selection = [...new Set([...d.base, ...inside.flatMap((x) => board.groupOf(x))])];
     }
   }
 }
@@ -1213,7 +1476,11 @@ const SEL_ICONS = {
   crop: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v10h10M1.5 4.5h10v10"/></svg>',
   grey: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 000-11z" fill="currentColor"/></svg>',
   colours: '<svg viewBox="0 0 16 16"><rect x="1.5" y="4" width="4.3" height="8" rx="1"/><rect x="5.8" y="4" width="4.3" height="8" rx="1"/><rect x="10.2" y="4" width="4.3" height="8" rx="1"/></svg>',
-  arrange: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+  align: '<svg viewBox="0 0 16 16"><path d="M2.5 1.5v13"/><rect x="4.5" y="3.5" width="8" height="3" rx="1"/><rect x="4.5" y="9.5" width="5" height="3" rx="1"/></svg>',
+  group: '<svg viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke-dasharray="2 2"/><rect x="4" y="4" width="4" height="4" rx="1"/><rect x="8.5" y="8.5" width="3.5" height="3.5" rx="1"/></svg>',
+  ungroup: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/><path d="M9.5 3.5l3 3M12.5 3.5l-3 3"/></svg>',
+  frame: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v13M11.5 1.5v13M1.5 4.5h13M1.5 11.5h13"/></svg>',
+  duplicate: '<svg viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"/></svg>',
   delete: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>',
 };
 const SEL_ACTIONS = [
@@ -1223,7 +1490,11 @@ const SEL_ACTIONS = [
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
-  ['arrange', 'Arrange in a grid', arrangeSelection, (sel) => sel.length > 1],
+  ['align', 'Align, spread out or arrange', () => { const r = selectionBar.querySelector('[data-action="align"]').getBoundingClientRect(); alignMenu(r.left, r.bottom + 6); }, (sel) => sel.length > 1],
+  ['group', 'Group (Ctrl/⌘+G)', groupSelection, (sel) => sel.length > 1 && !(sel.every((x) => x.group && x.group === sel[0].group))],
+  ['ungroup', 'Ungroup (Ctrl/⌘+Shift+G)', ungroupSelection, (sel) => sel.some((x) => x.group)],
+  ['frame', 'Put a frame around these', frameSelection, (sel) => sel.some((x) => x.kind !== 'frame')],
+  ['duplicate', 'Duplicate (Ctrl/⌘+D)', duplicateSelection],
   ['delete', 'Delete (Del)', removeSelected],
 ];
 for (const [id, title, action] of SEL_ACTIONS) {
@@ -1250,6 +1521,8 @@ textControls.innerHTML = `
   <button data-text="bold" title="Bold (Ctrl/⌘+B)"><b>B</b></button>
   <button data-text="italic" title="Italic (Ctrl/⌘+I)"><i>I</i></button>
   <button data-text="align" title="Alignment"></button>
+  <button data-text="box" title="Background: none, soft box or outline (keeps text readable over images)"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="2"/><path d="M5 10l3-5 3 5M6 8.5h4"/></svg></button>
+  <button data-text="fill" title="Fill the shape"><svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" fill="currentColor" fill-opacity="0.35"/></svg></button>
   <button data-text="colour" class="sel-colour" title="Colour"></button>
   <div class="sel-palette" hidden></div>`;
 selectionBar.prepend(textControls);
@@ -1288,14 +1561,25 @@ function fillFontMenu(current) {
 }
 
 const selectedNotes = () => board.selection.filter((x) => x.kind === 'note');
+const selectedShapes = () => board.selection.filter((x) => x.kind === 'shape');
 
-// Change text settings on every selected note or text, as one undo step.
+// Change text (or shape) settings on everything selected, as one undo step.
 function setTextProps(props) {
   const notes = selectedNotes();
+  const shapes = selectedShapes();
+  if (shapes.length && !notes.length) {
+    editSelection((x) => {
+      if ('color' in props) x.color = props.color;
+      if ('fill' in props) x.fill = props.fill;
+      board.drawShape(x);
+    }, shapes);
+    lastControls = '';
+    return;
+  }
   if (!notes.length) return;
   editSelection((n) => {
     if (props.level && n.style === 'text') { n.level = props.level; n.weight = LEVELS[props.level].weight; }
-    for (const k of ['font', 'italic', 'align', 'color', 'weight']) if (k in props) n[k] = props[k];
+    for (const k of ['font', 'italic', 'align', 'color', 'weight', 'box']) if (k in props) n[k] = props[k];
     board.layoutNote(n);
   }, notes);
   if (props.font || props.weight || 'italic' in props) {
@@ -1331,21 +1615,44 @@ textControls.querySelector('[data-text="align"]').addEventListener('click', () =
   setTextProps({ align: order[(order.indexOf(now) + 1) % 3] });
 });
 textControls.querySelector('[data-text="colour"]').addEventListener('click', () => { palette.hidden = !palette.hidden; });
+textControls.querySelector('[data-text="box"]').addEventListener('click', () => {
+  const order = ['none', 'fill', 'outline'];
+  const now = selectedNotes()[0]?.box || 'none';
+  setTextProps({ box: order[(order.indexOf(now) + 1) % 3] });
+});
+textControls.querySelector('[data-text="fill"]').addEventListener('click', () => {
+  setTextProps({ fill: !selectedShapes().every((x) => x.fill) });
+});
 selectionBar.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // Show the text controls for the selection, and keep them in step with it.
 let lastControls = '';
 function updateTextControls(sel) {
   const notes = sel.filter((x) => x.kind === 'note');
-  const show = notes.length > 0 && notes.length === sel.length;
-  textControls.hidden = !show;
-  if (!show) { palette.hidden = true; return; }
+  const shapes = sel.filter((x) => x.kind === 'shape');
+  const isText = notes.length > 0 && notes.length === sel.length;
+  const isShape = shapes.length > 0 && shapes.length === sel.length;
+  textControls.hidden = !isText && !isShape;
+  if (textControls.hidden) { palette.hidden = true; return; }
+  // Shapes only get a colour and a fill; text gets everything else.
+  for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], [data-text="align"], [data-text="box"]')) el.hidden = !isText;
+  textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse'));
+  if (isShape) {
+    const key = shapes.map((x) => `${x.id}:${x.color}:${x.fill}`).join(',');
+    if (key === lastControls) return;
+    lastControls = key;
+    textControls.querySelector('[data-text="fill"]').classList.toggle('on', shapes.every((x) => x.fill));
+    textControls.querySelector('.sel-colour').style.setProperty('--c', shapes[0].color);
+    return;
+  }
   const n = notes[0];
-  const key = notes.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.align}:${x.color}`).join(',') + customFonts().join(',');
+  const key = notes.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.align}:${x.color}:${x.box}`).join(',') + customFonts().join(',');
   if (key === lastControls) return;
   lastControls = key;
   const allText = notes.every((x) => x.style === 'text');
   levelSelect.hidden = !allText;
+  textControls.querySelector('[data-text="box"]').hidden = !allText;
+  textControls.querySelector('[data-text="box"]').classList.toggle('on', (n.box || 'none') !== 'none');
   if (allText) levelSelect.value = n.level;
   fillFontMenu(n.font);
   textControls.querySelector('[data-text="bold"]').classList.toggle('on', notes.every((x) => x.weight >= 600));
@@ -1371,7 +1678,14 @@ function placeSelectionBar() {
   const w = selectionBar.offsetWidth, h = selectionBar.offsetHeight;
   const x = Math.min(Math.max(cx - w / 2, r.x + 8), r.x + r.w - w - 8);
   let y = top - h - 40;
-  if (y < r.y + 8) y = Math.min(r.y + r.h - h - 8, r.y + cam.y + (b.y + b.height) * cam.zoom + 14);
+  if (y < r.y + 8) {
+    // No room above: go below it, unless that runs into the drawing toolbar at the
+    // bottom; then sit just inside the selection's top edge.
+    y = r.y + cam.y + (b.y + b.height) * cam.zoom + 14;
+    const tb = document.getElementById('toolbar').getBoundingClientRect();
+    const bottom = Math.min(r.y + r.h, tb.height ? tb.top : Infinity) - 8;
+    if (y + h > bottom) y = Math.min(Math.max(r.y + 8, top + 14), bottom - h);   // just inside the top edge, clear of the rotate handle
+  }
   selectionBar.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
 }
 
@@ -1465,13 +1779,25 @@ panesEl.addEventListener('pointerdown', (e) => {
       if (hit?.kind === 'note') editNote(hit, pane);
       else addNoteAt(pane, w.x, w.y, tool === 'text' ? 'text' : 'sticky');
     }
+  } else if (e.button === 0 && (tool === 'shape' || tool === 'frame')) {
+    // Drag to draw a shape or a frame.
+    board.selected = null;
+    let item;
+    if (tool === 'frame') {
+      item = board.addFrame({ x: w.x, y: w.y, w: 1, h: 1, name: `Frame ${board.frames.length + 1}`, titleSize: 15 / pane.camera.zoom });
+    } else {
+      const shape = toolbar.state.shape;
+      item = board.addShape({ shape, x: w.x, y: w.y, w: 1, h: 1, dx: 1, dy: 0, color: toolbar.color, strokeWidth: toolbar.state.shapeSize / pane.camera.zoom });
+    }
+    drag = { kind: 'create', pane, item, start: w, moved: false };
   } else if (e.button === 0 && cropping) {
     // Cropping: drag a box over the part to keep.
     board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
     drag = { kind: 'crop', pane };
   } else if (e.button === 0) {
     const handle = handleAt(pane, w);
-    const hit = board.hitTest(w.x, w.y);
+    // A frame's name label selects the frame; otherwise the top thing under the mouse.
+    const hit = board.frameTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
     if (handle !== null) {
       // A corner handle scales, the round handle above rotates.
       const box = board.selectionBox();
@@ -1485,7 +1811,12 @@ panesEl.addEventListener('pointerdown', (e) => {
       }
     } else if (e.shiftKey) {
       // Shift: click adds or removes one; dragging on empty space draws a selection box.
-      if (hit) { board.toggleSelected(hit); drag = null; }
+      if (hit) {
+        const group = board.groupOf(hit);
+        const on = board.isSelected(hit);
+        board.selection = on ? board.selection.filter((x) => !group.includes(x)) : [...new Set([...board.selection, ...group])];
+        drag = null;
+      }
       else {
         board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
         drag = { kind: 'marquee', pane, base: [...board.selection] };
@@ -1493,9 +1824,10 @@ panesEl.addEventListener('pointerdown', (e) => {
     } else if (hit) {
       // Clicked an image or note: select it (keeping a group selected if it's part of
       // one), raise it to the top and start moving everything selected.
-      if (!board.isSelected(hit)) board.selected = hit;
+      if (!board.isSelected(hit)) board.selection = board.groupOf(hit);
       board.bringToFront(hit);
-      const items = [...board.selection];
+      // Frames take what's inside them along.
+      const items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])];
       drag = { kind: 'move', pane, items, before: items.map(stateOf), start: w, moved: false };
     } else {
       // Clicked empty space: deselect and pan.
@@ -1527,7 +1859,7 @@ panesEl.addEventListener('pointermove', (e) => {
   }
   if (drag.kind === 'pan') {
     drag.pane.camera.panBy(dx, dy);
-  } else if (['move', 'scale', 'rotate', 'marquee', 'crop'].includes(drag.kind)) {
+  } else if (['move', 'scale', 'rotate', 'marquee', 'crop', 'create'].includes(drag.kind)) {
     // These follow the mouse in the pane you're dragging in; every other pane updates too.
     const p = localPoint(drag.pane, e);
     const w = drag.pane.camera.toWorld(p.x, p.y);
@@ -1549,7 +1881,23 @@ function endDrag() {
   drag = null;
   panesEl.classList.remove('panning');
 
-  if (['move', 'scale', 'rotate'].includes(d.kind)) {
+  if (d.kind === 'create') {
+    const it = d.item;
+    if (!d.moved || (it.kind !== 'shape' || it.shape === 'rect' || it.shape === 'ellipse' ? Math.max(it.w, it.h) : Math.hypot(it.dx, it.dy)) * d.pane.camera.zoom < 6) {
+      // Just a click: a shape or frame of a standard size.
+      const z = d.pane.camera.zoom;
+      if (it.kind === 'frame') { it.w = 960 / z; it.h = 540 / z; board.drawFrame(it); }
+      else if (it.shape === 'rect' || it.shape === 'ellipse') { it.w = 180 / z; it.h = 120 / z; board.drawShape(it); }
+      else { it.dx = 180 / z; it.dy = 0; board.drawShape(it); }
+      it.sprite.position.set(d.start.x, d.start.y);
+    }
+    const kind = it.kind;
+    const data = kind === 'frame' ? board.frameJSON(it) : board.shapeJSON(it);
+    history.push({ undo: () => removeThing(kind, data.id), redo: () => restoreThing({ kind, data }) });
+    board.selected = it;
+    toolbar.setTool('select');
+    contentChanged();
+  } else if (['move', 'scale', 'rotate'].includes(d.kind)) {
     recordChange(d.items, d.before);
   } else if (d.kind === 'marquee') {
     board.marquee = null;
@@ -1589,8 +1937,11 @@ panesEl.addEventListener('dblclick', (e) => {
   if (pane?.type !== 'board') return;
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
+  const title = board.frameTitleAt(w.x, w.y);
+  if (title) return renameFrame(title, pane);
   const hit = board.hitTest(w.x, w.y);
   if (hit?.kind === 'note') editNote(hit, pane);
+  else if (hit?.kind === 'frame') renameFrame(hit, pane);
 });
 
 // Stop the middle button from starting Chrome's auto-scroll.
@@ -1643,6 +1994,7 @@ function openMenu(x, y, pane) {
     { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
     { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
+    { label: board.frames.length ? `Present (${board.frames.length} frame${board.frames.length > 1 ? 's' : ''})` : 'Present', shortcut: `${MOD}Enter`, disabled: board.isEmpty(), action: startPresent },
     '-',
     { label: 'Capture screen…', action: captureScreen },
     { label: document.documentElement.dataset.refboardExtension ? 'Browser extension: installed ✓' : 'Get the browser extension…', action: () => window.open(EXTENSION_HELP, '_blank', 'noopener') },
@@ -1667,7 +2019,23 @@ function openMenu(x, y, pane) {
           { label: 'Extract colours', action: extractColours },
         ] : []),
       ] : []),
-      ...(board.selection.length > 1 ? [{ label: 'Arrange in a grid', action: arrangeSelection }] : []),
+      ...(board.selection.length > 1 ? [
+        { label: 'Align and spread…', action: () => alignMenu(x, y) },
+        { label: 'Group', shortcut: `${MOD}G`, action: groupSelection },
+      ] : []),
+      ...(board.selection.some((s) => s.group) ? [{ label: 'Ungroup', shortcut: `${MOD}Shift+G`, action: ungroupSelection }] : []),
+      ...(board.selection.length ? [
+        '-',
+        { label: 'Duplicate', shortcut: `${MOD}D`, action: duplicateSelection },
+        { label: 'Copy', shortcut: `${MOD}C`, action: copySelection },
+        { label: 'Bring to front', action: () => reorderSelection(true) },
+        { label: 'Send to back', action: () => reorderSelection(false) },
+        { label: 'Put a frame around', action: frameSelection },
+      ] : []),
+      ...(board.selected?.kind === 'image' ? [
+        { label: 'Copy image', action: () => copyImage(board.selected) },
+        { label: 'Download image', action: () => downloadImage(board.selected) },
+      ] : []),
       ...(menuTarget ? [{
         label: `${menuTarget.locked ? 'Unlock' : 'Lock'} ${menuTarget.kind === 'note' ? 'note' : 'image'}`,
         shortcut: 'L',
@@ -1703,10 +2071,173 @@ panesEl.addEventListener('contextmenu', (e) => {
   openMenu(e.clientX, e.clientY, pane);
 });
 
+// ---------- Present mode ----------
+//
+// Shows the board full screen, one frame at a time, like slides. With no frames,
+// the whole board is the one slide. → / Space / click: next. ← / right-click: back.
+// Esc: stop. The frames are shown in the order they were made.
+
+let presenting = null;  // { pane, slides, index, before, anim }
+
+// While presenting frames, everything outside the current frame is covered with the
+// background colour, so each frame reads as a clean slide.
+const presentCover = new Graphics();
+function coverOutside(slide) {
+  presentCover.clear();
+  if (!board.frames.length) return;
+  const { x, y, width: w, height: h } = slide;
+  const far = 1e6;
+  presentCover
+    .rect(x - far, y - far, far * 2 + w, far).rect(x - far, y + h, far * 2 + w, far)
+    .rect(x - far, y, far, h).rect(x + w, y, far, h)
+    .fill(themeColours().board);
+}
+
+function slideBounds(f) {
+  return { x: f.sprite.x - f.w / 2, y: f.sprite.y - f.h / 2, width: f.w, height: f.h, name: f.name };
+}
+
+function startPresent() {
+  if (mode !== 'board' || presenting) return;
+  if (board.isEmpty()) { toast('Add something to the board first.', 1800); return; }
+  const l = layout();
+  const pane = targetBoardPane() || l.panes().find((p) => p.type === 'board');
+  if (!pane) { toast('Present needs a board pane. Switch a pane back to Board first.', 2600); return; }
+  hideMenu();
+  if (noteEditor.editing) noteEditor.finish();
+  cropping = null;
+  const slides = board.frames.length ? board.frames.map(slideBounds) : [{ ...board.bounds(null), name: current?.name || '' }];
+  presenting = {
+    pane, slides, index: 0, anim: 0,
+    before: { maximized: l.maximized, camera: { x: pane.camera.x, y: pane.camera.y, zoom: pane.camera.zoom }, selection: [...board.selection] },
+  };
+  board.selection = [];
+  board.frameLayer.visible = false;   // just the content, no frame outlines or names
+  board.world.addChild(presentCover);
+  viewports.hideDots = true;
+  l.maximized = l.panes().length > 1 ? pane : null;
+  document.body.classList.add('presenting');
+  hud.hidden = false;
+  document.documentElement.requestFullscreen?.().catch(() => {});
+  viewports.rebuild();
+  showSlide(0, false);
+}
+
+function stopPresent() {
+  if (!presenting) return;
+  const { pane, before } = presenting;
+  cancelAnimationFrame(presenting.anim);
+  presenting = null;
+  document.body.classList.remove('presenting');
+  hud.hidden = true;
+  board.frameLayer.visible = true;
+  presentCover.clear();
+  presentCover.removeFromParent();
+  viewports.hideDots = false;
+  layout().maximized = before.maximized;
+  Object.assign(pane.camera, before.camera);
+  board.selection = before.selection.filter((x) => board.find(x.kind, x.id));
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  viewports.rebuild();
+  requestRender();
+}
+
+// Move the camera to a slide: a short, smooth glide (or a jump).
+function showSlide(i, animate = true) {
+  const P = presenting;
+  if (!P) return;
+  P.index = Math.max(0, Math.min(P.slides.length - 1, i));
+  const slide = P.slides[P.index];
+  const cam = P.pane.camera;
+  const { w, h } = P.pane.rect;
+  const target = new Camera();
+  target.frame(slide, w, h, Math.min(w, h) * 0.04);
+  coverOutside(slide);
+  hudText.textContent = `${P.index + 1} / ${P.slides.length}${slide.name ? ` · ${slide.name}` : ''}`;
+  hud.classList.remove('faded');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => hud.classList.add('faded'), 2200);
+  cancelAnimationFrame(P.anim);
+  if (!animate) { Object.assign(cam, { x: target.x, y: target.y, zoom: target.zoom }); requestRender(); return; }
+  // Glide the middle of the view and the zoom (zoom in steps that feel even: log scale).
+  const from = { c: cam.toWorld(w / 2, h / 2), z: Math.log(cam.zoom) };
+  const to = { c: target.toWorld(w / 2, h / 2), z: Math.log(target.zoom) };
+  const start = performance.now();
+  const ms = 520;
+  const step = (now) => {
+    if (presenting !== P) return;
+    const t = Math.min(1, (now - start) / ms);
+    const k = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;   // ease in and out
+    const zoom = Math.exp(from.z + (to.z - from.z) * k);
+    const cx = from.c.x + (to.c.x - from.c.x) * k, cy = from.c.y + (to.c.y - from.c.y) * k;
+    Object.assign(cam, { zoom, x: w / 2 - cx * zoom, y: h / 2 - cy * zoom });
+    requestRender();
+    if (t < 1) P.anim = requestAnimationFrame(step);
+  };
+  P.anim = requestAnimationFrame(step);
+}
+
+// The little bar at the bottom while presenting: back, "2 / 5 · name", next, stop.
+const hud = document.createElement('div');
+hud.id = 'present-hud';
+hud.hidden = true;
+hud.innerHTML = `
+  <button data-go="-1" title="Back (←)"><svg viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></svg></button>
+  <span class="present-where"></span>
+  <button data-go="1" title="Next (→ or Space)"><svg viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></button>
+  <button data-go="stop" title="Stop presenting (Esc)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>`;
+document.body.appendChild(hud);
+const hudText = hud.querySelector('.present-where');
+let hudTimer;
+hud.addEventListener('pointerdown', (e) => e.stopPropagation());
+hud.addEventListener('click', (e) => {
+  const go = e.target.closest('button')?.dataset.go;
+  if (go === 'stop') stopPresent();
+  else if (go) showSlide(presenting.index + Number(go));
+});
+// Moving the mouse brings the bar back for a moment.
+window.addEventListener('pointermove', () => {
+  if (!presenting) return;
+  hud.classList.remove('faded');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => hud.classList.add('faded'), 2200);
+});
+
+// While presenting, a click moves on (right-click goes back) instead of editing.
+panesEl.addEventListener('pointerdown', (e) => {
+  if (!presenting) return;
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  if (e.button === 0) showSlide(presenting.index + (e.shiftKey ? -1 : 1));
+  else if (e.button === 2) showSlide(presenting.index - 1);
+}, true);
+panesEl.addEventListener('contextmenu', (e) => { if (presenting) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+panesEl.addEventListener('dblclick', (e) => { if (presenting) e.stopImmediatePropagation(); }, true);
+// Leaving full screen (Chrome uses Esc for that itself) ends the presentation too.
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && presenting) stopPresent(); });
+// The window changes size when it goes full screen: fit the slide again.
+window.addEventListener('resize', () => { if (presenting) requestAnimationFrame(() => showSlide(presenting.index, false)); });
+
+function presentKey(e) {
+  const P = presenting;
+  const k = e.key;
+  if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(k)) showSlide(P.index + 1);
+  else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(k)) showSlide(P.index - 1);
+  else if (k === 'Home') showSlide(0);
+  else if (k === 'End') showSlide(P.slides.length - 1);
+  else if (k === 'Escape') stopPresent();
+  else return;
+  e.preventDefault();
+}
+
+document.getElementById('present-button').addEventListener('click', startPresent);
+
 // ---------- Keyboard ----------
 
 window.addEventListener('keydown', (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (presenting) { presentKey(e); return; }
+  if (mod && e.key === 'Enter' && mode === 'board' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); startPresent(); return; }
   if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
   if (e.target.closest?.('input, textarea, select')) return;
 
@@ -1722,7 +2253,15 @@ window.addEventListener('keydown', (e) => {
     textControls.querySelector(`[data-text="${e.code === 'KeyB' ? 'bold' : 'italic'}"]`).click();
     return;
   }
-  if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes].filter((x) => !x.locked); requestRender(); return; }
+  if (mod && e.code === 'KeyG') { e.preventDefault(); (e.shiftKey ? ungroupSelection : groupSelection)(); requestRender(); return; }
+  if (mod && e.code === 'KeyD') { e.preventDefault(); duplicateSelection(); return; }
+  if (mod && e.code === 'KeyC' && board.selection.length) { if (copySelection()) e.preventDefault(); return; }
+  if (!mod && !e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && board.selection.length) {
+    e.preventDefault();
+    nudge({ ArrowLeft: -1, ArrowRight: 1 }[e.key] || 0, { ArrowUp: -1, ArrowDown: 1 }[e.key] || 0, e.shiftKey);
+    return;
+  }
+  if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes, ...board.shapes].filter((x) => !x.locked); requestRender(); return; }
 
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
   if (e.altKey && !mod) {

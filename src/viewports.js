@@ -261,6 +261,7 @@ export class Viewports {
     d.width = pane.rect.w;
     d.height = pane.rect.h;
     d.tint = this.dotColour;
+    d.alpha = this.hideDots ? 0 : 1;   // Present mode shows a plain background
     d.tileScale.set(spacing / DOT_CELL);
     // Keep the dots fixed to the board as you pan.
     d.tilePosition.set(cam.x % spacing, cam.y % spacing);

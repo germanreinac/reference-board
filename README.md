@@ -18,7 +18,13 @@ Open the GitHub Pages link for this repository in Chrome. There is nothing to in
 | Move an image | Drag it (it also comes to the front). Every pane updates |
 | Select several | Shift-click to add or remove one, or Shift-drag a box on empty space. Ctrl/⌘ + A selects everything |
 | Scale / rotate | Drag a corner handle to scale, or the round handle above to rotate (hold Shift to snap to 15°) |
-| Flip, crop, greyscale, colours, arrange, lock, delete | The small bar above the selection, or right-click. **Crop**: drag a box over the part to keep. **Extract colours** adds a palette of the image's main colours, with their codes and how much of each. **Arrange** puts the selection in tidy rows |
+| Flip, crop, greyscale, colours, align, group, frame, duplicate, lock, delete | The small bar above the selection, or right-click. **Crop**: drag a box over the part to keep. **Extract colours** adds a palette of the image's main colours, with their codes and how much of each. **Align** lines things up, spreads them out evenly, or arranges them in tidy rows |
+| Group / ungroup | Ctrl/⌘ + `G` / Ctrl/⌘ + Shift + `G`. Clicking one thing in a group selects the whole group |
+| Duplicate | Ctrl/⌘ + `D` |
+| Copy and paste | Ctrl/⌘ + `C`, then Ctrl/⌘ + `V` where the mouse is. Works between boards too |
+| Nudge | Arrow keys move the selection a little, Shift + arrow a lot |
+| Bring to front / send to back | Right-click |
+| Copy or download an image | Right-click it: **Copy image** (to paste into Photoshop, Krita, etc.) or **Download image** |
 | Fit to pane | `F` fits the selected image, or everything when nothing is selected |
 | Actual size | `1` sets the zoom to 100% |
 | Delete | `Delete` or `Backspace` |
@@ -129,7 +135,9 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 | Hand (move around without touching images) | `H`. Space + drag and the middle mouse button also always pan |
 | Pen | `B` (or `P`). Pressure-sensitive with a tablet pen |
 | Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
-| Text | `T`, then click and type. Start with `# `, `## ` or `### ` for a heading. Click away to finish |
+| Text | `T`, then click and type. Start with `# `, `## ` or `### ` for a heading, and lines with `- ` become bullets. Click away to finish. The **box** button in the bar puts the text on a coloured block or an outline |
+| Shape | `S`, then drag. Click the shape button again to choose rectangle, ellipse, line or arrow. Shift keeps squares, circles and 45° lines. The bar sets the colour and whether it's filled |
+| Frame | `A`, then drag a box (or click for a 16:9 one). **Put a frame around** in the bar frames what's selected. Moving a frame moves what's inside it. Double-click its name to rename it |
 | Sticky note | `N`, then click where the note should go and type. Click away to finish |
 | Edit a note | Double-click it |
 | Brush size | `[` and `]`, or the slider |
@@ -138,6 +146,21 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 Strokes and notes are part of the board, so every pane shows them. Strokes are
 saved as shapes rather than pixels, so they stay sharp at any zoom. Notes take
 the selected colour.
+
+### Present mode
+
+**▶ Present** in the top bar (or Ctrl/⌘ + `Enter`) shows the board full screen, one frame at
+a time, like slides. Only what's inside the frame is shown. With no frames, it shows the whole board.
+
+| Action | How |
+| --- | --- |
+| Next | `→`, `Space`, or click |
+| Back | `←`, or right-click |
+| First / last | `Home` / `End` |
+| Stop | `Esc` |
+
+Frames are shown in the order you made them. Scrolling still zooms in, if you want to point at
+a detail.
 
 ### Split view
 
@@ -210,6 +233,9 @@ Chrome may remind you that a developer-mode extension is on; that's expected.)
 - ✅ Image search (Openverse, Unsplash, Pexels)
 - ✅ 3D posing mannequin with preset poses
 - ✅ Typing a pose with AI
+- ✅ Shapes, arrows, frames, groups, align, copy and paste
+- ✅ Present mode
+- ⏳ Cloud sync (Supabase), then a phone view
 
 ## How the code is organised
 

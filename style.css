@@ -5,13 +5,13 @@
   --bg: #1b1b1d;            /* board and pane background */
   --gap: #08080a;           /* the lines between panes */
   --line: #26262b;          /* thin separators */
-  --input: var(--input);         /* text boxes and the top bar */
-  --card: var(--card);          /* cards and chips */
+  --input: #141416;         /* text boxes and the top bar */
+  --card: #222226;          /* cards and chips */
   --panel: #2a2a2f;         /* menus */
-  --panel-2: var(--panel-2);       /* settings panels */
+  --panel-2: #202024;       /* settings panels */
   --panel-border: #3a3a40;
-  --border-strong: var(--border-strong);
-  --overlay: var(--overlay);  /* floating bars over a pane */
+  --border-strong: #4a4a52;
+  --overlay: rgba(24, 24, 27, 0.9);  /* floating bars over a pane */
   --dot: #34343a;           /* background dots */
   --text: #8a8a90;
   --text-strong: #c8c8cc;
@@ -585,7 +585,7 @@ body[data-mode="board"] #home { display: none; }
   background: var(--input);
 }
 
-#home-button, #board-menu-button, #bar-theme-button {
+#home-button, #board-menu-button, #bar-theme-button, #present-button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -597,8 +597,8 @@ body[data-mode="board"] #home { display: none; }
   font-size: 12px;
   cursor: pointer;
 }
-#home-button:hover, #board-menu-button:hover, #bar-theme-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
-#home-button svg, #board-menu-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
+#home-button:hover, #board-menu-button:hover, #bar-theme-button:hover, #present-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
+#home-button svg, #board-menu-button svg, #present-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -626,7 +626,7 @@ body[data-mode="board"] #home { display: none; }
 #board-name:focus { border-color: var(--accent); background: var(--bg); }
 
 @media (max-width: 520px) {
-  #home-button span, .bar-sep { display: none; }
+  #home-button span, #present-button span, .bar-sep { display: none; }
 }
 
 /* ---------- Home screen ---------- */
@@ -868,7 +868,8 @@ body[data-mode="board"] #home { display: none; }
 #toolbar[data-tool="select"] .size,
 #toolbar[data-tool="hand"] .size,
 #toolbar[data-tool="note"] .size,
-#toolbar[data-tool="text"] .size { display: none; }
+#toolbar[data-tool="text"] .size,
+#toolbar[data-tool="frame"] .size { display: none; }
 #toolbar.no-board { display: none; }
 #toolbar { transition: opacity 0.2s; }
 #toolbar.away { opacity: 0; pointer-events: none; }
@@ -917,6 +918,9 @@ body[data-mode="board"] #home { display: none; }
   position: fixed;
   z-index: 10;
   min-width: 220px;
+  max-height: calc(100vh - 8px);   /* a long menu scrolls instead of running off screen */
+  overflow-y: auto;
+  box-sizing: border-box;
   padding: 4px;
   border: 1px solid var(--panel-border);
   border-radius: 7px;
@@ -1109,3 +1113,90 @@ body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
 .sel-palette .swatch { width: 22px; height: 22px; }
 .sel-palette .custom-input { padding: 0; border: 0; background: conic-gradient(#ff5a5a, #ffe14d, #4cd07d, #4da3ff, #b57bff, #ff5a5a); cursor: pointer; }
 .sel-palette .custom-input::-webkit-color-swatch-wrapper { padding: 0; opacity: 0; }
+
+.shape-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-l);
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+.shape-picker[hidden] { display: none; }
+#panes[data-tool="shape"] .pane, #panes[data-tool="frame"] .pane { cursor: crosshair; }
+
+/* ---------- Present mode ---------- */
+
+#present-button svg { fill: currentColor; stroke: none; }
+body[data-theme="light"] #present-button:hover,
+body[data-theme="light"] #home-button:hover,
+body[data-theme="light"] #board-menu-button:hover,
+body[data-theme="light"] #bar-theme-button:hover { background: rgba(0, 0, 0, 0.06); }
+
+/* Everything but the board goes away while presenting. */
+body.presenting #board-bar,
+body.presenting #toolbar,
+body.presenting #selection-bar,
+body.presenting #brush-cursor,
+body.presenting #empty-hint,
+body.presenting .pane-tools,
+body.presenting .pane-zoom,
+body.presenting .divider { display: none !important; }
+body.presenting .pane { border-radius: 0; }
+body.presenting #panes { cursor: pointer; }
+
+#present-hud {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--overlay);
+  color: var(--text-strong);
+  font-size: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  transition: opacity 0.4s;
+}
+#present-hud[hidden] { display: none; }
+#present-hud.faded:not(:hover) { opacity: 0; }
+#present-hud button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+#present-hud button:hover { background: rgba(128, 128, 128, 0.18); }
+#present-hud svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.present-where { padding: 0 8px; min-width: 60px; text-align: center; white-space: nowrap; max-width: 50vw; overflow: hidden; text-overflow: ellipsis; }
+
+/* The box for renaming a frame, right over its name */
+.frame-rename {
+  position: fixed;
+  z-index: 15;
+  min-width: 120px;
+  padding: 1px 4px;
+  margin: -2px 0 0 -5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--input);
+  color: var(--text-strong);
+  font-family: Inter, system-ui, sans-serif;
+  line-height: 1.3;
+  outline: none;
+}

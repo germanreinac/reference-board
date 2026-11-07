@@ -4,12 +4,19 @@
 
 export const COLOURS = ['#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '#4cd07d', '#4da3ff', '#b57bff'];
 
-export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note' };
+export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note', KeyS: 'shape', KeyA: 'frame' };
+
+export const SHAPES = ['rect', 'ellipse', 'line', 'arrow'];
 
 const ICONS = {
   select: '<svg viewBox="0 0 16 16"><path d="M3.5 2.5l9 5-4 1.2-1.8 3.8z"/></svg>',
   hand: '<svg viewBox="0 0 16 16"><path d="M5.5 8V3.8a1 1 0 012 0V7.5M7.5 7V3a1 1 0 012 0v4M9.5 7V3.6a1 1 0 012 0V8.5M11.5 6.5a1 1 0 012 0V10a4.5 4.5 0 01-4.5 4.5H8.6a4.5 4.5 0 01-3.5-1.7L2.8 10a1.1 1.1 0 011.7-1.4l1 1.1"/></svg>',
   text: '<svg viewBox="0 0 16 16"><path d="M3 4V2.8h10V4M8 2.8v10.4M6 13.2h4"/></svg>',
+  rect: '<svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/></svg>',
+  ellipse: '<svg viewBox="0 0 16 16"><ellipse cx="8" cy="8" rx="5.5" ry="4.5"/></svg>',
+  line: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3"/></svg>',
+  arrow: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3M7.5 3H13v5.5"/></svg>',
+  frame: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v13M11.5 1.5v13M1.5 4.5h13M1.5 11.5h13"/></svg>',
   pen: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-7.5 7.5-3.8.8.8-3.8z M9 4l3 3"/></svg>',
   eraser: '<svg viewBox="0 0 16 16"><path d="M9.5 2.8l3.7 3.7-6.3 6.3H4.2L2.5 11.1z M6.2 6.1l3.7 3.7 M7 12.8h6.5"/></svg>',
   note: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
@@ -26,6 +33,8 @@ const TITLES = {
   eraser: 'Eraser (E), or flip your tablet pen over',
   text: 'Text (T): click to write. Start a line with # , ## or ### for headings',
   note: 'Sticky note (N): click to add a note',
+  shape: 'Shape (S): drag to draw. Click again to choose rectangle, ellipse, line or arrow',
+  frame: 'Frame (A): drag to mark an area. Frames are the slides of Present mode',
 };
 
 export class Toolbar {
@@ -33,16 +42,39 @@ export class Toolbar {
   constructor(element, { onChange, onUndo, onRedo }) {
     this.el = element;
     this.onChange = onChange;
-    this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, collapsed: false };
+    this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, shapeSize: 3, shape: 'arrow', collapsed: false };
     this.load();
 
     const toolGroup = this.group();
     this.toolButtons = {};
-    for (const tool of ['select', 'hand', 'pen', 'eraser', 'text', 'note']) {
-      const b = this.button(ICONS[tool], TITLES[tool], () => this.setTool(tool));
+    for (const tool of ['select', 'hand', 'pen', 'eraser', 'text', 'note', 'shape', 'frame']) {
+      const b = this.button(ICONS[tool] || ICONS.rect, TITLES[tool], () => {
+        // Clicking the shape tool again opens the choice of shapes.
+        if (tool === 'shape' && this.state.tool === 'shape') { this.shapePicker.hidden = !this.shapePicker.hidden; return; }
+        this.setTool(tool);
+      });
       this.toolButtons[tool] = b;
       toolGroup.appendChild(b);
     }
+
+    // The choice of shapes, above the toolbar.
+    this.shapePicker = document.createElement('div');
+    this.shapePicker.className = 'shape-picker';
+    this.shapePicker.hidden = true;
+    for (const shape of SHAPES) {
+      const b = this.button(ICONS[shape], { rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', arrow: 'Arrow' }[shape], () => {
+        this.state.shape = shape;
+        this.state.tool = 'shape';
+        this.shapePicker.hidden = true;
+        this.changed();
+      });
+      b.dataset.shape = shape;
+      this.shapePicker.appendChild(b);
+    }
+    element.appendChild(this.shapePicker);
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.shapePicker.hidden && !this.shapePicker.contains(e.target) && !this.toolButtons.shape.contains(e.target)) this.shapePicker.hidden = true;
+    }, true);
 
     // The colour: one swatch; clicking it opens the palette above the toolbar.
     const colourGroup = this.group('colours');
@@ -132,17 +164,21 @@ export class Toolbar {
   get tool() { return this.state.tool; }
   get color() { return this.state.color; }
   // Size in screen pixels for the current tool.
-  get size() { return this.state.tool === 'eraser' ? this.state.eraserSize : this.state.penSize; }
+  get size() {
+    const t = this.state.tool;
+    return t === 'eraser' ? this.state.eraserSize : t === 'shape' ? this.state.shapeSize : this.state.penSize;
+  }
 
   setTool(tool) { this.state.tool = tool; this.changed(); }
   setColour(c) {
     this.state.color = c;
-    if (this.state.tool === 'eraser' || this.state.tool === 'select') this.state.tool = 'pen';
+    if (['eraser', 'select', 'hand'].includes(this.state.tool)) this.state.tool = 'pen';
     this.changed();
   }
   setSize(n) {
     n = Math.max(1, Math.min(80, Math.round(n)));
     if (this.state.tool === 'eraser') this.state.eraserSize = n;
+    else if (this.state.tool === 'shape') this.state.shapeSize = n;
     else this.state.penSize = n;
     this.changed();
   }
@@ -163,6 +199,8 @@ export class Toolbar {
   refresh() {
     const { tool, color } = this.state;
     for (const [t, b] of Object.entries(this.toolButtons)) b.classList.toggle('active', t === tool);
+    this.toolButtons.shape.innerHTML = ICONS[this.state.shape] || ICONS.rect;
+    for (const b of this.shapePicker.children) b.classList.toggle('active', b.dataset.shape === this.state.shape);
     for (const s of this.swatches) s.classList.toggle('active', s.style.getPropertyValue('--c') === color);
     this.colourInput.value = color;
     this.colourInput.parentElement.style.setProperty('--c', COLOURS.includes(color) ? 'transparent' : color);
