@@ -62,7 +62,8 @@ export class Home {
     const when = document.createElement('div');
     when.className = 'when';
     const count = record.board?.items?.length || 0;
-    when.textContent = `${timeAgo(record.updated)} · ${count} image${count === 1 ? '' : 's'}`;
+    const waiting = record.board?.incoming?.length || 0;
+    when.textContent = `${timeAgo(record.updated)} · ${count} image${count === 1 ? '' : 's'}${waiting ? ` · ${waiting} new` : ''}`;
     meta.append(name, when);
 
     const more = document.createElement('button');

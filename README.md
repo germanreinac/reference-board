@@ -253,9 +253,15 @@ Chrome may remind you that a developer-mode extension is on; that's expected.)
 
 **Use it:**
 
-- **Right-click any image → Send image to Reference Board.** It works even on sites that block downloads.
-- **Capture part of a page:** the extension's button → **Capture part of this page**, the right-click menu, or **Alt+Shift+S**. Drag a box; Esc cancels.
-- The image lands on the board you have open. If Reference Board isn't open, it opens it and puts the image in a board called **Inbox**.
+- **Right-click any image → Save image to board → pick a board.** The boards you save to most are listed
+  first. **Choose a board…** opens a small search box on the page (type a few letters, Enter), and
+  **New board…** makes a board on the spot. It works even on sites that block downloads.
+- **Capture part of a page:** the extension's button → **Capture part of this page**, the right-click menu, or
+  **Alt+Shift+S**. Drag a box (Esc cancels), then pick the board.
+- You stay on the page you're browsing: a small "Saved to …" message confirms it. If Reference Board isn't
+  open, it opens in a background tab. Boards that aren't open keep the new images and place them, in view,
+  the next time you open them (the home screen shows "2 new" on their card).
+- Open Reference Board once after installing, so the extension learns your boards.
 - To capture **other apps** (a game, a film, a video call), use **Capture screen…** in the board menu (**⋯**). Chrome asks which window or screen to share.
 
 ## Roadmap

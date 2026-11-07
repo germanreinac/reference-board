@@ -1174,6 +1174,7 @@ async function openBoardById(id) {
   await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board);
   // Boards opened from a file, or from the first version, may not have a preview yet.
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
+  const waiting = data?.incoming;
   // Panes that show other boards: load those too.
   for (const pane of layout().panes()) {
     if (!pane.boardId || pane.boardId === id) { pane.boardId = null; continue; }
@@ -1184,6 +1185,7 @@ async function openBoardById(id) {
   updateTitle();
   viewports.position();
   requestRender();
+  await placeIncoming(doc, waiting);
 }
 
 // Load a board to show in a pane next to the main one. Returns its doc, or null if it's gone.
@@ -1197,6 +1199,7 @@ async function loadOtherBoard(id) {
   docs.set(id, doc);
   await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { withLayout: false });
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
+  if (data?.incoming?.length) setTimeout(() => placeIncoming(doc, data.incoming), 0);
   return doc;
 }
 
@@ -1282,6 +1285,7 @@ const openBoard = (id) => { location.hash = `#/board/${id}`; };
 async function openBoardNow(id) {
   openBoard(id);
   await route();
+announceBoards();
 }
 
 // "Untitled board", "Untitled board 2", ...
@@ -1292,6 +1296,7 @@ async function freeName(base) {
 }
 
 async function createBoard({ name, data = null } = {}) {
+  announceBoards();
   const now = Date.now();
   const id = newBoardId();
   await store.putBoard({
@@ -1307,6 +1312,7 @@ async function newBoard() {
 }
 
 async function renameBoard(id, name) {
+  announceBoards();
   const doc = docs.get(id);
   if (doc) {
     doc.meta.name = name;
@@ -1324,6 +1330,7 @@ async function deleteBoard(id, name) {
   await store.deleteBoard(id);
   tabIds = tabIds.filter((t) => t !== id);
   saveTabs();
+  announceBoards();
   await home.refresh();
 }
 
@@ -1799,17 +1806,82 @@ let incoming = Promise.resolve();
 window.addEventListener('message', (e) => {
   if (e.source !== window || e.origin !== location.origin) return;
   const d = e.data;
+  if (d?.source === 'refboard-extension' && d.type === 'hello') { announceBoards(); return; }
   if (d?.source !== 'refboard-extension' || d.type !== 'add' || !d.item?.dataUrl) return;
   incoming = incoming.then(() => receive(d.item)).catch((err) => { console.error(err); toast("Couldn't add the image from the extension."); });
 });
 
 async function receive(item) {
   const blob = await (await fetch(item.dataUrl)).blob();
-  // On the home screen, images go to the Inbox board.
-  if (mode !== 'board') await openBoardNow(await inboxId());
   await routing;
-  await addBlobToBoard(blob, item.name || 'image', item.sourceUrl || '');
-  toast(`Added to ${current?.name || 'the board'}`, 1600);
+  // Saved to a chosen board (or a new one) from the extension's board list.
+  let boardId = item.boardId || null;
+  if (item.newBoard) boardId = await createBoard({ name: item.newBoard });
+  if (boardId && !(await store.getBoard(boardId))) boardId = null;
+  if (!boardId) {
+    // Older extension, or no board chosen: the board that's open, or else the Inbox.
+    if (mode === 'board' && current) boardId = current.id;
+    else boardId = await inboxId();
+  }
+  const name = item.name || 'image';
+  const doc = docs.get(boardId);
+  if (doc) {
+    // It's on screen: add it right away, where you can see it.
+    activate(doc);
+    await addBlobToBoard(blob, name, item.sourceUrl || '');
+  } else {
+    // Not open: it waits on that board and is placed next time you open it.
+    await queueForBoard(boardId, blob, name, item.sourceUrl || '');
+    if (mode === 'home') home.refresh();
+    renderTabs();
+  }
+  const record = await store.getBoard(boardId);
+  toast(`Saved to ${record?.name || 'the board'}`, 1600);
+  announceBoards();
+}
+
+// ---------- Images waiting on a board that isn't open ----------
+//
+// The extension can save to any board. If that board isn't open, the picture is stored
+// with it and listed in board.incoming; opening the board places them all in view.
+
+async function queueForBoard(boardId, blob, name, sourceUrl) {
+  const key = `in-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  await store.saveImage(boardId, key, blob);
+  const record = await store.getBoard(boardId);
+  if (!record) return;
+  const data = record.board || { items: [], layout: null };
+  data.incoming = [...(data.incoming || []), { key, name, sourceUrl, at: Date.now() }];
+  await store.putBoard({ ...record, board: data, updated: Date.now() });
+}
+
+// Place a board's waiting pictures (called once it's on screen).
+async function placeIncoming(doc, incoming) {
+  if (!incoming?.length) return;
+  const id = doc.meta.id;
+  const list = (await Promise.all(incoming.map(async (x) => {
+    const blob = await store.loadImage(id, x.key).catch(() => null);
+    return blob && { blob, name: x.name || 'image', sourceUrl: x.sourceUrl || '' };
+  }))).filter(Boolean);
+  if (list.length) {
+    const pane = boardPanes().find((p) => docOfPane(p) === doc) || boardPanes()[0];
+    const c = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+    activate(doc);
+    await addImages(list, c.x, c.y, pane, { free: true });
+    toast(`${list.length} new image${list.length > 1 ? 's' : ''} saved from the browser`, 2600);
+  }
+  for (const x of incoming) store.deleteImage(id, x.key).catch(() => {});
+  saveNow();
+}
+
+// Tell the browser extension which boards there are, for its "Save to board" list.
+let announceTimer;
+function announceBoards() {
+  clearTimeout(announceTimer);
+  announceTimer = setTimeout(async () => {
+    const boards = (await store.listBoards()).map((b) => ({ id: b.id, name: b.name, updated: b.updated }));
+    window.postMessage({ source: 'refboard-app', type: 'boards', boards }, location.origin);
+  }, 300);
 }
 
 // Capture screen: a picture of any window or screen (Chrome asks which one).
