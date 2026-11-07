@@ -42,7 +42,8 @@ html, body {
   overflow: hidden;
   background: var(--gap);
   color: var(--text);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
   user-select: none;
 }
 
@@ -866,7 +867,8 @@ body[data-mode="board"] #home { display: none; }
 .tool-group.fold .tool svg { width: 16px; height: 16px; }
 #toolbar[data-tool="select"] .size,
 #toolbar[data-tool="hand"] .size,
-#toolbar[data-tool="note"] .size { display: none; }
+#toolbar[data-tool="note"] .size,
+#toolbar[data-tool="text"] .size { display: none; }
 #toolbar.no-board { display: none; }
 #toolbar { transition: opacity 0.2s; }
 #toolbar.away { opacity: 0; pointer-events: none; }
@@ -874,7 +876,7 @@ body[data-mode="board"] #home { display: none; }
 /* Cursors for each tool */
 #panes[data-tool="pen"] .pane,
 #panes[data-tool="eraser"] .pane { cursor: none; }
-#panes[data-tool="note"] .pane { cursor: text; }
+#panes[data-tool="note"] .pane, #panes[data-tool="text"] .pane { cursor: text; }
 #panes[data-tool="hand"] .pane { cursor: grab; }
 #panes[data-tool="hand"].panning .pane { cursor: grabbing; }
 #panes.can-pan .pane { cursor: grab !important; }
@@ -904,7 +906,6 @@ body[data-mode="board"] #home { display: none; }
   outline-offset: 2px;
   resize: none;
   overflow: hidden;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   field-sizing: content;  /* grow with the text (Chrome) */
@@ -1065,3 +1066,46 @@ body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
   pointer-events: none;
 }
 .home-note a { color: var(--accent); }
+
+/* Typing free text: no background, just a soft outline */
+.note-editor.free-text { outline: 1.5px dashed var(--accent); outline-offset: 4px; }
+
+/* ---------- Text controls in the selection bar ---------- */
+.sel-text { display: flex; align-items: center; gap: 2px; padding-right: 4px; margin-right: 2px; border-right: 1px solid var(--panel-border); position: relative; }
+.sel-text[hidden] { display: none; }
+.sel-text select {
+  height: 28px;
+  max-width: 140px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.sel-text select:hover { background: rgba(127, 127, 127, 0.16); }
+.sel-text select[hidden] { display: none; }
+.sel-text button { font: inherit; font-size: 14px; line-height: 1; color: var(--text); }
+.sel-text button.on { background: rgba(77, 163, 255, 0.18); color: var(--accent); }
+.sel-text .sel-colour { padding: 0; display: flex; align-items: center; justify-content: center; }
+.sel-text .sel-colour::before { content: ""; width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.45); }
+.sel-palette {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-l);
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+.sel-palette[hidden] { display: none; }
+.sel-palette .swatch { width: 22px; height: 22px; }
+.sel-palette .custom-input { padding: 0; border: 0; background: conic-gradient(#ff5a5a, #ffe14d, #4cd07d, #4da3ff, #b57bff, #ff5a5a); cursor: pointer; }
+.sel-palette .custom-input::-webkit-color-swatch-wrapper { padding: 0; opacity: 0; }

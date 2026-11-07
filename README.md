@@ -66,6 +66,15 @@ version is added instead.
 Google Images isn't included: Google doesn't offer free image search to other apps,
 and its paid service can't be called straight from a web page.
 
+### Text and fonts
+
+Select a text (or sticky note) to get its controls in the bar above it:
+
+- **Level:** Title, Heading 1, 2 and 3, Body, Caption (like Notion). New text starts at the level you last chose.
+- **Font:** the board's own fonts are Inter, Space Grotesk, Instrument Serif, Bebas Neue, Bangers and JetBrains Mono. **Upload a font…** adds your own (.ttf, .otf, .woff, .woff2), or drop a font file onto the page. Uploaded fonts are kept for all your boards and travel inside board files, so they look right for whoever opens them.
+- **Bold** (Ctrl/⌘ + B), **italic** (Ctrl/⌘ + I), **alignment** and **colour**.
+- Corner handles scale text and the round handle rotates it, like images. Double-click to edit.
+
 ### 3D mannequin
 
 Choose **3D mannequin** from a pane's type button.
@@ -120,7 +129,8 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 | Hand (move around without touching images) | `H`. Space + drag and the middle mouse button also always pan |
 | Pen | `B` (or `P`). Pressure-sensitive with a tablet pen |
 | Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
-| Note | `T`, then click where the note should go and type. Click away to finish |
+| Text | `T`, then click and type. Start with `# `, `## ` or `### ` for a heading. Click away to finish |
+| Sticky note | `N`, then click where the note should go and type. Click away to finish |
 | Edit a note | Double-click it |
 | Brush size | `[` and `]`, or the slider |
 | Undo / redo | Ctrl/⌘ + `Z` / Ctrl/⌘ + Shift + `Z` |
@@ -229,6 +239,8 @@ There's no build step: the files are served as they are.
 - `vendor/pixi.min.mjs`: [PixiJS](https://pixijs.com) 8.22, the fast WebGL renderer
 - `vendor/perfect-freehand.mjs`: [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.2, for natural-looking pen strokes
 - `extension/`: the Chrome extension (also packed as `reference-board-extension.zip`)
+- `src/fonts.js`: the board's fonts and your uploaded fonts
+- `vendor/fonts/`: the built-in fonts (SIL Open Font License)
 - `vendor/three/`: [Three.js](https://threejs.org) 0.170, for the 3D mannequin (loaded only when a mannequin pane is opened)
 - `vendor/anthropic-sdk.mjs`: the official [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-typescript) 1.1.0, bundled into one file with esbuild (loaded only when you type a pose)
 - `vendor/fflate.mjs`: [fflate](https://github.com/101arrowz/fflate) 0.8.2, for zipping board files

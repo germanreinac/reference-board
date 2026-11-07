@@ -5,8 +5,8 @@
 // colours from here, and redraw when the 'themechange' event fires.
 
 export const THEMES = {
-  dark: { board: '#1b1b1d', gap: '#08080a', dot: '#4a4a52', scene: 0x232327, floor: 0x2e2e33, grid: [0x3a3a40, 0x323237] },
-  light: { board: '#f1f1ef', gap: '#c9c9c6', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
+  dark: { text: '#f2f2f4', board: '#1b1b1d', gap: '#08080a', dot: '#4a4a52', scene: 0x232327, floor: 0x2e2e33, grid: [0x3a3a40, 0x323237] },
+  light: { text: '#1f1f22', board: '#f1f1ef', gap: '#c9c9c6', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
 };
 
 const STORAGE = 'refboard-theme';

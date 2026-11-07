@@ -4,11 +4,12 @@
 
 export const COLOURS = ['#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '#4cd07d', '#4da3ff', '#b57bff'];
 
-export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'note' };
+export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note' };
 
 const ICONS = {
   select: '<svg viewBox="0 0 16 16"><path d="M3.5 2.5l9 5-4 1.2-1.8 3.8z"/></svg>',
   hand: '<svg viewBox="0 0 16 16"><path d="M5.5 8V3.8a1 1 0 012 0V7.5M7.5 7V3a1 1 0 012 0v4M9.5 7V3.6a1 1 0 012 0V8.5M11.5 6.5a1 1 0 012 0V10a4.5 4.5 0 01-4.5 4.5H8.6a4.5 4.5 0 01-3.5-1.7L2.8 10a1.1 1.1 0 011.7-1.4l1 1.1"/></svg>',
+  text: '<svg viewBox="0 0 16 16"><path d="M3 4V2.8h10V4M8 2.8v10.4M6 13.2h4"/></svg>',
   pen: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-7.5 7.5-3.8.8.8-3.8z M9 4l3 3"/></svg>',
   eraser: '<svg viewBox="0 0 16 16"><path d="M9.5 2.8l3.7 3.7-6.3 6.3H4.2L2.5 11.1z M6.2 6.1l3.7 3.7 M7 12.8h6.5"/></svg>',
   note: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
@@ -23,7 +24,8 @@ const TITLES = {
   hand: 'Hand: drag to move around the board, never the images (H)',
   pen: 'Pen (B)',
   eraser: 'Eraser (E), or flip your tablet pen over',
-  note: 'Note (T): click to add a note',
+  text: 'Text (T): click to write. Start a line with # , ## or ### for headings',
+  note: 'Sticky note (N): click to add a note',
 };
 
 export class Toolbar {
@@ -36,7 +38,7 @@ export class Toolbar {
 
     const toolGroup = this.group();
     this.toolButtons = {};
-    for (const tool of ['select', 'hand', 'pen', 'eraser', 'note']) {
+    for (const tool of ['select', 'hand', 'pen', 'eraser', 'text', 'note']) {
       const b = this.button(ICONS[tool], TITLES[tool], () => this.setTool(tool));
       this.toolButtons[tool] = b;
       toolGroup.appendChild(b);

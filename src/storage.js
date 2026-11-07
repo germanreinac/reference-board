@@ -38,8 +38,17 @@ export function describeBoard(board, layout) {
 
 // Pack a board into a single .refboard file (a zip).
 // `data` is a board description; `getBlob(item)` returns each image's file.
-export async function packBoard(data, getBlob) {
+// `getFont(name)` returns an uploaded font's file (null for built-in fonts); those
+// fonts go into the board file too, so it looks the same on someone else's computer.
+export async function packBoard(data, getBlob, getFont = () => null) {
+  const fontFiles = [];
+  for (const name of new Set((data.notes || []).map((n) => n.font).filter(Boolean))) {
+    const blob = getFont(name);
+    if (blob) fontFiles.push({ name, file: `fonts/${fontFiles.length}.font`, blob });
+  }
+  data = { ...data, fontFiles: fontFiles.map(({ name, file }) => ({ name, file })) };
   const files = { 'board.json': [strToU8(JSON.stringify(data, null, 1)), { level: 6 }] };
+  for (const f of fontFiles) files[f.file] = [new Uint8Array(await f.blob.arrayBuffer()), { level: 6 }];
   await Promise.all(data.items.map(async (item) => {
     const blob = await getBlob(item);
     if (!blob) return;
@@ -70,7 +79,8 @@ export async function unpackBoard(file) {
     const ext = item.file.split('.').pop().toLowerCase();
     images.set(item.file, new Blob([raw], { type: TYPE_FOR_EXT[ext] || 'image/png' }));
   }
-  return { data, images };
+  const fonts = (data.fontFiles || []).filter((f) => files[f.file]).map((f) => ({ name: f.name, blob: new Blob([files[f.file]]) }));
+  return { data, images, fonts };
 }
 
 export function isBoardFile(file) {
@@ -152,11 +162,11 @@ export function newBoardId() {
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('reference-board', 2);
+    const req = indexedDB.open('reference-board', 3);
     req.onupgradeneeded = (e) => {
       const d = req.result;
       const tx = req.transaction;
-      for (const name of ['images', 'state', 'thumbs']) {
+      for (const name of ['images', 'state', 'thumbs', 'fonts']) {
         if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
       }
       if (!d.objectStoreNames.contains('boards')) d.createObjectStore('boards', { keyPath: 'id' });
@@ -220,6 +230,13 @@ export const store = {
   saveImage: (boardId, imageId, blob) => run('images', 'readwrite', (tx) => tx.objectStore('images').put(blob, `${boardId}/${imageId}`)),
   deleteImage: (boardId, imageId) => run('images', 'readwrite', (tx) => tx.objectStore('images').delete(`${boardId}/${imageId}`)),
   loadImage: (boardId, imageId) => run('images', 'readonly', (tx) => tx.objectStore('images').get(`${boardId}/${imageId}`)),
+
+  saveFont: (name, blob) => run('fonts', 'readwrite', (tx) => tx.objectStore('fonts').put(blob, name)),
+  listFonts: async () => {
+    const names = await run('fonts', 'readonly', (tx) => tx.objectStore('fonts').getAllKeys());
+    const blobs = await run('fonts', 'readonly', (tx) => tx.objectStore('fonts').getAll());
+    return names.map((name, i) => ({ name, blob: blobs[i] }));
+  },
 
   saveThumb: (boardId, blob) => run('thumbs', 'readwrite', (tx) => tx.objectStore('thumbs').put(blob, boardId)),
   loadThumb: (boardId) => run('thumbs', 'readonly', (tx) => tx.objectStore('thumbs').get(boardId)),

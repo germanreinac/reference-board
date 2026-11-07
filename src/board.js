@@ -6,6 +6,17 @@
 
 import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, ColorMatrixFilter } from '../vendor/pixi.min.mjs';
 import { getStroke } from '../vendor/perfect-freehand.mjs';
+import { fontStack } from './fonts.js';
+
+// Text levels, like Notion: size as a multiple of Body text, and default weight.
+export const LEVELS = {
+  title: { label: 'Title', size: 3.2, weight: 700 },
+  h1: { label: 'Heading 1', size: 2.2, weight: 700 },
+  h2: { label: 'Heading 2', size: 1.6, weight: 600 },
+  h3: { label: 'Heading 3', size: 1.25, weight: 600 },
+  body: { label: 'Body', size: 1, weight: 400 },
+  caption: { label: 'Caption', size: 0.78, weight: 400 },
+};
 
 let nextId = 1;
 function takeId(id) {
@@ -203,16 +214,31 @@ export class Board {
     return { id: s.id, color: s.color, size: s.size, simulatePressure: s.simulatePressure, ...(s.locked ? { locked: true } : {}), points: s.points.map((v) => Math.round(v * 100) / 100) };
   }
 
-  // ---------- Notes ----------
+  // ---------- Notes and text ----------
+  //
+  // Two kinds, made the same way:
+  //   sticky  a coloured label with text on it (the Note tool)
+  //   text    free text with no background, in levels like Notion (the Text tool)
+  // Text has a font, a level (Title, Heading 1-3, Body, Caption), bold, italic and
+  // alignment. `base` is the size Body text would have; each level is a multiple of it.
 
-  // A note is a coloured label with text, centred on (x, y).
-  addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index, locked = false }) {
+  addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index, locked = false,
+    style = 'sticky', font = 'Inter', level = 'body', base, weight, italic = false, align = 'left', scale = 1, rotation = 0 }) {
     const container = new Container();
     const bg = new Graphics();
-    const label = new Text({ text: '', style: { fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontSize, lineHeight: fontSize * 1.3, wordWrap: true, breakWords: true } });
+    const label = new Text({ text: '', style: { wordWrap: true, breakWords: true } });
     container.addChild(bg, label);
     container.position.set(x, y);
-    const note = { kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, fontSize, width: 0, height: 0, locked: !!locked };
+    container.scale.set(scale);
+    container.rotation = rotation;
+    if (!LEVELS[level]) level = 'body';
+    const note = {
+      kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, locked: !!locked,
+      style: style === 'text' ? 'text' : 'sticky', font, level, italic: !!italic, align,
+      base: base || (style === 'text' ? fontSize / LEVELS[level].size : fontSize),
+      weight: weight || (style === 'text' ? LEVELS[level].weight : 400),
+      fontSize, width: 0, height: 0,
+    };
     this.setNoteText(note, text);
     const at = index === undefined ? this.notes.length : Math.max(0, Math.min(index, this.notes.length));
     this.notes.splice(at, 0, note);
@@ -220,24 +246,63 @@ export class Board {
     return note;
   }
 
+  // Change a note's text (and colour), and lay it out again.
   setNoteText(note, text, color = note.color) {
     note.text = text;
     note.color = color;
-    const pad = note.fontSize * 0.55;
-    note.label.style.wordWrapWidth = note.fontSize * 16;
-    note.label.style.fill = textColourFor(color);
-    note.label.text = text || ' ';
-    note.width = Math.max(note.fontSize * 2, note.label.width + pad * 2);
+    this.layoutNote(note);
+  }
+
+  // Lay a note or text out again after any change to its words or style.
+  layoutNote(note) {
+    const text = note.style === 'text';
+    if (text) note.fontSize = note.base * LEVELS[note.level].size;
+    const fs = note.fontSize;
+    const pad = text ? fs * 0.12 : fs * 0.55;
+    const st = note.label.style;
+    st.fontFamily = fontStack(note.font || 'Inter');
+    st.fontSize = fs;
+    st.fontWeight = String(note.weight || 400);
+    st.fontStyle = note.italic ? 'italic' : 'normal';
+    st.lineHeight = fs * (text ? 1.2 : 1.3);
+    st.align = note.align || 'left';
+    st.wordWrapWidth = text ? note.base * 34 : fs * 16;
+    st.fill = text ? note.color : textColourFor(note.color);
+    st.letterSpacing = text && note.level === 'title' ? -fs * 0.02 : 0;
+    note.label.text = note.text || ' ';
+    note.width = Math.max(fs * (text ? 1 : 2), note.label.width + pad * 2);
     note.height = note.label.height + pad * 2;
-    note.label.position.set(pad, pad);
+    // Line the text up inside its box by its alignment.
+    const inner = note.width - pad * 2;
+    const offset = note.align === 'center' ? (inner - note.label.width) / 2 : note.align === 'right' ? inner - note.label.width : 0;
+    note.label.position.set(pad + offset, pad);
     note.bg.clear();
-    note.bg.roundRect(0, 0, note.width, note.height, note.fontSize * 0.35).fill(color);
+    if (!text) note.bg.roundRect(0, 0, note.width, note.height, fs * 0.35).fill(note.color);
     // Position, like images, is the centre of the note.
     note.sprite.pivot.set(note.width / 2, note.height / 2);
   }
 
+  // Draw every note again (e.g. once a font has finished loading).
+  relayoutNotes() {
+    for (const n of this.notes) {
+      n.label.style = n.label.style.clone();
+      this.layoutNote(n);
+    }
+  }
+
   noteJSON(n) {
-    return { id: n.id, x: n.sprite.x, y: n.sprite.y, text: n.text, color: n.color, fontSize: n.fontSize, ...(n.locked ? { locked: true } : {}) };
+    const s = n.sprite;
+    return {
+      id: n.id, x: s.x, y: s.y, text: n.text, color: n.color, fontSize: n.fontSize,
+      ...(n.style === 'text' ? { style: 'text', level: n.level, base: n.base } : {}),
+      ...(n.font && n.font !== 'Inter' ? { font: n.font } : {}),
+      ...(n.weight && n.weight !== (n.style === 'text' ? LEVELS[n.level].weight : 400) ? { weight: n.weight } : {}),
+      ...(n.italic ? { italic: true } : {}),
+      ...(n.align && n.align !== 'left' ? { align: n.align } : {}),
+      ...(s.scale.x !== 1 ? { scale: s.scale.x } : {}),
+      ...(s.rotation ? { rotation: s.rotation } : {}),
+      ...(n.locked ? { locked: true } : {}),
+    };
   }
 
   // Text is drawn as a picture, so it gets blurry when you zoom in. This redraws

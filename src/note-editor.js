@@ -43,21 +43,28 @@ export class NoteEditor {
     if (!this.note) return;
     const { note, pane } = this;
     if (!pane.rect) return;
-    const z = pane.camera.zoom;
-    const fs = note.fontSize * z;
-    const pad = note.fontSize * 0.55 * z;
-    const left = pane.rect.x + pane.camera.x + (note.sprite.x - note.width / 2) * z;
-    const top = pane.rect.y + pane.camera.y + (note.sprite.y - note.height / 2) * z;
-    const textColour = note.label.style.fill;
+    const text = note.style === 'text';
+    const k = pane.camera.zoom * note.sprite.scale.x;  // on-screen pixels per board unit
+    const fs = note.fontSize * k;
+    const pad = (text ? note.fontSize * 0.12 : note.fontSize * 0.55) * k;
+    // Centre the box on the note, turned the same way.
+    const cx = pane.rect.x + pane.camera.x + note.sprite.x * pane.camera.zoom;
+    const cy = pane.rect.y + pane.camera.y + note.sprite.y * pane.camera.zoom;
+    const st = note.label.style;
     Object.assign(this.el.style, {
-      left: `${left}px`, top: `${top}px`,
-      // The box grows with the text, up to the same width a note wraps at.
-      maxWidth: `${note.fontSize * 16 * z + pad * 2}px`,
-      minWidth: `${note.fontSize * 2 * z}px`,
-      fontSize: `${fs}px`, lineHeight: `${fs * 1.3}px`, padding: `${pad}px`,
-      borderRadius: `${note.fontSize * 0.35 * z}px`,
-      background: note.color, color: textColour,
+      left: `${cx - (note.width * k) / 2}px`, top: `${cy - (note.height * k) / 2}px`,
+      transform: note.sprite.rotation ? `rotate(${note.sprite.rotation}rad)` : '',
+      transformOrigin: `${(note.width * k) / 2}px ${(note.height * k) / 2}px`,
+      // The box grows with the text, up to the width the text wraps at.
+      maxWidth: `${(text ? note.base * 34 : note.fontSize * 16) * k + pad * 2}px`,
+      minWidth: `${Math.max(note.width * k, note.fontSize * 2 * k)}px`,
+      fontFamily: st.fontFamily, fontWeight: st.fontWeight, fontStyle: st.fontStyle, textAlign: note.align || 'left',
+      letterSpacing: `${(st.letterSpacing || 0) * k}px`,
+      fontSize: `${fs}px`, lineHeight: `${fs * (text ? 1.2 : 1.3)}px`, padding: `${pad}px`,
+      borderRadius: `${note.fontSize * 0.35 * k}px`,
+      background: text ? 'transparent' : note.color, color: st.fill,
     });
+    this.el.classList.toggle('free-text', text);
     this.fit();
   }
 

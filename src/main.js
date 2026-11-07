@@ -14,7 +14,7 @@ import { Home } from './home.js';
 import { imagesFromDrop, imagesFromPaste } from './importer.js';
 import { showMenu, hideMenu } from './menu.js';
 import { History } from './history.js';
-import { Toolbar, BrushCursor, TOOL_KEYS } from './tools.js';
+import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -23,6 +23,8 @@ import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
 import { loadTheme, themeColours, toggleTheme, currentTheme } from './theme.js';
 import { VERSION } from './version.js';
+import { LEVELS } from './board.js';
+import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
 document.querySelector('.home-version').textContent = `Version ${VERSION}`;
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
@@ -294,9 +296,12 @@ function removeSelected() {
 
 // The parts of an image or note that moving, scaling, rotating, flipping, cropping
 // and greyscale change. Saved before and after an edit, for undo.
+const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align'];
 function stateOf(item) {
   const s = item.sprite;
-  return { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
+  const st = { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
+  if (item.kind === 'note') for (const k of TEXT_PROPS) st[k] = item[k];
+  return st;
 }
 function applyState(st) {
   const it = board.find(st.kind, st.id);
@@ -304,6 +309,10 @@ function applyState(st) {
   if (it.kind === 'image') {
     if (JSON.stringify(it.crop || null) !== JSON.stringify(st.crop)) board.setCrop(it, st.crop, { keepPlace: false });
     if (!!it.grey !== st.grey) board.setGrey(it, st.grey);
+  }
+  if (it.kind === 'note') {
+    for (const k of TEXT_PROPS) if (k in st) it[k] = st[k];
+    board.layoutNote(it);
   }
   it.sprite.position.set(st.x, st.y);
   it.sprite.scale.set(st.sx, st.sy);
@@ -518,6 +527,10 @@ async function loadBoard(data, getBlob) {
     });
     for (const s of data?.strokes || []) board.addStroke(s);
     for (const n of data?.notes || []) board.addNote(n);
+    // Make sure the fonts the text uses are loaded, then lay the text out again.
+    const used = [...new Set(board.notes.map((n) => `${n.font}|${n.weight}|${n.italic}`))];
+    Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
+      .then(() => { board.relayoutNotes(); requestRender(); });
     board.selected = null;
     viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
@@ -639,7 +652,9 @@ async function deleteBoard(id, name) {
 // Add a .refboard file as a new board. Returns the new board's id.
 async function importBoardFile(file, handle = null) {
   toast(`Opening ${file.name}…`, 60000);
-  const { data, images } = await unpackBoard(file);
+  const { data, images, fonts } = await unpackBoard(file);
+  // Fonts the board's text uses come with it.
+  for (const f of fonts) await addFontFile(f.blob, f.name).catch(() => {});
   const id = newBoardId();
   await Promise.all(data.items.map((item) => {
     const blob = images.get(item.file);
@@ -669,10 +684,10 @@ async function writeBoardFile({ name, handle, getData, getBlob }) {
     else handle = await pickSaveLocation(name + FILE_EXT);
     if (!handle) return null;  // cancelled
     toast('Saving…', 60000);
-    await writeToHandle(handle, await packBoard(getData(), getBlob));
+    await writeToHandle(handle, await packBoard(getData(), getBlob, customFontBlob));
   } else {
     // Other browsers: download a copy instead.
-    downloadBlob(await packBoard(getData(), getBlob), name + FILE_EXT);
+    downloadBlob(await packBoard(getData(), getBlob, customFontBlob), name + FILE_EXT);
   }
   toast(`Saved ${handle?.name || name + FILE_EXT}`, 1500);
   return handle;
@@ -983,6 +998,15 @@ window.addEventListener('drop', async (e) => {
       return addSearchResult(JSON.parse(result), at);
     }
 
+    // Font files are added to your fonts.
+    const fontFiles = [...e.dataTransfer.files].filter(isFontFile);
+    if (fontFiles.length) {
+      const names = [];
+      for (const f of fontFiles) names.push(await addFontFile(f, f.name));
+      toast(`Added the font${names.length > 1 ? 's' : ''} ${names.join(', ')}. Pick it from the font menu of any text.`, 4000);
+      return;
+    }
+
     // Board files are added to your boards, never replacing one.
     const boardFiles = [...e.dataTransfer.files].filter(isBoardFile);
     if (boardFiles.length) {
@@ -1064,8 +1088,18 @@ const noteEditor = new NoteEditor((note, text, oldText) => {
   if (!board.notes.includes(note)) return;
   const isNew = note.isNew;
   delete note.isNew;
-  // After placing a note, go back to moving things (like Figma and Miro do).
-  if (isNew && toolbar.tool === 'note') toolbar.setTool('select');
+  // After placing a note or text, go back to moving things (like Figma and Miro do).
+  if (isNew && (toolbar.tool === 'note' || toolbar.tool === 'text')) toolbar.setTool('select');
+  const before = { ...stateOf(note), text: oldText };
+  // Like Notion: text starting with "# ", "## " or "### " becomes a heading.
+  if (note.style === 'text') {
+    const m = text.match(/^(#{1,3}) +/);
+    if (m) {
+      note.level = ['h1', 'h2', 'h3'][m[1].length - 1];
+      note.weight = LEVELS[note.level].weight;
+      text = text.slice(m[0].length);
+    }
+  }
   if (!text) {
     board.remove(note);
     if (!isNew) {
@@ -1078,12 +1112,13 @@ const noteEditor = new NoteEditor((note, text, oldText) => {
     const data = board.noteJSON(note);
     history.push({ undo: () => removeNoteById(data.id), redo: () => { board.addNote(data); requestRender(); } });
     contentChanged();
-  } else if (text !== oldText) {
+  } else {
     board.setNoteText(note, text);
-    const id = note.id;
-    const setText = (t) => { const n = board.find('note', id); if (n) board.setNoteText(n, t); requestRender(); };
-    history.push({ undo: () => setText(oldText), redo: () => setText(text) });
-    contentChanged();
+    const after = stateOf(note);
+    if (JSON.stringify(after) !== JSON.stringify(before)) {
+      history.push({ undo: () => { applyState(before); requestRender(); }, redo: () => { applyState(after); requestRender(); } });
+      contentChanged();
+    }
   }
   requestRender();
 });
@@ -1094,10 +1129,23 @@ function editNote(note, pane) {
   requestRender();
 }
 
-// Add a new note where you clicked and start typing in it.
-function addNoteAt(pane, wx, wy) {
-  // Sized so the text is about 18 pixels tall at the zoom you're working at.
-  const note = board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: 18 / pane.camera.zoom });
+// The text level and font new text starts with: whatever you used last.
+const TEXT_PREFS = 'refboard-text';
+function textPrefs() {
+  try { return { level: 'body', font: 'Inter', ...JSON.parse(localStorage.getItem(TEXT_PREFS)) }; } catch { return { level: 'body', font: 'Inter' }; }
+}
+function rememberTextLevel(level, font) {
+  try { localStorage.setItem(TEXT_PREFS, JSON.stringify({ ...textPrefs(), ...(level ? { level } : {}), ...(font ? { font } : {}) })); } catch {}
+}
+
+// Add a new sticky note or text where you clicked and start typing in it.
+function addNoteAt(pane, wx, wy, style = 'sticky') {
+  // Sized so body text is about 18 pixels tall at the zoom you're working at.
+  const size = 18 / pane.camera.zoom;
+  const prefs = textPrefs();
+  const note = style === 'text'
+    ? board.addNote({ x: wx, y: wy, text: '', style: 'text', color: themeColours().text, base: size, level: prefs.level, font: prefs.font, fontSize: size })
+    : board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: size });
   note.isNew = true;
   editNote(note, pane);
 }
@@ -1128,7 +1176,7 @@ function dragTo(d, w, e) {
     d.items.forEach((item, i) => {
       const b = d.before[i];
       item.sprite.position.set(d.anchor.x + (b.x - d.anchor.x) * f, d.anchor.y + (b.y - d.anchor.y) * f);
-      if (item.kind === 'image') item.sprite.scale.set(b.sx * f, b.sy * f);
+      if (item.kind === 'image' || item.style === 'text') item.sprite.scale.set(b.sx * f, b.sy * f);
     });
   } else if (d.kind === 'rotate') {
     // Turn around the middle of the selection. Shift snaps to 15° steps.
@@ -1143,7 +1191,7 @@ function dragTo(d, w, e) {
       const b = d.before[i];
       const rx = b.x - d.cx, ry = b.y - d.cy;
       item.sprite.position.set(d.cx + rx * cos - ry * sin, d.cy + rx * sin + ry * cos);
-      if (item.kind === 'image') item.sprite.rotation = b.r + a;
+      if (item.kind === 'image' || item.style === 'text') item.sprite.rotation = b.r + a;
     });
   } else if (d.kind === 'marquee' || d.kind === 'crop') {
     board.marquee.x1 = w.x;
@@ -1170,8 +1218,8 @@ const SEL_ICONS = {
 };
 const SEL_ACTIONS = [
   ['lock', 'Lock (L)', () => setLocked(null, true)],
-  ['flipX', 'Flip left to right', () => flipSelection('x')],
-  ['flipY', 'Flip upside down', () => flipSelection('y')],
+  ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image')],
+  ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image')],
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
@@ -1187,8 +1235,128 @@ for (const [id, title, action] of SEL_ACTIONS) {
   b.addEventListener('click', (e) => { e.stopPropagation(); action(); });
   selectionBar.appendChild(b);
 }
+// ---------- Text controls in the selection bar ----------
+
+const ALIGN_ICONS = {
+  left: '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg>',
+  center: '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M4.5 8h7M3.5 12h9"/></svg>',
+  right: '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6.5 8h7M4.5 12h9"/></svg>',
+};
+const textControls = document.createElement('div');
+textControls.className = 'sel-text';
+textControls.innerHTML = `
+  <select class="sel-level" title="Text level"></select>
+  <select class="sel-font" title="Font"></select>
+  <button data-text="bold" title="Bold (Ctrl/⌘+B)"><b>B</b></button>
+  <button data-text="italic" title="Italic (Ctrl/⌘+I)"><i>I</i></button>
+  <button data-text="align" title="Alignment"></button>
+  <button data-text="colour" class="sel-colour" title="Colour"></button>
+  <div class="sel-palette" hidden></div>`;
+selectionBar.prepend(textControls);
+const levelSelect = textControls.querySelector('.sel-level');
+for (const [id, l] of Object.entries(LEVELS)) levelSelect.add(new Option(l.label, id));
+const fontSelect = textControls.querySelector('.sel-font');
+const palette = textControls.querySelector('.sel-palette');
+for (const c of COLOURS) {
+  const b = document.createElement('button');
+  b.className = 'swatch';
+  b.style.setProperty('--c', c);
+  b.addEventListener('click', () => { setTextProps({ color: c }); palette.hidden = true; });
+  palette.appendChild(b);
+}
+const anyColour = Object.assign(document.createElement('input'), { type: 'color', title: 'Any colour' });
+anyColour.className = 'swatch custom-input';
+anyColour.addEventListener('input', () => setTextProps({ color: anyColour.value }));
+palette.appendChild(anyColour);
+
+function fillFontMenu(current) {
+  fontSelect.replaceChildren();
+  const brand = document.createElement('optgroup');
+  brand.label = 'Board fonts';
+  for (const f of BRAND_FONTS) brand.appendChild(new Option(f.name, f.name));
+  fontSelect.appendChild(brand);
+  const mine = customFonts();
+  if (mine.length) {
+    const g = document.createElement('optgroup');
+    g.label = 'Your fonts';
+    for (const name of mine) g.appendChild(new Option(name, name));
+    fontSelect.appendChild(g);
+  }
+  if (current && !isBrandFont(current) && !mine.includes(current)) fontSelect.appendChild(new Option(`${current} (missing)`, current));
+  fontSelect.appendChild(new Option('Upload a font…', '__upload'));
+  fontSelect.value = current || 'Inter';
+}
+
+const selectedNotes = () => board.selection.filter((x) => x.kind === 'note');
+
+// Change text settings on every selected note or text, as one undo step.
+function setTextProps(props) {
+  const notes = selectedNotes();
+  if (!notes.length) return;
+  editSelection((n) => {
+    if (props.level && n.style === 'text') { n.level = props.level; n.weight = LEVELS[props.level].weight; }
+    for (const k of ['font', 'italic', 'align', 'color', 'weight']) if (k in props) n[k] = props[k];
+    board.layoutNote(n);
+  }, notes);
+  if (props.font || props.weight || 'italic' in props) {
+    // Lay out again once the font (in this weight) has loaded.
+    Promise.all(notes.map((n) => ensureFont(n.font, n.weight, n.italic))).then(() => { board.relayoutNotes(); requestRender(); });
+  }
+  if (props.level) rememberTextLevel(props.level);
+  if (props.font) rememberTextLevel(null, props.font);
+  lastControls = '';
+}
+
+levelSelect.addEventListener('change', () => setTextProps({ level: levelSelect.value }));
+fontSelect.addEventListener('change', async () => {
+  if (fontSelect.value !== '__upload') return setTextProps({ font: fontSelect.value });
+  try {
+    const name = await uploadFont();
+    if (name) { setTextProps({ font: name }); toast(`Added the font ${name}. It's kept for all your boards.`, 3000); }
+  } catch (err) {
+    toast(err.message);
+  }
+  lastControls = '';
+});
+textControls.querySelector('[data-text="bold"]').addEventListener('click', () => {
+  const notes = selectedNotes();
+  setTextProps({ weight: notes.every((n) => n.weight >= 600) ? 400 : 700 });
+});
+textControls.querySelector('[data-text="italic"]').addEventListener('click', () => {
+  setTextProps({ italic: !selectedNotes().every((n) => n.italic) });
+});
+textControls.querySelector('[data-text="align"]').addEventListener('click', () => {
+  const order = ['left', 'center', 'right'];
+  const now = selectedNotes()[0]?.align || 'left';
+  setTextProps({ align: order[(order.indexOf(now) + 1) % 3] });
+});
+textControls.querySelector('[data-text="colour"]').addEventListener('click', () => { palette.hidden = !palette.hidden; });
+selectionBar.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+// Show the text controls for the selection, and keep them in step with it.
+let lastControls = '';
+function updateTextControls(sel) {
+  const notes = sel.filter((x) => x.kind === 'note');
+  const show = notes.length > 0 && notes.length === sel.length;
+  textControls.hidden = !show;
+  if (!show) { palette.hidden = true; return; }
+  const n = notes[0];
+  const key = notes.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.align}:${x.color}`).join(',') + customFonts().join(',');
+  if (key === lastControls) return;
+  lastControls = key;
+  const allText = notes.every((x) => x.style === 'text');
+  levelSelect.hidden = !allText;
+  if (allText) levelSelect.value = n.level;
+  fillFontMenu(n.font);
+  textControls.querySelector('[data-text="bold"]').classList.toggle('on', notes.every((x) => x.weight >= 600));
+  textControls.querySelector('[data-text="italic"]').classList.toggle('on', notes.every((x) => x.italic));
+  textControls.querySelector('[data-text="align"]').innerHTML = ALIGN_ICONS[n.align || 'left'];
+  textControls.querySelector('.sel-colour').style.setProperty('--c', n.color);
+}
+
 function placeSelectionBar() {
   const sel = board.selection;
+  updateTextControls(sel);
   const pane = activePane && boardPanes().includes(activePane) ? activePane : boardPanes()[0];
   const show = mode === 'board' && sel.length > 0 && !drag && !cropping && pane && !noteEditor.editing;
   selectionBar.hidden = !show;
@@ -1287,7 +1455,7 @@ panesEl.addEventListener('pointerdown', (e) => {
     addPoint(stroke, pane, e);
     board.redrawStroke(stroke, false);
     drag = { kind: 'draw', pane, stroke };
-  } else if (e.button === 0 && tool === 'note') {
+  } else if (e.button === 0 && (tool === 'note' || tool === 'text')) {
     e.preventDefault();  // keep the text box focused
     drag = null;
     // While typing, a click elsewhere just finishes the note.
@@ -1295,7 +1463,7 @@ panesEl.addEventListener('pointerdown', (e) => {
     else {
       const hit = board.hitTest(w.x, w.y);
       if (hit?.kind === 'note') editNote(hit, pane);
-      else addNoteAt(pane, w.x, w.y);
+      else addNoteAt(pane, w.x, w.y, tool === 'text' ? 'text' : 'sticky');
     }
   } else if (e.button === 0 && cropping) {
     // Cropping: drag a box over the part to keep.
@@ -1416,7 +1584,8 @@ document.addEventListener('pointerleave', () => { if (!drag) { mouse.x = null; m
 
 // Double-click a note to edit it (with any tool).
 panesEl.addEventListener('dblclick', (e) => {
-  const pane = viewports.paneFromElement(e.target);
+  // (Found by position: while clicking, the mouse is captured by the whole pane area.)
+  const pane = viewports.paneAt(e.clientX, e.clientY);
   if (pane?.type !== 'board') return;
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
@@ -1548,6 +1717,11 @@ window.addEventListener('keydown', (e) => {
   if (mod && e.code === 'KeyS') { e.preventDefault(); hideMenu(); saveToFile({ saveAs: e.shiftKey }); return; }
   if (mod && e.code === 'KeyZ') { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
   if (mod && e.code === 'KeyY') { e.preventDefault(); redo(); return; }
+  if (mod && (e.code === 'KeyB' || e.code === 'KeyI') && selectedNotes().length) {
+    e.preventDefault();
+    textControls.querySelector(`[data-text="${e.code === 'KeyB' ? 'bold' : 'italic'}"]`).click();
+    return;
+  }
   if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes].filter((x) => !x.locked); requestRender(); return; }
 
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
@@ -1605,6 +1779,10 @@ window.addEventListener('blur', () => { spaceHeld = false; panesEl.classList.rem
 // ---------- Start up ----------
 
 updateTitle();
+// Uploaded fonts first, so text draws in the right font. When any font finishes
+// loading later, lay the text out again with it.
+await loadCustomFonts();
+document.fonts.addEventListener('loadingdone', () => { board.relayoutNotes(); requestRender(); });
 await route();
 
 // Handy for testing from the browser console.
