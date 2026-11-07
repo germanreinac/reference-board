@@ -630,6 +630,12 @@ export class Board {
         for (const c of h.corners) o.roundRect(c.x - r, c.y - r, r * 2, r * 2, r * 0.5).fill(0xffffff).stroke({ width: line, color: 0x4da3ff });
       }
     }
+    // Snapping guides: thin pink lines where edges or middles line up.
+    for (const g of this.guides || []) {
+      o.moveTo(g.x1, g.y1).lineTo(g.x2, g.y2).stroke({ width: 1 / zoom, color: 0xff3d8b });
+      const r = 2.5 / zoom;
+      for (const [x, y] of [[g.x1, g.y1], [g.x2, g.y2]]) o.moveTo(x - r, y - r).lineTo(x + r, y + r).moveTo(x + r, y - r).lineTo(x - r, y + r).stroke({ width: 1 / zoom, color: 0xff3d8b });
+    }
     if (this.marquee) {
       const m = this.marquee;
       o.rect(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1), Math.abs(m.x1 - m.x0), Math.abs(m.y1 - m.y0))

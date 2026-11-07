@@ -16,6 +16,7 @@ Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing 
 | Zoom | Scroll wheel, or pinch on a trackpad. Zooms the pane under the mouse, towards the mouse |
 | Pan | Drag empty space, middle-mouse drag, or hold Space and drag |
 | Move an image | Drag it (it also comes to the front). Every pane updates |
+| Snapping | While moving, edges and middles line up with things nearby, shown with pink lines. Hold Ctrl/⌘ to place freely, or turn it off in the menu |
 | Select several | Shift-click to add or remove one, or Shift-drag a box on empty space. Ctrl/⌘ + A selects everything |
 | Scale / rotate | Drag a corner handle to scale, or the round handle above to rotate (hold Shift to snap to 15°) |
 | Flip, crop, greyscale, colours, align, group, frame, duplicate, lock, delete | The small bar above the selection, or right-click. **Crop**: drag a box over the part to keep. **Extract colours** adds a palette of the image's main colours, with their codes and how much of each. **Align** lines things up, spreads them out evenly, or arranges them in tidy rows |
@@ -185,14 +186,28 @@ zoom; the dots double or halve their spacing as you zoom so they never get too d
 ### Your boards
 
 Opening the site shows your boards: click **New board**, or click a board to open it.
-On a board, the bar across the top takes you back to your boards (**Boards**), shows the
-board's name (click it to rename) and has the board menu (**⋯**). The **⋯** button on a board's card can rename it, save it
-to a file, or delete it.
+On a board, the bar across the top takes you back to your boards (**Boards**), has a
+**tab** for each board you've opened (click the open one's name to rename it) and the board
+menu (**⋯**). The **⋯** button on a board's card can rename it, save it to a file, or delete it.
+
+- **Tabs**: click a tab to switch boards, `Alt` + `1`…`9` to jump to one, × or a middle-click to
+  close it (the board itself stays). **+** opens a new board or any of your boards in a new tab.
+- **A different board in each pane**: the pane button (top right of a pane) lists your boards.
+  Pick one and that pane shows it, next to the others. When panes show different boards, each
+  has a name label in its corner (click it to change); the one with the blue outline is the
+  board you're working on: the last one you clicked. Each board has its own undo.
+- **Move things between boards** by dragging them from one board's pane and letting go over
+  another's. Hold `Alt` while letting go to copy instead.
 
 - **Boards save as you work.** They're kept in Chrome on this computer, so closing the tab doesn't lose anything.
 - **Save to file** (Ctrl/⌘ + S) creates a `.refboard` file with all images and the pane layout inside it. Use it to back up a board or share it.
 - **Open file…** (Ctrl/⌘ + O), or drop a `.refboard` file onto the page. It's added as a new board and never replaces one you have.
 - Dropping or pasting images on the home screen starts a new board with them.
+- **Back up all** (home screen, or the board menu) saves every board into one `.refboards` file.
+  Open it or drop it in later to add them all back. The home screen shows when you last did it.
+- **Install app** (home screen, or the board menu) installs Reference Board as an app: its own
+  window and icon, it opens with no internet, Chrome keeps its boards safe, and
+  double-clicking a `.refboard` file on your computer opens it.
 - To share a board, send the `.refboard` file. The other person opens this website and drops it in, with nothing to install.
 
 A `.refboard` file is a normal zip file, so you can also unzip it to get the images back.
@@ -235,7 +250,8 @@ Chrome may remind you that a developer-mode extension is on; that's expected.)
 - ✅ Typing a pose with AI
 - ✅ Shapes, arrows, frames, groups, align, copy and paste
 - ✅ Present mode
-- ⏳ Cloud sync (Supabase), then a phone view
+- ✅ Snapping, tabs, a different board in each pane, backups, installing as an app
+- ⏳ Saving to a folder or Google Drive (your own storage), then a phone view
 
 ## How the code is organised
 

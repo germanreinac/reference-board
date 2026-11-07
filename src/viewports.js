@@ -41,10 +41,14 @@ const TOOL_TITLES = {
 
 export class Viewports {
   // createEditor(pane, hostElement) makes the tool shown in a non-board pane.
-  constructor({ app, board, layout, element, background, requestRender, onPaneAction, onLayoutChanged, createEditor }) {
+  // boardOf(pane) is the board a pane shows (panes can show different boards);
+  // paneLabel(pane) is { text, active } for the little name label, or null.
+  constructor({ app, board, boardOf, paneLabel, layout, element, background, requestRender, onPaneAction, onLayoutChanged, createEditor }) {
     this.createEditor = createEditor;
     this.app = app;
     this.board = board;
+    this.boardOf = boardOf || (() => this.board);
+    this.paneLabel = paneLabel || (() => null);
     this.el = element;              // the HTML layer above the canvas
     this.background = background;   // board colour
     this.dots = makeDots();         // the dotted background, drawn behind the board in each pane
@@ -103,16 +107,22 @@ export class Viewports {
     }
     const zoomEl = document.createElement('div');
     zoomEl.className = 'pane-zoom';
+    // Which board this pane shows, when there's more than one on screen. Click it to change.
+    const label = document.createElement('button');
+    label.className = 'pane-label';
+    label.hidden = true;
+    label.addEventListener('pointerdown', (e) => e.stopPropagation());
+    label.addEventListener('click', (e) => { e.stopPropagation(); this.onPaneAction('board', pane, label); });
     // Tools such as image search are put in here.
     const host = document.createElement('div');
     host.className = 'pane-editor';
-    el.append(host, tools, zoomEl);
+    el.append(host, tools, zoomEl, label);
     this.el.appendChild(el);
 
     const texture = RenderTexture.create({ width: 1, height: 1, resolution: this.app.renderer.resolution });
     const sprite = new Sprite(texture);
     this.app.stage.addChild(sprite);
-    return { el, zoomEl, tools, host, texture, sprite, editor: null, editorType: 'board' };
+    return { el, zoomEl, tools, host, label, texture, sprite, editor: null, editorType: 'board' };
   }
 
   // Make sure a pane shows the right thing: the board, or a tool.
@@ -187,6 +197,13 @@ export class Viewports {
       Object.assign(view.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
       view.editor?.layout?.(r);
       view.el.classList.toggle('narrow', r.w < 150 || r.h < 60);
+      const lab = this.paneLabel(pane);
+      view.label.hidden = !lab;
+      if (lab) {
+        view.label.textContent = lab.text;
+        view.label.title = `Showing the board "${lab.text}"${lab.active ? ' (you\'re working on it)' : ''}. Click to show another board here`;
+        view.label.classList.toggle('active', lab.active);
+      }
       view.tools.querySelector('[data-action="maximize"]').innerHTML = this.layout.maximized ? ICONS.restore : ICONS.maximize;
       // Match the off-screen picture to the pane's size.
       const tw = Math.max(1, Math.round(r.w));
@@ -229,18 +246,19 @@ export class Viewports {
   }
 
   // A small picture of the whole board, for the home screen. Returns a Blob, or null if the board is empty.
-  async snapshot(width = 480, height = 300) {
-    const bounds = this.board.bounds();
+  async snapshot(board = this.board, width = 480, height = 300) {
+    const bounds = board.bounds();
     if (!bounds) return null;
     const cam = new Camera();
     cam.frame(bounds, width, height, 16);
     const texture = RenderTexture.create({ width, height, resolution: 1 });
-    const selected = this.board.selected;
-    this.board.selected = null;  // no blue outline in the preview
-    this.board.drawOverlay(cam.zoom);
+    const selection = board.selection;
+    board.selection = [];  // no blue outline in the preview
+    board.drawOverlay(cam.zoom);
     this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
-    this.app.renderer.render({ container: this.board.world, target: texture, clear: true, clearColor: this.background, transform: this.matrix });
-    this.board.selected = selected;
+    this.app.renderer.render({ container: board.world, target: texture, clear: true, clearColor: this.background, transform: this.matrix });
+    board.selection = selection;
+    board.drawOverlay(cam.zoom);
     const canvas = this.app.renderer.extract.canvas(texture);
     texture.destroy(true);
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85));
@@ -275,10 +293,11 @@ export class Viewports {
       if (pane.type !== 'board') continue;
       const view = this.views.get(pane);
       const cam = pane.camera;
-      this.board.drawOverlay(cam.zoom);
+      const board = this.boardOf(pane);
+      board.drawOverlay(cam.zoom);
       this.drawDots(pane, view.texture);
       this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
-      renderer.render({ container: this.board.world, target: view.texture, clear: false, transform: this.matrix });
+      renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
       view.zoomEl.textContent = `${Math.round(cam.zoom * 100)}%`;
     }
     this.app.render();

@@ -24,6 +24,7 @@ export class Pane {
     this.id = nextPaneId++;
     this.type = 'board';
     this.state = {};   // what a tool pane remembers (e.g. the search words), saved with the board
+    this.boardId = null;  // a board pane can show another board; null = the board that's open
     this.camera = camera;
     this.rect = null;  // where the pane is in the window: { x, y, w, h }
     this.pendingView = null;  // a saved { cx, cy, zoom } to apply once we know the size
@@ -105,6 +106,7 @@ export class Layout {
 
     const copy = new Pane();
     copy.type = pane.type;
+    copy.boardId = pane.boardId;
     copy.state = JSON.parse(JSON.stringify(pane.state || {}));
     copy.camera.zoom = pane.camera.zoom;
     copy.camera.x = pane.camera.x;
@@ -172,7 +174,7 @@ export class Layout {
       if (node.type === 'pane') {
         const c = node.pane.centre();
         const p = node.pane;
-        return { pane: { cx: c.x, cy: c.y, zoom: p.camera.zoom, maximized: this.maximized === p, type: p.type, state: p.state } };
+        return { pane: { cx: c.x, cy: c.y, zoom: p.camera.zoom, maximized: this.maximized === p, type: p.type, state: p.state, ...(p.boardId ? { boardId: p.boardId } : {}) } };
       }
       return { dir: node.dir, ratio: node.ratio, a: walk(node.a), b: walk(node.b) };
     };
@@ -187,6 +189,7 @@ export class Layout {
         pane.pendingView = { cx: d.pane.cx || 0, cy: d.pane.cy || 0, zoom: d.pane.zoom || 1 };
         if (PANE_TYPES.includes(d.pane.type)) pane.type = d.pane.type;
         pane.state = d.pane.state || {};
+        pane.boardId = typeof d.pane.boardId === 'string' ? d.pane.boardId : null;
         if (d.pane.maximized) layout.maximized = pane;
         return { type: 'pane', pane };
       }

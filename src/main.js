@@ -30,7 +30,7 @@ document.querySelector('.home-version').textContent = `Version ${VERSION}`;
 import {
   FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
-  store, newBoardId, askToKeepStorage,
+  store, newBoardId, askToKeepStorage, storageIsKept, packBackup, unpackBackup, isBackupFile, BACKUP_EXT,
 } from './storage.js';
 
 loadTheme();
@@ -54,10 +54,16 @@ await app.init({
 });
 document.getElementById('stage').appendChild(app.canvas);
 
-const board = new Board();
+// The board you're working on: the one in the pane you last clicked. Each pane can
+// show a different board (see "Boards on screen" below); `board`, `history` and
+// `current` always point at the one you're working on.
+let board = new Board();
+const docs = new Map();   // every board on screen, by id (see "Boards on screen")
+let mainDoc = null;       // the board in the address bar
+let activeDoc = null;     // the one you're working on
 const panesEl = document.getElementById('panes');
 const viewports = new Viewports({
-  app, board, layout: new Layout(), element: panesEl, background: BOARD_COLOUR,
+  app, board, boardOf: (pane) => docOfPane(pane)?.board || board, paneLabel: (pane) => paneLabel(pane), layout: new Layout(), element: panesEl, background: BOARD_COLOUR,
   requestRender: () => requestRender(),
   onPaneAction: (action, pane, button) => paneAction(action, pane, button),
   onLayoutChanged: () => viewChanged(),
@@ -76,9 +82,12 @@ board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
 // The panes showing the board (not search or the mannequin).
 const boardPanes = () => layout().visiblePanes().filter((p) => p.type === 'board');
 // The board pane under the mouse, or else the first one on screen. Can be null.
+// The board in that pane becomes the one you're working on.
 function targetBoardPane(x = mouse.x, y = mouse.y) {
   const p = x === null ? null : viewports.paneAt(x, y);
-  return p?.type === 'board' ? p : boardPanes()[0] || null;
+  const pane = p?.type === 'board' ? p : boardPanes().find((q) => docOfPane(q) === activeDoc) || boardPanes()[0] || null;
+  if (pane) activate(docOfPane(pane));
+  return pane;
 }
 
 // Which screen is showing: 'home' or 'board'.
@@ -106,7 +115,7 @@ function requestRender() {
     if (mode !== 'board') return;
     // Keep note text sharp for the most zoomed-in pane.
     const maxZoom = Math.max(1, ...boardPanes().map((p) => p.camera.zoom));
-    board.updateTextSharpness(maxZoom, app.renderer.resolution);
+    for (const d of docs.values()) d.board.updateTextSharpness(maxZoom, app.renderer.resolution);
     viewports.render();
     noteEditor.position();
     placeToolbar();
@@ -134,7 +143,7 @@ function placeToolbar() {
 // Light and dark mode: redraw the board in the new colours.
 window.addEventListener('themechange', (e) => {
   viewports.setColours(e.detail);
-  board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
+  for (const d of docs.values()) d.board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
   app.renderer.background.color = e.detail.gap;
   requestRender();
 });
@@ -157,18 +166,62 @@ function toast(message, ms = 4000) {
 let current = null;
 
 const nameInput = document.getElementById('board-name');
+// The top bar and the window title show the main board (the one in the address bar).
 function updateTitle() {
-  const name = current?.name || 'Reference Board';
-  if (document.activeElement !== nameInput) nameInput.value = current?.name || '';
-  document.title = current ? `${name} – Reference Board` : 'Reference Board';
+  const main = mainDoc?.meta;
+  if (document.activeElement !== nameInput) nameInput.value = main?.name || '';
+  document.title = main ? `${main.name} – Reference Board` : 'Reference Board';
+  renderTabs();
+}
+
+// ---------- Boards on screen ----------
+//
+// The board in the address bar is the main one: it owns the pane layout. Any pane can
+// show another board too. Every board on screen is a "doc":
+//   { meta, board, history, thumbStale, layoutJSON }
+// meta is the saved record without the board data; layoutJSON is the other board's own
+// layout, kept as it was so saving it doesn't overwrite it with this one.
+// (docs, mainDoc and activeDoc are declared at the top, next to `board`.)
+
+function makeDoc(meta) {
+  const b = new Board();
+  b.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
+  return { meta, board: b, history: new History(() => updateHistoryButtons()), thumbStale: false, layoutJSON: null };
+}
+
+// The doc a board pane shows (null for tool panes).
+function docOfPane(pane) {
+  if (!pane || pane.type !== 'board') return null;
+  return (pane.boardId && docs.get(pane.boardId)) || mainDoc;
+}
+
+// Start working on another board on screen: its selection, undo and name.
+function activate(doc) {
+  if (!doc || doc === activeDoc) return;
+  if (noteEditor.editing) noteEditor.finish();
+  cropping = null;
+  if (activeDoc) activeDoc.board.selection = [];
+  activeDoc = doc;
+  board = doc.board;
+  history = doc.history;
+  current = doc.meta;
+  updateHistoryButtons();
+  viewports.position();
+  requestRender();
+}
+
+// The small name label on a pane, shown when more than one board is on screen.
+function paneLabel(pane) {
+  if (pane.type !== 'board' || docs.size < 2) return null;
+  const d = docOfPane(pane);
+  return d ? { text: d.meta.name, active: d === activeDoc, main: d === mainDoc } : null;
 }
 
 // Something on the board changed (images added, moved, removed...).
-let thumbStale = false;
 function contentChanged() {
-  if (!current) return;
+  if (!current || !activeDoc) return;
   current.updated = Date.now();
-  thumbStale = true;
+  activeDoc.thumbStale = true;
   scheduleSave();
 }
 
@@ -181,23 +234,26 @@ let saveTimer;
 let loading = false;
 let lastThumb = 0;
 function scheduleSave() {
-  if (loading || !current) return;
+  if (loading || !mainDoc) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow(), 600);
 }
 
-// Write the open board to Chrome's storage. The preview picture is updated at
+// Write every board on screen to Chrome's storage. Preview pictures are updated at
 // most every 10 seconds while you work, and always when you leave the board.
 async function saveNow({ thumb = false } = {}) {
   clearTimeout(saveTimer);
-  if (!current || loading) return;
-  const id = current.id;
+  if (!mainDoc || loading) return;
   try {
-    await store.putBoard({ ...current, board: describeBoard(board, layout()) });
-    if (thumbStale && (thumb || Date.now() - lastThumb > 10000)) {
-      thumbStale = false;
-      lastThumb = Date.now();
-      await store.saveThumb(id, await viewports.snapshot());
+    const due = thumb || Date.now() - lastThumb > 10000;
+    if (due) lastThumb = Date.now();
+    for (const d of [...docs.values()]) {
+      const lay = d === mainDoc ? layout() : { toJSON: () => d.layoutJSON };
+      await store.putBoard({ ...d.meta, board: describeBoard(d.board, lay) });
+      if (d.thumbStale && due) {
+        d.thumbStale = false;
+        await store.saveThumb(d.meta.id, await viewports.snapshot(d.board));
+      }
     }
   } catch (err) {
     console.warn('Saving failed', err);
@@ -579,6 +635,29 @@ async function pasteThings(clip, at = null) {
   requestRender();
 }
 
+// Dragging things out of one board's pane and letting go over a pane that shows another
+// board moves them there (hold Alt to copy instead). Returns false if it's the same board.
+function moveToOtherBoard(d) {
+  const target = mouse.x === null ? null : viewports.paneAt(mouse.x, mouse.y);
+  const to = docOfPane(target);
+  const from = docOfPane(d.pane);
+  if (!to || !from || to === from) return false;
+  // Put them back where they were on this board first.
+  d.items.forEach((item, i) => { item.sprite.position.set(d.before[i].x, d.before[i].y); });
+  const box = board.bounds(d.items);
+  const things = d.items.map(thingData);
+  // Keep them under the mouse the way you were holding them.
+  const w = target.camera.toWorld(mouse.x - target.rect.x, mouse.y - target.rect.y);
+  const at = { x: w.x + (box.x + box.width / 2 - d.start.x), y: w.y + (box.y + box.height / 2 - d.start.y) };
+  const copy = altHeld;
+  if (!copy) { board.selection = [...d.items]; removeSelected(); }
+  activate(to);
+  activePane = target;
+  pasteThings({ things, box }, at);
+  toast(`${copy ? 'Copied' : 'Moved'} to ${to.meta.name}${copy ? '' : '. Undo in each board puts it back'}`, 2200);
+  return true;
+}
+
 function duplicateSelection() {
   const sel = [...board.selection];
   if (!sel.length) return;
@@ -739,16 +818,18 @@ function removeNoteById(id) {
 // Zoom a pane so these images and notes fill it (null = everything on the board).
 // With no pane given, every visible pane.
 function fitPane(pane, items) {
-  const bounds = board.bounds(items);
-  if (!bounds) return;
-  for (const p of pane ? [pane] : boardPanes()) p.camera.frame(bounds, p.rect.w, p.rect.h, 60);
+  for (const p of pane ? [pane] : boardPanes()) {
+    const b = docOfPane(p)?.board || board;
+    const bounds = b.bounds(b === board ? items : null);
+    if (bounds) p.camera.frame(bounds, p.rect.w, p.rect.h, 60);
+  }
   viewChanged();
 }
 
 // ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
-async function loadBoard(data, getBlob) {
+async function loadBoard(data, getBlob, board, { withLayout = true } = {}) {
   loading = true;
   try {
     board.clear();
@@ -769,7 +850,7 @@ async function loadBoard(data, getBlob) {
     Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
       .then(() => { board.relayoutNotes(); requestRender(); });
     board.selected = null;
-    viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
+    if (withLayout) viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
   } finally {
     loading = false;
@@ -784,23 +865,79 @@ async function openBoardById(id) {
     return;
   }
   const { board: data, ...meta } = record;
-  current = meta;
-  history.clear();
-  updateHistoryButtons();
-  await loadBoard(data, (item) => store.loadImage(id, item.id));
+  const doc = makeDoc(meta);
+  docs.set(id, doc);
+  mainDoc = doc;
+  activeDoc = null;
+  activate(doc);
+  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board);
   // Boards opened from a file, or from the first version, may not have a preview yet.
-  thumbStale = !board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
+  doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
+  // Panes that show other boards: load those too.
+  for (const pane of layout().panes()) {
+    if (!pane.boardId || pane.boardId === id) { pane.boardId = null; continue; }
+    if (!(await loadOtherBoard(pane.boardId))) pane.boardId = null;
+  }
+  activate(doc);
+  addTab(id);
   updateTitle();
+  viewports.position();
+  requestRender();
+}
+
+// Load a board to show in a pane next to the main one. Returns its doc, or null if it's gone.
+async function loadOtherBoard(id) {
+  if (docs.has(id)) return docs.get(id);
+  const record = await store.getBoard(id);
+  if (!record) return null;
+  const { board: data, ...meta } = record;
+  const doc = makeDoc(meta);
+  doc.layoutJSON = data?.layout || null;
+  docs.set(id, doc);
+  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { withLayout: false });
+  doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
+  return doc;
+}
+
+// Boards that no pane shows any more are saved and let go.
+async function releaseUnusedBoards() {
+  const shown = new Set(layout().panes().filter((p) => p.type === 'board').map((p) => p.boardId).filter(Boolean));
+  const unused = [...docs].filter(([id, d]) => d !== mainDoc && !shown.has(id));
+  if (!unused.length) return;
+  await saveNow();
+  for (const [id, d] of unused) {
+    if (activeDoc === d) activate(mainDoc);
+    d.board.clear();
+    docs.delete(id);
+  }
+  viewports.position();
+}
+
+// Show a board in a pane (null: the main board).
+async function showBoardInPane(pane, id) {
+  if (id === mainDoc?.meta.id) id = null;
+  if (id && !(await loadOtherBoard(id))) { toast('That board no longer exists.'); return; }
+  pane.type = 'board';
+  pane.boardId = id;
+  pane.state = {};
+  await releaseUnusedBoards();
+  viewports.rebuild();
+  activate(docOfPane(pane));
+  fitPane(pane, null);
+  viewChanged();
+  requestRender();
 }
 
 // Save the open board, then free its images from memory.
 async function leaveBoard() {
-  if (!current) return;
+  if (!mainDoc) return;
   noteEditor.finish();
   await saveNow({ thumb: true });
-  history.clear();
-  current = null;
-  board.clear();
+  for (const d of docs.values()) d.board.clear();
+  docs.clear();
+  mainDoc = activeDoc = current = null;
+  board = new Board();
+  history = new History(() => updateHistoryButtons());
   viewports.setLayout(new Layout());
   updateTitle();
 }
@@ -823,7 +960,7 @@ async function doRoute() {
   }
   const id = location.hash.match(/^#\/board\/([\w-]+)/)?.[1];
   if (id) {
-    if (current?.id !== id) {
+    if (mainDoc?.meta.id !== id) {
       await leaveBoard();
       setMode('board');
       await openBoardById(id);
@@ -833,6 +970,7 @@ async function doRoute() {
     await leaveBoard();
     setMode('home');
     await home.refresh();
+    showSafetyNote();
   }
 }
 window.addEventListener('hashchange', route);
@@ -868,9 +1006,11 @@ async function newBoard() {
 }
 
 async function renameBoard(id, name) {
-  if (current?.id === id) {
-    current.name = name;
+  const doc = docs.get(id);
+  if (doc) {
+    doc.meta.name = name;
     updateTitle();
+    viewports.position();
     await saveNow();
     return;
   }
@@ -881,6 +1021,8 @@ async function renameBoard(id, name) {
 async function deleteBoard(id, name) {
   if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
   await store.deleteBoard(id);
+  tabIds = tabIds.filter((t) => t !== id);
+  saveTabs();
   await home.refresh();
 }
 
@@ -907,7 +1049,8 @@ async function importBoardFile(file, handle = null) {
 async function openFile() {
   try {
     const picked = await pickBoardToOpen();
-    if (picked) openBoard(await importBoardFile(picked.file, picked.handle));
+    if (picked && isBackupFile(picked.file)) await restoreBackup(picked.file);
+    else if (picked) openBoard(await importBoardFile(picked.file, picked.handle));
   } catch (err) {
     toast(err.message || "Couldn't open that file.");
   }
@@ -939,7 +1082,7 @@ async function saveToFile({ saveAs = false } = {}) {
     const handle = await writeBoardFile({
       name: current.name,
       handle: saveAs ? null : current.handle,
-      getData: () => describeBoard(board, layout()),
+      getData: () => describeBoard(board, activeDoc === mainDoc ? layout() : { toJSON: () => activeDoc.layoutJSON }),
       getBlob: (item) => blobs.get(item.id),
     });
     if (handle && current) {
@@ -969,6 +1112,90 @@ async function exportBoard(id) {
   }
 }
 
+// ---------- Backing up every board ----------
+//
+// One file with all your boards in it, for safe keeping (e.g. in Google Drive or on a
+// USB stick). Opening it later adds the boards back; it never replaces any.
+
+const BACKUP_KEY = 'refboard.lastBackup';
+async function backupAllBoards() {
+  try {
+    await saveNow({ thumb: true });
+    const records = (await store.listBoards()).sort((a, b) => b.updated - a.updated);
+    if (!records.length) { toast('There are no boards to back up yet.'); return; }
+    toast(`Backing up ${records.length} board${records.length > 1 ? 's' : ''}…`, 60000);
+    const boards = [];
+    for (const r of records) {
+      const full = await store.getBoard(r.id);
+      boards.push({ name: r.name, blob: await packBoard(full.board, (item) => store.loadImage(r.id, item.id), customFontBlob) });
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    downloadBlob(await packBackup(boards), `Reference Board backup ${day}${BACKUP_EXT}`);
+    try { localStorage.setItem(BACKUP_KEY, String(Date.now())); } catch {}
+    toast(`Backed up ${records.length} board${records.length > 1 ? 's' : ''}. Keep the file somewhere safe, like Google Drive.`, 4000);
+    showSafetyNote();
+  } catch (err) {
+    console.error(err);
+    toast("Couldn't make the backup.");
+  }
+}
+
+async function restoreBackup(file) {
+  const files = await unpackBackup(file);
+  if (!files.length) { toast('There are no boards in that backup.'); return; }
+  for (const f of files) await importBoardFile(f);
+  toast(`Added ${files.length} board${files.length > 1 ? 's' : ''} from the backup.`, 3000);
+  if (mode === 'home') home.refresh(); else goHome();
+}
+
+// On the home screen: whether Chrome will keep the boards, and when you last backed up.
+async function showSafetyNote() {
+  const el = document.getElementById('safety-note');
+  const kept = await storageIsKept();
+  let last = 0;
+  try { last = Number(localStorage.getItem(BACKUP_KEY)) || 0; } catch {}
+  const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+  el.textContent = `${kept ? '✓ Chrome will keep your boards, even when the disk is nearly full.' : 'Chrome may clear your boards if the disk gets very full: installing the app or backing up keeps them safe.'} `
+    + `Last backup: ${days === null ? 'never' : days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}.`;
+  el.classList.toggle('warn', !kept && (days === null || days > 14));
+}
+document.getElementById('backup-button').addEventListener('click', backupAllBoards);
+
+// ---------- Installing as an app, and working offline ----------
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Offline support unavailable', err));
+}
+// Chrome offers to install when it's possible; we show our own button for it.
+let installPrompt = null;
+const installButton = document.getElementById('install-button');
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  installButton.hidden = false;
+});
+async function installApp() {
+  if (!installPrompt) {
+    toast('To install: use the install icon at the right of Chrome\'s address bar, or ⋮ → Cast, save and share → Install page as app.', 5000);
+    return;
+  }
+  installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice.catch(() => ({}));
+  if (outcome === 'accepted') { installPrompt = null; installButton.hidden = true; }
+}
+installButton.addEventListener('click', installApp);
+window.addEventListener('appinstalled', () => { installButton.hidden = true; askToKeepStorage(); toast('Installed. Reference Board now has its own window and icon.', 3000); });
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches;
+
+// Once installed, double-clicking a .refboard file on your computer opens it here.
+window.launchQueue?.setConsumer(async ({ files }) => {
+  for (const handle of files || []) {
+    const file = await handle.getFile();
+    if (isBackupFile(file)) await restoreBackup(file);
+    else openBoard(await importBoardFile(file, handle));
+  }
+});
+
 // ---------- Home screen ----------
 
 const home = new Home(document.getElementById('home'), {
@@ -978,6 +1205,87 @@ const home = new Home(document.getElementById('home'), {
   rename: renameBoard,
   exportFile: exportBoard,
   remove: deleteBoard,
+});
+
+// ---------- Tabs: the boards you have open ----------
+//
+// Like browser tabs: every board you open gets a tab in the top bar, so you can jump
+// between them. Remembered in this browser (not part of any board).
+
+const TABS_KEY = 'refboard.tabs';
+let tabIds = [];
+try { tabIds = JSON.parse(localStorage.getItem(TABS_KEY) || '[]').filter((x) => typeof x === 'string'); } catch {}
+const saveTabs = () => { try { localStorage.setItem(TABS_KEY, JSON.stringify(tabIds)); } catch {} };
+const tabsEl = document.getElementById('board-tabs');
+
+function addTab(id) {
+  if (!tabIds.includes(id)) { tabIds.push(id); saveTabs(); }
+}
+
+function closeTab(id) {
+  const i = tabIds.indexOf(id);
+  if (i < 0) return;
+  tabIds.splice(i, 1);
+  saveTabs();
+  if (mainDoc?.meta.id === id) {
+    const next = tabIds[Math.min(i, tabIds.length - 1)];
+    if (next) openBoard(next); else goHome();
+  } else {
+    renderTabs();
+  }
+}
+
+let tabsDrawn = 0;
+async function renderTabs() {
+  const n = ++tabsDrawn;
+  if (!mainDoc) return;
+  const boards = new Map((await store.listBoards()).map((b) => [b.id, b]));
+  if (n !== tabsDrawn) return;  // a newer redraw started meanwhile
+  const before = tabIds.length;
+  tabIds = tabIds.filter((id) => boards.has(id) || id === mainDoc?.meta.id);
+  if (tabIds.length !== before) saveTabs();
+  const keep = document.activeElement === nameInput;
+  tabsEl.replaceChildren();
+  tabIds.forEach((id, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'tab';
+    const isOpen = id === mainDoc?.meta.id;
+    tab.classList.toggle('active', isOpen);
+    if (isOpen) {
+      tab.appendChild(nameInput);
+    } else {
+      const name = document.createElement('span');
+      name.className = 'tab-name';
+      name.textContent = boards.get(id)?.name || 'Board';
+      tab.title = `${name.textContent}${i < 9 ? ` (Alt+${i + 1})` : ''}`;
+      tab.appendChild(name);
+      tab.addEventListener('click', () => openBoard(id));
+    }
+    // Middle-click closes, like in Chrome.
+    tab.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(id); } });
+    const close = document.createElement('button');
+    close.className = 'tab-close';
+    close.title = 'Close tab (the board stays in your boards)';
+    close.innerHTML = '<svg viewBox="0 0 16 16"><path d="M5 5l6 6M11 5l-6 6"/></svg>';
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeTab(id); });
+    tab.appendChild(close);
+    tabsEl.appendChild(tab);
+  });
+  if (keep) nameInput.focus();
+  tabsEl.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+// The + button: a new board, or any of your boards in a new tab.
+document.getElementById('tab-add').addEventListener('click', async (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const boards = (await store.listBoards()).filter((b) => !tabIds.includes(b.id)).sort((a, b) => b.updated - a.updated);
+  showMenu(r.left, r.bottom + 4, [
+    { label: 'New board', action: newBoard },
+    ...(boards.length ? ['-', { label: 'Open in a new tab', disabled: true }] : []),
+    ...boards.slice(0, 20).map((b) => ({ label: b.name, action: () => openBoard(b.id) })),
+    '-',
+    { label: 'All boards…', action: goHome },
+  ]);
 });
 
 // ---------- Board name and home button ----------
@@ -991,13 +1299,13 @@ document.getElementById('board-menu-button').addEventListener('click', (e) => {
 });
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === 'Escape') {
-    if (e.key === 'Escape') nameInput.value = current?.name || '';
+    if (e.key === 'Escape') nameInput.value = mainDoc?.meta.name || '';
     nameInput.blur();
   }
 });
 nameInput.addEventListener('blur', () => {
   const value = nameInput.value.trim();
-  if (current && value && value !== current.name) renameBoard(current.id, value);
+  if (mainDoc && value && value !== mainDoc.meta.name) renameBoard(mainDoc.meta.id, value);
   else updateTitle();
 });
 
@@ -1005,12 +1313,9 @@ nameInput.addEventListener('blur', () => {
 
 function paneAction(action, pane, button) {
   const l = layout();
-  if (action === 'type') {
+  if (action === 'type' || action === 'board') {
     const r = button.getBoundingClientRect();
-    showMenu(r.left, r.bottom + 4, PANE_TYPES.map((t) => ({
-      label: `${pane.type === t ? '✓ ' : ''}${TYPE_NAMES[t]}`,
-      action: () => setPaneType(pane, t),
-    })));
+    paneMenu(pane, r.left, r.bottom + 4, action === 'board');
     return;
   }
   if (action === 'split-row' || action === 'split-col') {
@@ -1019,7 +1324,9 @@ function paneAction(action, pane, button) {
       return;
     }
   } else if (action === 'close') {
+    if (docOfPane(pane) === activeDoc) activate(mainDoc);
     if (!l.close(pane)) return;
+    releaseUnusedBoards();
   } else if (action === 'maximize') {
     l.toggleMaximize(pane);
   }
@@ -1028,9 +1335,34 @@ function paneAction(action, pane, button) {
   requestRender();
 }
 
+// What a pane shows: this board, another board, or a tool.
+async function paneMenu(pane, x, y, boardsOnly = false) {
+  const others = (await store.listBoards())
+    .filter((b) => b.id !== mainDoc?.meta.id)
+    .sort((a, b) => b.updated - a.updated)
+    .slice(0, 14);
+  const shows = pane.type === 'board' ? (pane.boardId || mainDoc?.meta.id) : null;
+  const tick = (on) => (on ? '✓ ' : '');
+  const items = [
+    { label: `${tick(shows === mainDoc?.meta.id)}This board: ${mainDoc?.meta.name || ''}`, action: () => showBoardInPane(pane, null) },
+    ...(others.length ? ['-', { label: 'Show another board here', disabled: true }] : []),
+    ...others.map((b) => ({ label: `${tick(shows === b.id)}${b.name}`, action: () => showBoardInPane(pane, b.id) })),
+  ];
+  if (!boardsOnly) {
+    items.push('-', ...PANE_TYPES.filter((t) => t !== 'board').map((t) => ({
+      label: `${tick(pane.type === t)}${TYPE_NAMES[t]}`,
+      action: () => setPaneType(pane, t),
+    })));
+  }
+  showMenu(x, y, items);
+}
+
 function setPaneType(pane, type) {
   if (pane.type === type) return;
+  if (docOfPane(pane) === activeDoc) activate(mainDoc);
   pane.type = type;
+  pane.boardId = null;
+  releaseUnusedBoards();
   pane.state = {};
   viewports.rebuild();
   viewChanged();
@@ -1244,6 +1576,8 @@ window.addEventListener('drop', async (e) => {
       return;
     }
 
+    const backups = [...e.dataTransfer.files].filter(isBackupFile);
+    if (backups.length) { for (const f of backups) await restoreBackup(f); return; }
     // Board files are added to your boards, never replacing one.
     const boardFiles = [...e.dataTransfer.files].filter(isBoardFile);
     if (boardFiles.length) {
@@ -1300,7 +1634,7 @@ window.addEventListener('paste', async (e) => {
 
 // ---------- Undo, tools and notes ----------
 
-const history = new History(() => updateHistoryButtons());
+let history = new History(() => updateHistoryButtons());
 function updateHistoryButtons() {
   toolbar.setHistory(history.done.length > 0, history.undone.length > 0);
 }
@@ -1410,9 +1744,80 @@ function handleAt(pane, w) {
   return i === -1 ? null : i;
 }
 
+// ---------- Snapping ----------
+//
+// While you move things, their left, middle and right line up with the left, middle and
+// right of anything else nearby when they get close (and the same for top, middle and
+// bottom). Pink lines show what lined up. Ctrl/⌘ while dragging turns it off for that move.
+
+let snapOn = true;
+try { snapOn = localStorage.getItem('refboard.snap') !== 'off'; } catch {}
+function setSnap(on) {
+  snapOn = on;
+  try { localStorage.setItem('refboard.snap', on ? 'on' : 'off'); } catch {}
+  toast(on ? 'Snapping on. Hold Ctrl/⌘ while dragging to place freely.' : 'Snapping off', 1800);
+}
+
+const edges = (b) => ({ x: [b.x, b.x + b.width / 2, b.x + b.width], y: [b.y, b.y + b.height / 2, b.y + b.height] });
+
+function snapMove(d, dx, dy) {
+  const zoom = d.pane.camera.zoom;
+  if (!d.snap) {
+    // Work out once per drag: the box being moved, and the boxes of everything else in view.
+    const moving = new Set(d.items);
+    const r = d.pane.rect;
+    const view = { ...d.pane.camera.toWorld(0, 0), w: r.w / zoom, h: r.h / zoom };
+    // (On the first call nothing has moved yet, so this is where they started.)
+    const box0 = board.bounds(d.items);
+    const others = board.selectable
+      .filter((x) => !moving.has(x))
+      .map((x) => board.bounds([x]))
+      .filter((b) => b && b.x < view.x + view.w * 1.5 && b.x + b.width > view.x - view.w * 0.5 && b.y < view.y + view.h * 1.5 && b.y + b.height > view.y - view.h * 0.5)
+      .slice(0, 800);
+    d.snap = { box0, others };
+  }
+  const { box0, others } = d.snap;
+  if (!box0 || !others.length) return { dx, dy };
+  const limit = 7 / zoom;
+  const box = { x: box0.x + dx, y: box0.y + dy, width: box0.width, height: box0.height };
+  const mine = edges(box);
+  // The smallest nudge that lines one of our edges up with one of theirs.
+  const best = (axis) => {
+    let shift = null;
+    for (const o of others) for (const t of edges(o)[axis]) for (const m of mine[axis]) {
+      const diff = t - m;
+      if (Math.abs(diff) <= limit && (shift === null || Math.abs(diff) < Math.abs(shift))) shift = diff;
+    }
+    return shift;
+  };
+  const sx = best('x'), sy = best('y');
+  if (sx !== null) dx += sx;
+  if (sy !== null) dy += sy;
+  // Guides for everything that now lines up exactly.
+  const snapped = edges({ x: box0.x + dx, y: box0.y + dy, width: box0.width, height: box0.height });
+  const by = snapped.y, bx = snapped.x;
+  const eps = 0.5 / zoom;
+  const guides = [];
+  for (const o of others) {
+    const oe = edges(o);
+    if (sx !== null) for (const t of oe.x) for (const m of bx) if (Math.abs(t - m) < eps) {
+      guides.push({ x1: m, y1: Math.min(by[0], o.y), x2: m, y2: Math.max(by[2], o.y + o.height) });
+    }
+    if (sy !== null) for (const t of oe.y) for (const m of by) if (Math.abs(t - m) < eps) {
+      guides.push({ x1: Math.min(bx[0], o.x), y1: m, x2: Math.max(bx[2], o.x + o.width), y2: m });
+    }
+  }
+  board.guides = guides;
+  return { dx, dy };
+}
+
 function dragTo(d, w, e) {
   if (d.kind === 'move') {
-    const dx = w.x - d.start.x, dy = w.y - d.start.y;
+    let dx = w.x - d.start.x, dy = w.y - d.start.y;
+    // Snap to other things' edges and middles (hold Ctrl/⌘ to place freely).
+    const free = !snapOn || e.ctrlKey || e.metaKey;
+    board.guides = [];
+    if (!free) ({ dx, dy } = snapMove(d, dx, dy));
     d.items.forEach((item, i) => item.sprite.position.set(d.before[i].x + dx, d.before[i].y + dy));
     d.moved = true;
   } else if (d.kind === 'scale') {
@@ -1693,6 +2098,9 @@ function placeSelectionBar() {
 
 const mouse = { x: null, y: null };
 let spaceHeld = false;
+// Whether Alt / Option is down (Alt-dropping onto another board copies instead of moving).
+let altHeld = false;
+for (const t of ['keydown', 'keyup', 'pointermove', 'pointerup']) window.addEventListener(t, (e) => { altHeld = e.altKey; }, true);
 // What the current drag is doing:
 //   { kind: 'pan', pane }
 //   { kind: 'move', pane, item, offsetX, offsetY, from }
@@ -1746,6 +2154,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (pane.type !== 'board') return;  // search and the mannequin handle their own mouse
   if (document.activeElement === nameInput) nameInput.blur();
+  activate(docOfPane(pane));  // clicking a pane that shows another board starts working on it
   if (e.button === 2) return;  // right button: handled by the menu
   panesEl.setPointerCapture(e.pointerId);
 
@@ -1850,7 +2259,7 @@ panesEl.addEventListener('pointermove', (e) => {
     // Show which handle the mouse is over.
     const pane = viewports.paneFromElement(e.target);
     let over = null;
-    if (pane?.type === 'board' && toolbar.tool === 'select') {
+    if (pane?.type === 'board' && toolbar.tool === 'select' && docOfPane(pane) === activeDoc) {
       const p = localPoint(pane, e);
       over = handleAt(pane, pane.camera.toWorld(p.x, p.y));
     }
@@ -1879,6 +2288,7 @@ function endDrag() {
   if (!drag) return;
   const d = drag;
   drag = null;
+  board.guides = [];
   panesEl.classList.remove('panning');
 
   if (d.kind === 'create') {
@@ -1897,6 +2307,8 @@ function endDrag() {
     board.selected = it;
     toolbar.setTool('select');
     contentChanged();
+  } else if (d.kind === 'move' && d.moved && moveToOtherBoard(d)) {
+    // (handled: dropped onto a pane that shows another board)
   } else if (['move', 'scale', 'rotate'].includes(d.kind)) {
     recordChange(d.items, d.before);
   } else if (d.kind === 'marquee') {
@@ -1935,6 +2347,7 @@ panesEl.addEventListener('dblclick', (e) => {
   // (Found by position: while clicking, the mouse is captured by the whole pane area.)
   const pane = viewports.paneAt(e.clientX, e.clientY);
   if (pane?.type !== 'board') return;
+  activate(docOfPane(pane));
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const title = board.frameTitleAt(w.x, w.y);
@@ -1996,6 +2409,9 @@ function openMenu(x, y, pane) {
     { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
     { label: board.frames.length ? `Present (${board.frames.length} frame${board.frames.length > 1 ? 's' : ''})` : 'Present', shortcut: `${MOD}Enter`, disabled: board.isEmpty(), action: startPresent },
     '-',
+    { label: 'Back up all boards', action: backupAllBoards },
+    ...(isInstalled() ? [] : [{ label: 'Install as an app…', action: installApp }]),
+    '-',
     { label: 'Capture screen…', action: captureScreen },
     { label: document.documentElement.dataset.refboardExtension ? 'Browser extension: installed ✓' : 'Get the browser extension…', action: () => window.open(EXTENSION_HELP, '_blank', 'noopener') },
   ];
@@ -2041,6 +2457,7 @@ function openMenu(x, y, pane) {
         shortcut: 'L',
         action: () => setLocked(menuTarget, !menuTarget.locked),
       }] : []),
+      { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
       { label: 'Lock everything', action: () => setLocked('all', true) },
       { label: 'Unlock everything', action: () => setLocked('all', false) },
       '-',
@@ -2057,6 +2474,7 @@ panesEl.addEventListener('contextmenu', (e) => {
   if (clicked && clicked.type !== 'board' && e.target.closest('.pane-editor')) return;
   e.preventDefault();
   const pane = clicked?.type === 'board' ? clicked : null;
+  if (pane) activate(docOfPane(pane));
   if (pane) {
     // Right-clicking an image selects it, so the menu acts on it.
     const p = localPoint(pane, e);
@@ -2263,6 +2681,13 @@ window.addEventListener('keydown', (e) => {
   }
   if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes, ...board.shapes].filter((x) => !x.locked); requestRender(); return; }
 
+  // Alt+1…9: go to that tab.
+  if (e.altKey && !mod && /^Digit[1-9]$/.test(e.code)) {
+    const id = tabIds[Number(e.code.slice(5)) - 1];
+    e.preventDefault();
+    if (id && id !== mainDoc?.meta.id) openBoard(id);
+    return;
+  }
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
   if (e.altKey && !mod) {
     const action = { KeyV: 'split-row', KeyH: 'split-col', KeyW: 'close' }[e.code];
@@ -2321,8 +2746,10 @@ updateTitle();
 // Uploaded fonts first, so text draws in the right font. When any font finishes
 // loading later, lay the text out again with it.
 await loadCustomFonts();
-document.fonts.addEventListener('loadingdone', () => { board.relayoutNotes(); requestRender(); });
+// If there are boards, ask Chrome (again) to keep them. Chrome decides quietly.
+store.listBoards().then((b) => { if (b.length) askToKeepStorage(); }).catch(() => {});
+document.fonts.addEventListener('loadingdone', () => { for (const d of docs.values()) d.board.relayoutNotes(); requestRender(); });
 await route();
 
 // Handy for testing from the browser console.
-window.__refboard = { board, viewports, layout, addImages, saveNow, get current() { return current; }, store, routing: () => routing };
+window.__refboard = { get board() { return board; }, get docs() { return docs; }, viewports, layout, addImages, saveNow, get current() { return current; }, store, routing: () => routing };

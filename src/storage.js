@@ -12,6 +12,8 @@
 import { zip, unzip, strToU8, strFromU8 } from '../vendor/fflate.mjs';
 
 export const FILE_EXT = '.refboard';
+// A backup of all your boards: one file holding a .refboard file for each board.
+export const BACKUP_EXT = '.refboards';
 const FORMAT = 'reference-board';
 const VERSION = 1;
 
@@ -87,11 +89,45 @@ export function isBoardFile(file) {
   return file.name?.toLowerCase().endsWith(FILE_EXT);
 }
 
+export function isBackupFile(file) {
+  return file.name?.toLowerCase().endsWith(BACKUP_EXT);
+}
+
+// Pack board files ([{ name, blob }]) into one backup file.
+export async function packBackup(boards) {
+  const files = {
+    'backup.json': [strToU8(JSON.stringify({ format: 'reference-board-backup', made: Date.now(), boards: boards.map((b) => b.name) })), { level: 6 }],
+  };
+  const used = new Set();
+  for (const b of boards) {
+    let file = `${b.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Board'}`;
+    for (let n = 2; used.has(file.toLowerCase()); n++) file = `${b.name} ${n}`;
+    used.add(file.toLowerCase());
+    files[file + FILE_EXT] = [new Uint8Array(await b.blob.arrayBuffer()), { level: 0 }];
+  }
+  const bytes = await new Promise((resolve, reject) => zip(files, (err, out) => (err ? reject(err) : resolve(out))));
+  return new Blob([bytes], { type: 'application/zip' });
+}
+
+// The board files inside a backup, as File objects.
+export async function unpackBackup(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let files;
+  try {
+    files = await new Promise((resolve, reject) => unzip(bytes, (err, out) => (err ? reject(err) : resolve(out))));
+  } catch {
+    throw new Error("That file isn't a backup of boards, or it's damaged.");
+  }
+  return Object.entries(files)
+    .filter(([name]) => name.toLowerCase().endsWith(FILE_EXT))
+    .map(([name, raw]) => new File([raw], name.split('/').pop(), { type: 'application/zip' }));
+}
+
 // Chrome (and Edge) can save straight to a file you pick, and save to it again
 // with Ctrl/⌘+S. Other browsers fall back to downloading a copy.
 export const canPickFiles = 'showSaveFilePicker' in window;
 
-const PICKER_TYPES = [{ description: 'Reference board', accept: { 'application/x-reference-board': [FILE_EXT] } }];
+const PICKER_TYPES = [{ description: 'Reference board', accept: { 'application/x-reference-board': [FILE_EXT, BACKUP_EXT] } }];
 
 // Ask where to save. Returns a file handle, or null if you cancelled.
 export async function pickSaveLocation(suggestedName) {
@@ -131,7 +167,7 @@ export async function pickBoardToOpen() {
   }
   // Fallback: a hidden file input.
   return new Promise((resolve) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: FILE_EXT });
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: `${FILE_EXT},${BACKUP_EXT}` });
     input.onchange = () => resolve(input.files[0] ? { file: input.files[0], handle: null } : null);
     input.click();
   });
@@ -246,4 +282,9 @@ export const store = {
 // (Chrome decides by itself; it usually agrees for sites you use often.)
 export function askToKeepStorage() {
   navigator.storage?.persist?.().catch(() => {});
+}
+
+// Whether Chrome has promised to keep the boards (it won't clear them to free up space).
+export async function storageIsKept() {
+  try { return !!(await navigator.storage?.persisted?.()); } catch { return false; }
 }
