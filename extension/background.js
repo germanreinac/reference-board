@@ -5,8 +5,8 @@
 //   - hands everything to the Reference Board tab, opening it if needed. While the app
 //     isn't open yet, images wait in the extension's own storage.
 
-const APP_URL = 'https://germanreinac.github.io/reference-board/';
-const APP_TABS = ['https://germanreinac.github.io/reference-board/*', 'http://localhost:8765/*'];
+const APP_URL = 'https://artdirection.io/';
+const APP_TABS = ['https://artdirection.io/*', 'https://www.artdirection.io/*', 'https://germanreinac.github.io/reference-board/*', 'http://localhost:8765/*'];
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'send-image', title: 'Send image to Reference Board', contexts: ['image'] });

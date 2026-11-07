@@ -6,7 +6,7 @@ panes, each with its own pan and zoom.
 
 ## Try it
 
-Open the GitHub Pages link for this repository in Chrome. There is nothing to install.
+Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing to install.
 
 ## Controls
 
@@ -207,7 +207,7 @@ without downloading anything first.
 
 **Install (once, about a minute):**
 
-1. Download [reference-board-extension.zip](https://germanreinac.github.io/reference-board/reference-board-extension.zip) and unzip it.
+1. Download [reference-board-extension.zip](https://artdirection.io/reference-board-extension.zip) and unzip it.
 2. In Chrome, go to `chrome://extensions` and switch on **Developer mode** (top right).
 3. Click **Load unpacked** and choose the unzipped `reference-board-extension` folder.
 4. Optional: click the puzzle-piece icon in Chrome's toolbar and pin **Reference Board**.

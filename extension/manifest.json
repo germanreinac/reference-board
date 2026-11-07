@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reference Board",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Send any image, or a captured part of a web page, straight to your Reference Board.",
   "permissions": ["contextMenus", "activeTab", "scripting", "tabs", "storage", "unlimitedStorage"],
   "host_permissions": ["<all_urls>"],
@@ -15,7 +15,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://germanreinac.github.io/reference-board/*", "http://localhost:8765/*"],
+      "matches": ["https://artdirection.io/*", "https://www.artdirection.io/*", "https://germanreinac.github.io/reference-board/*", "http://localhost:8765/*"],
       "js": ["bridge.js"],
       "run_at": "document_idle"
     }
