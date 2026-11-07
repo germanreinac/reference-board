@@ -9,6 +9,7 @@
 import { Application, Graphics } from '../vendor/pixi.min.mjs';
 import { Board } from './board.js';
 import { Camera } from './camera.js';
+import { openCompare, compareOpen } from './compare.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
 import { Home } from './home.js';
@@ -73,6 +74,11 @@ const viewports = new Viewports({
     changed: () => viewChanged(),
     toast: (m) => toast(m),
     addImage: (blob, name) => addBlobToBoard(blob, name),
+    // The main colours of the image selected on the board (for the mood board's colours).
+    palette: async () => {
+      const it = board.selection.find((x) => x.kind === 'image' && x.blob);
+      return it ? (await imageColours(it, 5)).map((c) => c.hex) : null;
+    },
   }),
 });
 const layout = () => viewports.layout;
@@ -199,6 +205,8 @@ function docOfPane(pane) {
 function activate(doc) {
   if (!doc || doc === activeDoc) return;
   if (noteEditor.editing) noteEditor.finish();
+  finishCaption();
+  closeStarPanel();
   cropping = null;
   if (activeDoc) activeDoc.board.selection = [];
   activeDoc = doc;
@@ -206,6 +214,7 @@ function activate(doc) {
   history = doc.history;
   current = doc.meta;
   updateHistoryButtons();
+  updateStarButton();
   viewports.position();
   requestRender();
 }
@@ -375,7 +384,8 @@ function removeThing(kind, id) {
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
 const FRAME_PROPS = ['w', 'h', 'name'];
-const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS }[kind] || []);
+const IMAGE_PROPS = ['caption', 'star'];
+const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
   const st = { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
@@ -393,6 +403,7 @@ function applyState(st) {
   for (const k of propsOf(it.kind)) if (k in st) it[k] = st[k];
   if ('group' in st) it.group = st.group;
   if (it.kind === 'note') board.layoutNote(it);
+  if (it.kind === 'image') board.setCaption(it, it.caption);
   if (it.kind === 'shape') board.drawShape(it);
   if (it.kind === 'frame') board.drawFrame(it);
   it.sprite.position.set(st.x, st.y);
@@ -538,6 +549,8 @@ function alignMenu(x, y) {
     { label: 'Spread evenly down', action: () => alignSelection('spread-y') },
     '-',
     { label: 'Arrange in a grid', action: arrangeSelection },
+    { label: 'Lay out as a storyboard', action: storyboardSelection },
+    { label: 'Colour script (main colours under each image)', action: colourScript },
   ]);
 }
 
@@ -774,6 +787,294 @@ async function extractColours() {
   store.saveImage(current.id, added.id, blob).catch(() => {});
   const data = { ...board.imageJSON(added), blob };
   history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+  contentChanged();
+  requestRender();
+}
+
+// ---------- Captions ----------
+//
+// A caption is text that belongs to an image: it sits under it and moves, scales and
+// turns with it. Double-click an image (or press Enter, or the bar's caption button) to write one.
+
+let captionEditing = null;
+function editCaption(item, pane = activePane || targetBoardPane()) {
+  if (!item || item.kind !== 'image' || !pane) return;
+  finishCaption();
+  const before = [stateOf(item)];
+  const ta = document.createElement('textarea');
+  ta.className = 'caption-editor';
+  ta.value = item.caption || '';
+  ta.placeholder = item.sourceUrl ? 'Write a caption… (where it\'s from is in the right-click menu)' : 'Write a caption…';
+  ta.spellcheck = true;
+  document.body.appendChild(ta);
+  if (item.captionText) item.captionText.visible = false;
+  const place = () => {
+    const f = board.captionFrame(item);
+    const s = item.sprite;
+    const z = pane.camera.zoom;
+    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+    const lx = -f.w / 2, ly = f.h / 2 + f.gap;
+    const wx = s.x + lx * cos - ly * sin, wy = s.y + lx * sin + ly * cos;
+    Object.assign(ta.style, {
+      left: `${pane.rect.x + pane.camera.x + wx * z}px`,
+      top: `${pane.rect.y + pane.camera.y + wy * z}px`,
+      width: `${Math.max(120, f.w * z)}px`,
+      fontSize: `${Math.max(11, 32 * f.k * z)}px`,
+      transform: `rotate(${s.rotation}rad)`,
+    });
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight + 2}px`;
+  };
+  place();
+  ta.addEventListener('input', place);
+  ta.focus();
+  ta.select();
+  const finish = (save) => {
+    if (!captionEditing) return;
+    captionEditing = null;
+    ta.remove();
+    if (save && ta.value.trim() !== (item.caption || '')) {
+      board.setCaption(item, ta.value);
+      recordChange([item], before);
+    } else if (item.captionText) {
+      item.captionText.visible = true;
+    }
+    requestRender();
+  };
+  ta.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') finish(false);
+  });
+  ta.addEventListener('blur', () => finish(true));
+  captionEditing = { item, finish };
+}
+function finishCaption() { captionEditing?.finish(true); }
+
+// ---------- Stars: your favourites ----------
+//
+// Star images (M, or ★ in the bar) to pick favourites while you go through a board.
+// The ★ button in the top bar lists them, and "Focus on starred" fades everything else back.
+
+function toggleStar() {
+  const imgs = board.selection.filter((x) => x.kind === 'image');
+  if (!imgs.length) { toast('Select images to star them.', 1600); return; }
+  const on = !imgs.every((x) => x.star);
+  const before = imgs.map(stateOf);
+  for (const x of imgs) x.star = on;
+  recordChange(imgs, before);
+  toast(on ? `Starred ${imgs.length > 1 ? `${imgs.length} images` : 'it'}. The ★ in the top bar lists your starred images.` : 'Star removed', 1800);
+  updateStarButton();
+  requestRender();
+}
+
+function setFocus(on) {
+  board.focus = on;
+  updateStarButton();
+  requestRender();
+  if (on && !board.starred.length) toast('Nothing is starred yet: select images and press M.', 2400);
+}
+
+const starButton = document.getElementById('star-button');
+function updateStarButton() {
+  const n = board.starred.length;
+  starButton.classList.toggle('on', !!board.focus);
+  starButton.querySelector('.count').textContent = n ? String(n) : '';
+  starButton.title = `Starred images${n ? ` (${n})` : ''}. Shift+M: focus on them`;
+}
+
+// The list of starred images, under the ★ button.
+let starPanel = null;
+function closeStarPanel() {
+  if (!starPanel) return;
+  for (const u of starPanel.urls) URL.revokeObjectURL(u);
+  starPanel.el.remove();
+  starPanel = null;
+}
+function openStarPanel() {
+  if (starPanel) { closeStarPanel(); return; }
+  hideMenu();
+  const el = document.createElement('div');
+  el.className = 'star-panel';
+  const urls = [];
+  const list = board.starred;
+  el.innerHTML = `
+    <div class="star-head"><strong>Starred</strong><span>${list.length || ''}</span></div>
+    <div class="star-actions">
+      <button data-a="focus" class="${board.focus ? 'on' : ''}">Focus on starred</button>
+      <button data-a="select" ${list.length ? '' : 'disabled'}>Select them</button>
+    </div>
+    <div class="star-grid"></div>
+    ${list.length ? '' : '<p class="star-empty">Nothing starred yet. Select images and press <kbd>M</kbd> or ★ in the bar above them.</p>'}`;
+  const grid = el.querySelector('.star-grid');
+  for (const item of list) {
+    const b = document.createElement('button');
+    b.className = 'star-thumb';
+    b.title = item.caption || item.name || 'Image';
+    if (item.blob) { const u = URL.createObjectURL(item.blob); urls.push(u); b.style.backgroundImage = `url("${u}")`; }
+    if (item.caption) b.dataset.caption = item.caption;
+    b.addEventListener('click', () => goToThing(item));
+    grid.appendChild(b);
+  }
+  el.querySelector('[data-a="focus"]').addEventListener('click', (e) => { setFocus(!board.focus); e.currentTarget.classList.toggle('on', board.focus); });
+  el.querySelector('[data-a="select"]').addEventListener('click', () => { board.selection = [...board.starred]; requestRender(); closeStarPanel(); });
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.body.appendChild(el);
+  const r = starButton.getBoundingClientRect();
+  el.style.top = `${r.bottom + 6}px`;
+  el.style.left = `${Math.max(8, Math.min(r.right - el.offsetWidth, window.innerWidth - el.offsetWidth - 8))}px`;
+  starPanel = { el, urls };
+}
+starButton.addEventListener('click', (e) => { e.stopPropagation(); openStarPanel(); });
+window.addEventListener('pointerdown', () => closeStarPanel());
+
+// Zoom a pane to something and select it.
+function goToThing(item) {
+  const pane = boardPanes().find((p) => docOfPane(p) === activeDoc) || boardPanes()[0];
+  if (!pane) return;
+  const b = board.bounds([item]);
+  pane.camera.frame(b, pane.rect.w, pane.rect.h, Math.min(pane.rect.w, pane.rect.h) * 0.12);
+  board.selection = [item];
+  viewChanged();
+  requestRender();
+}
+
+// ---------- Compare ----------
+
+// Each image as it looks on the board (cropped, flipped, greyscale), as a picture link.
+async function lookOf(item) {
+  const bitmap = await createImageBitmap(item.blob);
+  const c = item.crop || { x: 0, y: 0, w: bitmap.width, h: bitmap.height };
+  const canvas = new OffscreenCanvas(c.w, c.h);
+  const g = canvas.getContext('2d');
+  if (item.grey) g.filter = 'grayscale(1)';
+  const fx = item.sprite.scale.x < 0 ? -1 : 1, fy = item.sprite.scale.y < 0 ? -1 : 1;
+  g.translate(fx < 0 ? c.w : 0, fy < 0 ? c.h : 0);
+  g.scale(fx, fy);
+  g.drawImage(bitmap, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+  const url = URL.createObjectURL(await canvas.convertToBlob({ type: 'image/png' }));
+  return { url, name: item.caption || item.name || 'Image', width: c.w, height: c.h };
+}
+
+async function compareSelection() {
+  const imgs = readingOrder(board.selection.filter((x) => x.kind === 'image' && x.blob));
+  if (imgs.length !== 2) { toast('Select exactly two images to compare.', 1800); return; }
+  const [a, b] = await Promise.all(imgs.map(lookOf));
+  openCompare(a, b, () => { URL.revokeObjectURL(a.url); URL.revokeObjectURL(b.url); });
+}
+
+// ---------- Storyboard and colour script ----------
+
+// Images in reading order: rows from top to bottom, left to right in each row.
+function readingOrder(items) {
+  return readingRows(items).flat();
+}
+function readingRows(items) {
+  const boxes = new Map(items.map((i) => [i, board.bounds([i])]));
+  const sorted = [...items].sort((a, b) => boxes.get(a).y - boxes.get(b).y);
+  const rows = [];
+  for (const it of sorted) {
+    const b = boxes.get(it);
+    const row = rows.find((r) => Math.abs(r.mid - (b.y + b.height / 2)) < Math.max(r.h, b.height) / 2);
+    if (row) row.items.push(it); else rows.push({ mid: b.y + b.height / 2, h: b.height, items: [it] });
+  }
+  return rows.map((r) => r.items.sort((a, b) => boxes.get(a).x - boxes.get(b).x));
+}
+
+// Lay the selected images out like storyboard panels: same height, straight, in rows,
+// numbered in reading order (a number caption is added where there's none yet).
+function storyboardSelection() {
+  const imgs = readingOrder(board.selection.filter((x) => x.kind === 'image'));
+  if (imgs.length < 2) { toast('Select two or more images to lay out as a storyboard.', 2000); return; }
+  const before = imgs.map(stateOf);
+  const start = board.bounds(imgs);
+  const heights = imgs.map((i) => Math.abs(i.height * i.sprite.scale.y)).sort((a, b) => a - b);
+  const H = heights[Math.floor(heights.length / 2)];
+  const cols = Math.min(imgs.length, Math.max(2, Math.round(Math.sqrt(imgs.length * 1.8))));
+  const gap = H * 0.12;
+  imgs.forEach((it, i) => {
+    const s = it.sprite;
+    const k = H / it.height;
+    s.rotation = 0;
+    s.scale.set(Math.sign(s.scale.x || 1) * k, Math.sign(s.scale.y || 1) * k);
+    if (!it.caption) board.setCaption(it, String(i + 1));
+  });
+  // Rows are as tall as their tallest caption needs.
+  let y = start.y;
+  for (let r = 0; r * cols < imgs.length; r++) {
+    const row = imgs.slice(r * cols, r * cols + cols);
+    let x = start.x;
+    for (const it of row) {
+      const w = Math.abs(it.width * it.sprite.scale.x);
+      it.sprite.position.set(x + w / 2, y + H / 2);
+      x += w + gap;
+    }
+    board.syncImages();
+    const rowBottom = Math.max(...row.map((it) => { const b = board.bounds([it]); return b.y + b.height; }));
+    y = rowBottom + gap * 1.6;
+  }
+  recordChange(imgs, before);
+  requestRender();
+  toast('Laid out as a storyboard. Double-click a panel to write under it.', 2600);
+}
+
+// The main colours of an image (what's visible of it), biggest share first.
+async function imageColours(item, k = 5) {
+  const bitmap = await createImageBitmap(item.blob);
+  const c = item.crop || { x: 0, y: 0, w: bitmap.width, h: bitmap.height };
+  const W = 64, H = Math.max(8, Math.round(64 * c.h / c.w));
+  const small = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+  small.drawImage(bitmap, c.x, c.y, c.w, c.h, 0, 0, W, H);
+  return mainColours(small.getImageData(0, 0, W, H).data, k);
+}
+
+// Colour script: under each selected image, a strip of its main colours in proportion,
+// grouped with the image so they move together. Read along the row to see how the
+// colour and mood change through a sequence.
+async function colourScript() {
+  const rows = readingRows(board.selection.filter((x) => x.kind === 'image' && x.blob && !x.name.startsWith('Colours of')));
+  const imgs = rows.flat();
+  if (!imgs.length) { toast('Select the images (shots, panels…) to make a colour script of.', 2200); return; }
+  toast('Working out the colours…', 20000);
+  const before = imgs.map(stateOf);
+  const added = [];
+  for (const it of imgs) {
+    const cols = await imageColours(it, 5);
+    const PW = 600, PH = 90;
+    const canvas = new OffscreenCanvas(PW, PH);
+    const g = canvas.getContext('2d');
+    let x = 0;
+    cols.forEach((col, i) => {
+      const w = i === cols.length - 1 ? PW - x : Math.round(PW * col.share / cols.reduce((n, c) => n + c.share, 0));
+      g.fillStyle = col.hex;
+      g.fillRect(x, 0, w, PH);
+      x += w;
+    });
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    const b = board.bounds([it]);
+    const k = Math.abs(it.width * it.sprite.scale.x) / PW;
+    const group = it.group || newGroupId();
+    it.group = group;
+    const strip = board.addImage(await createImageBitmap(blob), it.sprite.x, b.y + b.height + PH * k * 0.5 + b.width * 0.03, { name: `Colours of ${it.name || 'image'}`, blob, scaleX: k, scaleY: k, group });
+    store.saveImage(current.id, strip.id, blob).catch(() => {});
+    added.push(strip);
+  }
+  // Rows further down move down to make room for the strips, so nothing overlaps.
+  let push = 0;
+  rows.forEach((row) => {
+    const strips = added.filter((a) => row.some((it) => it.group === a.group));
+    for (const x of [...row, ...strips]) x.sprite.y += push;
+    const below = Math.max(...strips.map((st) => { const b = board.bounds([st]); return b.y + b.height; }));
+    const rowBottom = Math.max(...row.map((it) => { const b = board.bounds([it]); return b.y + b.height; }));
+    push += Math.max(0, below - rowBottom) + (strips[0] ? board.bounds([strips[0]]).height * 0.4 : 0);
+  });
+  const after = imgs.map(stateOf);
+  const data = added.map((a) => ({ ...board.imageJSON(a), blob: a.blob }));
+  history.push({
+    undo: () => { data.forEach((d) => removeImageById(d.id)); before.forEach(applyState); requestRender(); },
+    redo: async () => { for (const d of data) await restoreImage(d); after.forEach(applyState); requestRender(); },
+  });
+  toast(`Colour script made for ${imgs.length} image${imgs.length > 1 ? 's' : ''}. Each strip is grouped with its image.`, 2600);
   contentChanged();
   requestRender();
 }
@@ -1887,8 +2188,14 @@ const SEL_ICONS = {
   frame: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v13M11.5 1.5v13M1.5 4.5h13M1.5 11.5h13"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"/></svg>',
   delete: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>',
+  star: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>',
+  caption: '<svg viewBox="0 0 16 16"><rect x="2" y="1.5" width="12" height="8" rx="1.5"/><path d="M2.5 12h11M2.5 14.5h7"/></svg>',
+  compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
 const SEL_ACTIONS = [
+  ['star', 'Star as a favourite (M)', toggleStar, (sel) => sel.some((x) => x.kind === 'image')],
+  ['caption', 'Write a caption under it (Enter, or double-click the image)', () => editCaption(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
   ['lock', 'Lock (L)', () => setLocked(null, true)],
   ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image')],
   ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image')],
@@ -2074,6 +2381,7 @@ function placeSelectionBar() {
   selectionBar.hidden = !show;
   if (!show) return;
   for (const [id, , , when] of SEL_ACTIONS) selectionBar.querySelector(`[data-action="${id}"]`).hidden = when ? !when(sel) : false;
+  selectionBar.querySelector('[data-action="star"]').classList.toggle('on', sel.some((x) => x.kind === 'image') && sel.filter((x) => x.kind === 'image').every((x) => x.star));
   // Just above the top of the selection, kept inside the pane.
   const b = board.bounds(sel);
   const cam = pane.camera;
@@ -2155,6 +2463,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   if (pane.type !== 'board') return;  // search and the mannequin handle their own mouse
   if (document.activeElement === nameInput) nameInput.blur();
   activate(docOfPane(pane));  // clicking a pane that shows another board starts working on it
+  finishCaption();
   if (e.button === 2) return;  // right button: handled by the menu
   panesEl.setPointerCapture(e.pointerId);
 
@@ -2355,6 +2664,7 @@ panesEl.addEventListener('dblclick', (e) => {
   const hit = board.hitTest(w.x, w.y);
   if (hit?.kind === 'note') editNote(hit, pane);
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
+  else if (hit?.kind === 'image') { board.selection = [hit]; editCaption(hit, pane); }
 });
 
 // Stop the middle button from starting Chrome's auto-scroll.
@@ -2448,6 +2758,16 @@ function openMenu(x, y, pane) {
         { label: 'Send to back', action: () => reorderSelection(false) },
         { label: 'Put a frame around', action: frameSelection },
       ] : []),
+      ...(board.selection.some((x) => x.kind === 'image') ? [
+        '-',
+        { label: board.selection.filter((x) => x.kind === 'image').every((x) => x.star) ? 'Remove star' : 'Star as a favourite', shortcut: 'M', action: toggleStar },
+        { label: board.focus ? 'Stop focusing on starred' : 'Focus on starred', shortcut: 'Shift+M', action: () => setFocus(!board.focus) },
+        ...(board.selected?.kind === 'image' ? [{ label: board.selected.caption ? 'Edit caption' : 'Write a caption', shortcut: 'Enter', action: () => editCaption(board.selected, pane) }] : []),
+        ...(board.selection.length === 2 && board.selection.every((x) => x.kind === 'image') ? [{ label: 'Compare these two…', action: compareSelection }] : []),
+        ...(board.selection.filter((x) => x.kind === 'image').length > 1 ? [{ label: 'Lay out as a storyboard', action: storyboardSelection }] : []),
+        { label: 'Colour script', action: colourScript },
+      ] : []),
+      ...(board.selected?.kind === 'image' && board.selected.sourceUrl ? [{ label: 'Open where it came from', action: () => window.open(board.selected.sourceUrl, '_blank', 'noopener') }] : []),
       ...(board.selected?.kind === 'image' ? [
         { label: 'Copy image', action: () => copyImage(board.selected) },
         { label: 'Download image', action: () => downloadImage(board.selected) },
@@ -2655,6 +2975,7 @@ document.getElementById('present-button').addEventListener('click', startPresent
 window.addEventListener('keydown', (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (presenting) { presentKey(e); return; }
+  if (compareOpen()) return;
   if (mod && e.key === 'Enter' && mode === 'board' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); startPresent(); return; }
   if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
   if (e.target.closest?.('input, textarea, select')) return;
@@ -2710,6 +3031,11 @@ window.addEventListener('keydown', (e) => {
     removeSelected();
   } else if (e.code === 'KeyL' && board.selection.length) {
     setLocked(null, true);
+  } else if (e.code === 'KeyM') {
+    if (e.shiftKey) setFocus(!board.focus); else toggleStar();
+  } else if (e.key === 'Enter' && board.selected?.kind === 'image') {
+    e.preventDefault();
+    editCaption(board.selected, targetBoardPane());
   } else if (e.key === 'Escape') {
     if (cropping) { cropping = null; toast('Crop cancelled', 1200); }
     else board.selected = null;

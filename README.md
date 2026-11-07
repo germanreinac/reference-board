@@ -26,6 +26,11 @@ Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing 
 | Nudge | Arrow keys move the selection a little, Shift + arrow a lot |
 | Bring to front / send to back | Right-click |
 | Copy or download an image | Right-click it: **Copy image** (to paste into Photoshop, Krita, etc.) or **Download image** |
+| Caption | Double-click an image (or select it and press `Enter`) and type. The text sits under the image and moves, scales and turns with it. `Enter` finishes, `Shift` + `Enter` starts a new line |
+| Star a favourite | `M`, or ★ in the bar above the selection. The ★ in the top bar lists your starred images: click one to go to it |
+| Focus on starred | `Shift` + `M`, or in the ★ list. Everything that isn't starred fades back |
+| Compare two images | Select two and click the compare button (or right-click). **Slider** wipes from one to the other, **Side by side** zooms both together, **Overlay** puts one over the other with a see-through slider, **Difference** shows only what changed. Keys `1`–`4`, `X` swaps, `Esc` closes |
+| Where an image came from | Right-click: **Open where it came from** (for images from search or the extension) |
 | Fit to pane | `F` fits the selected image, or everything when nothing is selected |
 | Actual size | `1` sets the zoom to 100% |
 | Delete | `Delete` or `Backspace` |
@@ -65,6 +70,12 @@ commas to mix them (*"foggy forest, lanterns, old wooden house"*): each idea get
 share of the images. Choose how many, remove any you don't like with ×, press **Shuffle**
 for a different mix, then **Add to board**. They're laid out in columns next to what's
 already on the board, and Ctrl/⌘ + Z removes the whole set.
+
+**Colours** (under the description) makes the mood board prefer pictures in those colours.
+Add up to five with **+**, or click **From selected image** to use the main colours of the
+image selected on the board ("more like this palette"). Click a colour to change it,
+right-click or × to remove it. It looks at more pictures than usual and puts the best
+colour matches first; changing the colours sorts the same pictures again.
 
 Each image keeps a link to its original page and author. Check the licence before
 using an image in published work. Some sites block full-size downloads; a smaller
@@ -147,6 +158,17 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 Strokes and notes are part of the board, so every pane shows them. Strokes are
 saved as shapes rather than pixels, so they stay sharp at any zoom. Notes take
 the selected colour.
+
+### Storyboards and colour scripts
+
+Select some images, then use the align button in the bar (or right-click):
+
+- **Lay out as a storyboard** puts them in rows of panels, all the same height, in reading
+  order (top to bottom, left to right), and numbers the ones without a caption. Double-click
+  a panel to write under it.
+- **Colour script** puts a strip of each image's main colours under it, in proportion,
+  grouped with the image. Read along the rows to see how colour and mood change through a
+  sequence. Rows move down to make room.
 
 ### Present mode
 

@@ -36,6 +36,11 @@ function textColourFor(hex) {
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#1b1b1d' : '#f5f5f5';
 }
 
+// Captions are laid out at this size and wrap width (see setCaption).
+const CAPTION_SIZE = 32;
+const CAPTION_WRAP = 711;
+const CAPTION_AREA = 615;  // a 4:3 image 711 units wide gets 32-unit text
+
 export class Board {
   constructor() {
     this.world = new Container();       // everything on the board
@@ -44,8 +49,10 @@ export class Board {
     this.noteLayer = new Container();   // text notes
     this.frameLayer = new Container();  // frames, behind everything
     this.shapeLayer = new Container();  // rectangles, ellipses, lines and arrows
+    this.captionLayer = new Container(); // the text under images
     this.overlay = new Graphics();      // selection outline, drawn on top
-    this.world.addChild(this.frameLayer, this.imageLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.overlay);
+    this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.overlay);
+    this.focus = false;    // Focus on starred: everything that isn't starred fades back
 
     this.items = [];       // images, back to front
     this.strokes = [];     // pen strokes
@@ -187,6 +194,7 @@ export class Board {
   setInk(colour) {
     this.ink = colour;
     for (const f of this.frames) this.drawFrame(f);
+    for (const i of this.items) if (i.captionText) i.captionText.style.fill = colour;
   }
 
   frameJSON(f) {
@@ -207,7 +215,7 @@ export class Board {
   // Put a decoded image on the board, centred on (x, y).
   // `blob` is the original image file; we keep it so the board can be saved.
   // `index` puts it at a given place in the stack (used by undo).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false } = {}) {
     // Mipmaps are smaller pre-shrunk copies of the image. They keep big photos
     // looking smooth (not sparkly or jagged) when you zoom far out.
     const source = new ImageSource({ resource: bitmap, autoGenerateMipmaps: true });
@@ -234,9 +242,14 @@ export class Board {
       fullHeight: bitmap.height,
       crop: null,            // { x, y, w, h } in the picture's own pixels, when cropped
       grey: false,           // shown in greyscale
+      opacity: alpha,        // how see-through it is (1 = solid); Focus mode fades it on top of this
+      caption: '',           // text shown under the image, that moves with it
+      captionText: null,
+      star: !!star,          // starred as a favourite
     };
     if (crop) this.setCrop(item, crop, { keepPlace: false });
     if (grey) this.setGrey(item, true);
+    if (caption) this.setCaption(item, caption);
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
     this.items.splice(at, 0, item);
     this.imageLayer.addChildAt(sprite, at);
@@ -247,13 +260,88 @@ export class Board {
     const s = item.sprite;
     return {
       id: item.id, name: item.name, sourceUrl: item.sourceUrl,
-      x: s.x, y: s.y, scaleX: s.scale.x, scaleY: s.scale.y, rotation: s.rotation, alpha: s.alpha,
+      x: s.x, y: s.y, scaleX: s.scale.x, scaleY: s.scale.y, rotation: s.rotation, alpha: item.opacity ?? 1,
       ...(item.locked ? { locked: true } : {}),
       ...(item.crop ? { crop: item.crop } : {}),
       ...(item.grey ? { grey: true } : {}),
       ...(item.group ? { group: item.group } : {}),
+      ...(item.caption ? { caption: item.caption } : {}),
+      ...(item.star ? { star: true } : {}),
     };
   }
+
+  // ---------- Captions: text under an image ----------
+  //
+  // The text is sized from the image's area, so it keeps the same size relative to the
+  // image (like a storyboard panel), and panels of different shapes get matching text.
+  // It's laid out at a fixed size and then scaled, so zooming never has to lay it out again.
+
+  setCaption(item, text) {
+    item.caption = (text || '').trim();
+    if (!item.caption) {
+      item.captionText?.destroy();
+      item.captionText = null;
+      return;
+    }
+    if (!item.captionText) {
+      item.captionText = new Text({
+        text: '',
+        style: { fontFamily: fontStack('Inter'), fontSize: CAPTION_SIZE, fill: this.ink, wordWrap: true, wordWrapWidth: CAPTION_WRAP, lineHeight: CAPTION_SIZE * 1.3, breakWords: true },
+      });
+      item.captionText.alpha = 0.85;
+      this.captionLayer.addChild(item.captionText);
+    }
+    item.captionText.text = item.caption;
+    this.placeCaption(item);
+  }
+
+  // Where the caption sits: just under the image, turning with it.
+  captionFrame(item) {
+    const s = item.sprite;
+    const w = Math.abs(item.width * s.scale.x);
+    const h = Math.abs(item.height * s.scale.y);
+    const k = Math.sqrt(w * h) / CAPTION_AREA;   // board units per caption unit
+    const t = item.captionText;
+    if (t && Math.abs(t.style.wordWrapWidth - w / k) > 1) t.style.wordWrapWidth = w / k;  // as wide as the image
+    return { w, h, k, gap: CAPTION_SIZE * 0.45 * k, textH: t ? t.height / (t.scale.y || 1) * k : 0 };
+  }
+
+  placeCaption(item) {
+    const t = item.captionText;
+    if (!t) return;
+    const s = item.sprite;
+    const f = this.captionFrame(item);
+    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+    const lx = -f.w / 2, ly = f.h / 2 + f.gap;
+    t.position.set(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
+    t.rotation = s.rotation;
+    t.scale.set(f.k);
+    t.visible = s.visible;
+  }
+
+  // The four corners of the caption on the board (null when there's none).
+  captionCorners(item) {
+    if (!item.captionText) return null;
+    const s = item.sprite;
+    const f = this.captionFrame(item);
+    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+    const y0 = f.h / 2, y1 = f.h / 2 + f.gap + f.textH;
+    return [[-f.w / 2, y0], [f.w / 2, y0], [f.w / 2, y1], [-f.w / 2, y1]].map(([x, y]) => ({ x: s.x + x * cos - y * sin, y: s.y + x * sin + y * cos }));
+  }
+
+  // Keep captions under their images, and apply Focus mode. Cheap, so it runs every frame.
+  syncImages() {
+    for (const item of this.items) {
+      this.placeCaption(item);
+      const faded = this.focus && !item.star;
+      item.sprite.alpha = (item.opacity ?? 1) * (faded ? 0.12 : 1);
+      if (item.captionText) item.captionText.alpha = faded ? 0.1 : 0.85;
+    }
+    const fade = this.focus ? 0.15 : 1;
+    this.noteLayer.alpha = this.shapeLayer.alpha = this.strokeLayer.alpha = fade;
+  }
+
+  get starred() { return this.items.filter((i) => i.star); }
 
   // Show only part of a picture. `crop` is { x, y, w, h } in the picture's own pixels
   // (null shows all of it). With keepPlace the visible part stays where it was on the board.
@@ -461,6 +549,13 @@ export class Board {
       const res = 2 ** Math.ceil(Math.log2(Math.max(0.25, want)));
       if (n.label.resolution !== res) n.label.resolution = res;
     }
+    for (const i of this.items) {
+      const t = i.captionText;
+      if (!t) continue;
+      const want = Math.min(maxZoom * pixelRatio * t.scale.x, 4096 / Math.max(CAPTION_WRAP, t.height / (t.scale.y || 1), 1));
+      const res = 2 ** Math.ceil(Math.log2(Math.max(0.25, want)));
+      if (t.resolution !== res) t.resolution = res;
+    }
   }
 
   // ---------- Things you can select and move: images and notes ----------
@@ -469,6 +564,7 @@ export class Board {
     const list = this.listOf(item.kind);
     const i = list.indexOf(item);
     if (i === -1) return -1;
+    if (item.captionText) { item.captionText.destroy(); item.captionText = null; }
     list.splice(i, 1);
     this.selection = this.selection.filter((x) => x !== item);
     // Also free the picture from graphics memory.
@@ -541,6 +637,12 @@ export class Board {
         const lx = (dx * cos - dy * sin) / s.scale.x;
         const ly = (dx * sin + dy * cos) / s.scale.y;
         if (Math.abs(lx) <= item.width / 2 && Math.abs(ly) <= item.height / 2) return item;
+        if (item.captionText) {
+          // The caption counts as part of its image.
+          const f = this.captionFrame(item);
+          const rx = dx * cos - dy * sin, ry = dx * sin + dy * cos;
+          if (Math.abs(rx) <= f.w / 2 && ry >= f.h / 2 && ry <= f.h / 2 + f.gap + f.textH) return item;
+        }
       }
     }
     return null;
@@ -563,7 +665,10 @@ export class Board {
   bounds(items = null) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     const add = (x, y) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
-    for (const item of items || this.selectable) for (const p of this.corners(item)) add(p.x, p.y);
+    for (const item of items || this.selectable) {
+      for (const p of this.corners(item)) add(p.x, p.y);
+      if (item.captionText) for (const p of this.captionCorners(item)) add(p.x, p.y);
+    }
     if (!items) for (const s of this.strokes) if (s.box) { add(s.box.x, s.box.y); add(s.box.x + s.box.width, s.box.y + s.box.height); }
     if (minX === Infinity) return null;
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
@@ -616,6 +721,21 @@ export class Board {
   drawOverlay(zoom, { handles = true } = {}) {
     const o = this.overlay;
     o.clear();
+    this.syncImages();
+    // A small star at the top-right corner of starred images (the same size at any zoom).
+    for (const item of this.items) {
+      if (!item.star || !item.sprite.visible) continue;
+      const c = this.corners(item);
+      const x = Math.max(...c.map((p) => p.x)), y = Math.min(...c.map((p) => p.y));
+      const R = 9 / zoom, cx = x - R * 1.6, cy = y + R * 1.6;
+      const pts = [];
+      for (let k = 0; k < 10; k++) {
+        const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? R * 0.45 : R;
+        pts.push(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+      }
+      o.circle(cx, cy, R * 1.35).fill({ color: 0x000000, alpha: 0.45 });
+      o.poly(pts).fill(0xffc83d);
+    }
     const line = 1.5 / zoom;
     for (const item of this.selection) {
       o.poly(this.corners(item).flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x4da3ff, alignment: 0.5 });

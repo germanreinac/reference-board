@@ -9,6 +9,7 @@
 
 import { SOURCES, loadKeys, saveKeys } from './sources.js';
 import { MixedSearch, activeSources, loadOff, saveOff, rememberTaste, similarQuery } from './search-engine.js';
+import { scoreAll } from './colour-match.js';
 
 export const RESULT_DRAG_TYPE = 'application/x-refboard-result';
 
@@ -21,7 +22,8 @@ export class SearchPane {
     this.type = 'search';
     this.pane = pane;
     this.actions = actions;
-    this.state = { tab: 'search', query: '', kind: 'all', moodText: '', moodCount: 20, ...pane.state };
+    this.state = { tab: 'search', query: '', kind: 'all', moodText: '', moodCount: 20, moodColours: [], ...pane.state };
+    if (!Array.isArray(this.state.moodColours)) this.state.moodColours = [];
     if (!KINDS.some(([k]) => k === this.state.kind)) this.state.kind = 'all';
     this.search = null;     // the MixedSearch in progress
     this.loading = false;
@@ -59,6 +61,14 @@ export class SearchPane {
           <select class="mood-count" title="How many images"><option>10</option><option>20</option><option>30</option><option>50</option></select>
           <button type="submit" class="mood-make">Make mood board</button>
         </form>
+        <!-- Optional colours: the mood board prefers pictures in these colours -->
+        <div class="mood-palette">
+          <span class="mood-palette-label" title="Pictures that match these colours come first">Colours</span>
+          <div class="mood-swatches"></div>
+          <button type="button" class="mood-colour-add" title="Add a colour (up to 5)">+</button>
+          <button type="button" class="mood-colour-pick" title="Use the main colours of the image selected on the board">From selected image</button>
+          <button type="button" class="mood-colour-clear" title="No colours">Clear</button>
+        </div>
         <div class="search-scroll mood-scroll">
           <div class="search-results mood-results"></div>
           <div class="search-status mood-status"></div>
@@ -86,6 +96,15 @@ export class SearchPane {
     this.moodResults = $('.mood-results');
     this.moodStatus = $('.mood-status');
     this.moodActions = $('.mood-actions');
+    this.swatchesEl = $('.mood-swatches');
+    $('.mood-colour-add').addEventListener('click', () => this.addColour());
+    $('.mood-colour-clear').addEventListener('click', () => this.setColours([]));
+    $('.mood-colour-pick').addEventListener('click', async () => {
+      const cols = await this.actions.palette?.();
+      if (cols?.length) this.setColours(cols.slice(0, 5));
+      else this.actions.toast?.('Select an image on the board first: its main colours become the palette.');
+    });
+    this.drawSwatches();
 
     for (const b of this.el.querySelectorAll('.search-tabs [data-tab]')) b.addEventListener('click', () => this.setTab(b.dataset.tab));
     $('.sources-button').addEventListener('click', () => this.toggleSettings());
@@ -127,8 +146,8 @@ export class SearchPane {
   }
 
   save() {
-    const { tab, query, kind, moodText, moodCount } = this.state;
-    this.pane.state = { tab, query, kind, moodText, moodCount };
+    const { tab, query, kind, moodText, moodCount, moodColours } = this.state;
+    this.pane.state = { tab, query, kind, moodText, moodCount, moodColours };
     this.actions.changed();
   }
 
@@ -326,6 +345,68 @@ export class SearchPane {
     }
   }
 
+  // ---------- Mood board colours ----------
+
+  drawSwatches() {
+    const cols = this.state.moodColours;
+    this.swatchesEl.replaceChildren();
+    cols.forEach((hex, i) => {
+      const sw = document.createElement('label');
+      sw.className = 'mood-swatch';
+      sw.style.background = hex;
+      sw.title = `${hex.toUpperCase()}: click to change, right-click to remove`;
+      const input = Object.assign(document.createElement('input'), { type: 'color', value: hex });
+      input.addEventListener('change', () => { const next = [...cols]; next[i] = input.value; this.setColours(next); });
+      sw.addEventListener('contextmenu', (e) => { e.preventDefault(); this.setColours(cols.filter((_, j) => j !== i)); });
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'mood-swatch-x';
+      x.textContent = '×';
+      x.title = 'Remove';
+      x.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this.setColours(cols.filter((_, j) => j !== i)); });
+      sw.append(input, x);
+      this.swatchesEl.appendChild(sw);
+    });
+    this.el.querySelector('.mood-colour-add').hidden = cols.length >= 5;
+    this.el.querySelector('.mood-colour-clear').hidden = !cols.length;
+    this.el.querySelector('.mood-palette').classList.toggle('empty', !cols.length);
+  }
+
+  addColour() {
+    const input = Object.assign(document.createElement('input'), { type: 'color', value: '#d08a3c' });
+    input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;left:0;top:0';
+    document.body.appendChild(input);
+    input.addEventListener('change', () => { this.setColours([...this.state.moodColours, input.value].slice(0, 5)); input.remove(); });
+    input.addEventListener('blur', () => setTimeout(() => input.remove(), 500));
+    input.click();
+  }
+
+  setColours(cols) {
+    this.state.moodColours = cols;
+    this.save();
+    this.drawSwatches();
+    // Already have results: rank them again by the new colours.
+    if (this.mood.pools.some((p) => p.length)) this.rankByColour();
+  }
+
+  // Score every candidate against the colours, then pick the mood board again.
+  async rankByColour() {
+    const cols = this.state.moodColours;
+    this.mood.scores = null;
+    this.matchAbort?.abort();
+    if (!cols.length) { this.pickMood(); return; }
+    const abort = this.matchAbort = new AbortController();
+    const all = this.mood.pools.flat().slice(0, 200);
+    this.moodStatus.textContent = 'Matching colours…';
+    const scores = await scoreAll(all, cols, {
+      signal: abort.signal,
+      progress: (d, t) => { if (!abort.signal.aborted) this.moodStatus.textContent = `Matching colours… ${d} / ${t}`; },
+    });
+    if (abort.signal.aborted) return;
+    this.mood.scores = scores;
+    this.pickMood();
+  }
+
   async makeMood() {
     const text = this.moodInput.value.trim();
     this.state.moodText = text;
@@ -340,7 +421,8 @@ export class SearchPane {
     this.moodStatus.textContent = 'Finding images…';
     this.el.querySelector('.mood-make').disabled = true;
     try {
-      const need = Number(this.moodCount.value) * 2;
+      // With colours, fetch more so there's enough to choose the best matches from.
+      const need = Number(this.moodCount.value) * (this.state.moodColours.length ? 5 : 2);
       const pools = await Promise.all(queries.map(async (q) => {
         const s = new MixedSearch(q, 'all');
         let list = await s.next().catch(() => []);
@@ -356,7 +438,8 @@ export class SearchPane {
         seen.add(key);
         return true;
       }));
-      this.pickMood();
+      if (this.state.moodColours.length) await this.rankByColour();
+      else { this.mood.scores = null; this.pickMood(); }
     } finally {
       this.el.querySelector('.mood-make').disabled = false;
     }
@@ -371,12 +454,26 @@ export class SearchPane {
       return;
     }
     const count = Number(this.moodCount.value) || 20;
+    const scores = this.mood.scores;
+    if (scores && this.state.moodColours.length) {
+      // Best colour matches first (a little randomness so Shuffle still changes things).
+      const ranked = pools.flat().map((r) => ({ r, k: (scores.get(r) ?? -1) + Math.random() * 0.06 }))
+        .sort((a, b) => b.k - a.k).slice(0, count).map((x) => x.r);
+      this.showMood(ranked);
+      const readable = [...scores.values()].filter((v) => v !== null).length;
+      this.el.querySelector('.mood-note').textContent = readable ? 'Sorted by your colours' : "Couldn't read these pictures' colours";
+      return;
+    }
     const shuffled = pools.map((list) => list.map((r, i) => ({ r, k: Math.random() + (1 - i / list.length) * 0.7 }))
       .sort((a, b) => b.k - a.k).map((x) => x.r));
     const picked = [];
     for (let round = 0; picked.length < count && shuffled.some((l) => l.length); round++) {
       for (const list of shuffled) if (list.length && picked.length < count) picked.push(list.shift());
     }
+    this.showMood(picked);
+  }
+
+  showMood(picked) {
     this.mood.picked = picked;
     this.moodResults.replaceChildren();
     for (const r of picked) {
