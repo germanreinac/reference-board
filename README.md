@@ -16,6 +16,9 @@ Open the GitHub Pages link for this repository in Chrome. There is nothing to in
 | Zoom | Scroll wheel, or pinch on a trackpad. Zooms the pane under the mouse, towards the mouse |
 | Pan | Drag empty space, middle-mouse drag, or hold Space and drag |
 | Move an image | Drag it (it also comes to the front). Every pane updates |
+| Select several | Shift-click to add or remove one, or Shift-drag a box on empty space. Ctrl/⌘ + A selects everything |
+| Scale / rotate | Drag a corner handle to scale, or the round handle above to rotate (hold Shift to snap to 15°) |
+| Flip, crop, greyscale, colours, arrange, lock, delete | The small bar above the selection, or right-click. **Crop**: drag a box over the part to keep. **Extract colours** adds a palette of the image's main colours, with their codes and how much of each. **Arrange** puts the selection in tidy rows |
 | Fit to pane | `F` fits the selected image, or everything when nothing is selected |
 | Actual size | `1` sets the zoom to 100% |
 | Delete | `Delete` or `Backspace` |
@@ -48,7 +51,7 @@ Keys are kept in this browser only. Each source can be switched off in **Sources
 - **All / Photos / Art / Nature** narrows the feed to one kind of source.
 - The feed is ranked a bit like Pinterest: how relevant each source thinks a result is, how big and sharp it is, whether its words match your search, and what you've added to boards before (remembered in this browser only). Duplicates and tiny pictures are dropped, off-topic museum results sink, and no source takes over the feed.
 - **Chips** next to the filter suggest words that narrow the search.
-- Hover over a result for **Add to board** and **More like this**. You can also click a result, or drag it onto a board pane.
+- Hover over a result for **Add to board** and **More like this**. You can also click a result, or drag it onto a board pane. Added images go to the nearest empty spot in the middle of your view, so they never pile up on top of each other.
 
 **Mood board** makes a ready-made mood board from a description. Separate ideas with
 commas to mix them (*"foggy forest, lanterns, old wooden house"*): each idea gets its

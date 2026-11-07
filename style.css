@@ -865,6 +865,7 @@ body[data-mode="board"] #home { display: none; }
 .mini-colour { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
 .tool-group.fold .tool svg { width: 16px; height: 16px; }
 #toolbar[data-tool="select"] .size,
+#toolbar[data-tool="hand"] .size,
 #toolbar[data-tool="note"] .size { display: none; }
 #toolbar.no-board { display: none; }
 #toolbar { transition: opacity 0.2s; }
@@ -1007,3 +1008,59 @@ body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
 /* Folded toolbar: a single, clear "show" button */
 #toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
 #toolbar.collapsed .tool.mini svg { width: 18px; height: 18px; stroke-width: 1.8; }
+
+/* ---------- The bar above a selection ---------- */
+#selection-bar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-l);
+  background: var(--overlay);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+#selection-bar[hidden] { display: none; }
+#selection-bar button {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+}
+#selection-bar button[hidden] { display: none; }
+#selection-bar button:hover { background: rgba(127, 127, 127, 0.16); color: var(--text-strong); }
+#selection-bar button[data-action="delete"]:hover { color: #e5484d; }
+#selection-bar svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Cursors over the scale and rotate handles */
+#panes[data-handle="nwse"] .pane { cursor: nwse-resize !important; }
+#panes[data-handle="nesw"] .pane { cursor: nesw-resize !important; }
+#panes[data-handle="rotate"] .pane { cursor: alias !important; }
+
+/* ---------- Rounded corners everywhere ---------- */
+:root { --radius-s: 6px; --radius: 8px; --radius-l: 12px; }
+#toolbar { border-radius: var(--radius-l); }
+.menu { border-radius: var(--radius-l); }
+.menu-item { border-radius: var(--radius-s); }
+.board-card { border-radius: var(--radius-l); }
+.text-button, .chip, .search-input, .mood-input, .mood-count, .key-row input { border-radius: var(--radius); }
+.result { border-radius: var(--radius); }
+#toast { border-radius: var(--radius-l); }
+.pane-tools { border-radius: var(--radius); }
+/* Panes get rounded corners too: a ring in the gap colour, clipped by the pane. */
+.pane { overflow: hidden; }
+.pane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 10px;
+  box-shadow: 0 0 0 12px var(--gap);
+  pointer-events: none;
+}

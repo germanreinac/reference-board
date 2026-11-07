@@ -106,6 +106,7 @@ function requestRender() {
     viewports.render();
     noteEditor.position();
     placeToolbar();
+    placeSelectionBar();
     emptyHint.classList.toggle('hidden', !board.isEmpty() || noteEditor.editing);
   });
 }
@@ -213,7 +214,9 @@ async function decode(blob, name) {
 }
 
 // Decode images and place them side by side around a board position.
-async function addImages(list, wx, wy, pane) {
+// `free`: move the new images to the nearest empty spot, so they never land on top
+// of something (used for images added from search and the mannequin).
+async function addImages(list, wx, wy, pane, { free = false } = {}) {
   if (!current) return;
   const boardId = current.id;
   const wasEmpty = board.isEmpty();
@@ -227,6 +230,10 @@ async function addImages(list, wx, wy, pane) {
   if (!decoded.length || current?.id !== boardId) return;
 
   const totalWidth = decoded.reduce((sum, d) => sum + d.bitmap.width, 0) + GAP * (decoded.length - 1);
+  if (free) {
+    const tallest = Math.max(...decoded.map((d) => d.bitmap.height));
+    ({ x: wx, y: wy } = board.freeSpot(totalWidth, tallest, wx, wy));
+  }
   let x = wx - totalWidth / 2;
   const added = [];
   for (const { entry, bitmap } of decoded) {
@@ -266,19 +273,217 @@ function removeImageById(id) {
 
 // Delete the selected image or note.
 function removeSelected() {
-  const item = board.selected;
-  if (!item) return;
-  if (item.kind === 'note') {
-    const data = board.noteJSON(item);
-    data.index = board.remove(item);
-    history.push({ undo: () => { board.addNote(data); requestRender(); }, redo: () => removeNoteById(data.id) });
-  } else {
-    const data = { ...board.imageJSON(item), blob: item.blob, index: board.items.indexOf(item) };
-    removeImageById(item.id);
-    history.push({ undo: () => restoreImage(data), redo: () => removeImageById(data.id) });
+  const items = [...board.selection];
+  if (!items.length) return;
+  const gone = items.map((item) => (item.kind === 'note'
+    ? { kind: 'note', data: board.noteJSON(item) }
+    : { kind: 'image', data: { ...board.imageJSON(item), blob: item.blob, index: board.items.indexOf(item) } }));
+  for (const item of items) {
+    if (item.kind === 'note') board.remove(item);
+    else removeImageById(item.id);
   }
+  history.push({
+    undo: () => Promise.all(gone.map((g) => (g.kind === 'note' ? board.addNote(g.data) : restoreImage(g.data)))).then(requestRender),
+    redo: () => gone.forEach((g) => (g.kind === 'note' ? removeNoteById(g.data.id) : removeImageById(g.data.id))),
+  });
   contentChanged();
   requestRender();
+}
+
+// ---------- Editing selected images: undo-able changes ----------
+
+// The parts of an image or note that moving, scaling, rotating, flipping, cropping
+// and greyscale change. Saved before and after an edit, for undo.
+function stateOf(item) {
+  const s = item.sprite;
+  return { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
+}
+function applyState(st) {
+  const it = board.find(st.kind, st.id);
+  if (!it) return;
+  if (it.kind === 'image') {
+    if (JSON.stringify(it.crop || null) !== JSON.stringify(st.crop)) board.setCrop(it, st.crop, { keepPlace: false });
+    if (!!it.grey !== st.grey) board.setGrey(it, st.grey);
+  }
+  it.sprite.position.set(st.x, st.y);
+  it.sprite.scale.set(st.sx, st.sy);
+  it.sprite.rotation = st.r;
+}
+// Record an edit of these items for undo, given their state from before it.
+function recordChange(items, before) {
+  const after = items.map(stateOf);
+  if (JSON.stringify(after) === JSON.stringify(before)) return;
+  history.push({
+    undo: () => { before.forEach(applyState); requestRender(); },
+    redo: () => { after.forEach(applyState); requestRender(); },
+  });
+  contentChanged();
+}
+// Change the selected things with `fn(item)`, as one undo step.
+function editSelection(fn, items = board.selection) {
+  const list = [...items];
+  if (!list.length) return;
+  const before = list.map(stateOf);
+  list.forEach(fn);
+  recordChange(list, before);
+  requestRender();
+}
+
+// Flip horizontally ('x') or vertically ('y'). Several things flip as a group.
+function flipSelection(axis) {
+  const box = board.selectionBox();
+  if (!box) return;
+  const group = board.selection.length > 1;
+  editSelection((item) => {
+    const s = item.sprite;
+    if (item.kind === 'image') { if (axis === 'x') s.scale.x *= -1; else s.scale.y *= -1; s.rotation = -s.rotation; }
+    if (group) { if (axis === 'x') s.x = 2 * box.cx - s.x; else s.y = 2 * box.cy - s.y; }
+  });
+}
+
+function toggleGrey() {
+  const images = board.selection.filter((i) => i.kind === 'image');
+  if (!images.length) return;
+  const on = !images.every((i) => i.grey);
+  editSelection((item) => board.setGrey(item, on), images);
+}
+
+// Put the selected things in tidy rows, keeping their sizes, in reading order.
+function arrangeSelection() {
+  const items = [...board.selection];
+  if (items.length < 2) return;
+  const boxes = new Map(items.map((i) => [i, board.bounds([i])]));
+  const start = board.bounds(items);
+  const order = items.sort((a, b) => {
+    const A = boxes.get(a), B = boxes.get(b);
+    const rowA = Math.round(A.y / (start.height / 4 || 1)), rowB = Math.round(B.y / (start.height / 4 || 1));
+    return rowA - rowB || A.x - B.x;
+  });
+  const area = order.reduce((n, i) => n + boxes.get(i).width * boxes.get(i).height, 0);
+  const sizes = order.map((i) => boxes.get(i));
+  const gap = Math.max(10, Math.min(...sizes.map((b) => Math.min(b.width, b.height))) * 0.06);
+  const rowWidth = Math.max(Math.sqrt(area) * 1.4, Math.max(...sizes.map((b) => b.width)));
+  const before = order.map(stateOf);
+  let x = start.x, y = start.y, rowH = 0;
+  for (const item of order) {
+    const b = boxes.get(item);
+    if (x > start.x && x + b.width > start.x + rowWidth) { x = start.x; y += rowH + gap; rowH = 0; }
+    item.sprite.x += x - b.x;
+    item.sprite.y += y - b.y;
+    x += b.width + gap;
+    rowH = Math.max(rowH, b.height);
+  }
+  recordChange(order, before);
+  requestRender();
+}
+
+// Crop: the next box you drag over the selected image becomes the part that's kept.
+let cropping = null;  // the image being cropped
+function startCrop() {
+  const item = board.selected;
+  if (item?.kind !== 'image') return toast('Select one image to crop it.');
+  cropping = item;
+  toast('Drag a box over the part of the image to keep. Esc cancels.', 6000);
+  requestRender();
+}
+function finishCrop(m) {
+  const item = cropping;
+  cropping = null;
+  toastEl.classList.remove('show');
+  if (!item || Math.abs(m.x1 - m.x0) < 2 || Math.abs(m.y1 - m.y0) < 2) return;
+  // Turn the box's corners into the picture's own pixels.
+  const s = item.sprite;
+  const cur = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
+  const toPixel = (x, y) => {
+    const dx = x - s.x, dy = y - s.y;
+    const cos = Math.cos(-s.rotation), sin = Math.sin(-s.rotation);
+    return { x: cur.x + cur.w / 2 + (dx * cos - dy * sin) / s.scale.x, y: cur.y + cur.h / 2 + (dx * sin + dy * cos) / s.scale.y };
+  };
+  const pts = [toPixel(m.x0, m.y0), toPixel(m.x1, m.y0), toPixel(m.x1, m.y1), toPixel(m.x0, m.y1)];
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const x0 = Math.max(cur.x, Math.min(...xs)), x1 = Math.min(cur.x + cur.w, Math.max(...xs));
+  const y0 = Math.max(cur.y, Math.min(...ys)), y1 = Math.min(cur.y + cur.h, Math.max(...ys));
+  if (x1 - x0 < 4 || y1 - y0 < 4) return toast('That box missed the image.');
+  editSelection((it) => board.setCrop(it, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), [item]);
+}
+function resetCrop() {
+  const images = board.selection.filter((i) => i.kind === 'image' && i.crop);
+  editSelection((it) => board.setCrop(it, null), images);
+}
+
+// Extract colours: add a palette of the image's main colours next to it, each
+// block as wide as how much of the image has that colour, with its colour code.
+async function extractColours() {
+  const item = board.selected;
+  if (item?.kind !== 'image' || !item.blob) return toast('Select one image to take its colours.');
+  const bitmap = await createImageBitmap(item.blob);
+  const c = item.crop || { x: 0, y: 0, w: bitmap.width, h: bitmap.height };
+  const W = 80, H = Math.max(8, Math.round(80 * c.h / c.w));
+  const small = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+  small.drawImage(bitmap, c.x, c.y, c.w, c.h, 0, 0, W, H);
+  const colours = mainColours(small.getImageData(0, 0, W, H).data, 6);
+  // Draw the palette picture.
+  const PW = 1200, PH = 300;
+  const canvas = new OffscreenCanvas(PW, PH);
+  const g = canvas.getContext('2d');
+  let x = 0;
+  colours.forEach((col, i) => {
+    const w = i === colours.length - 1 ? PW - x : Math.round(PW * col.share);
+    g.fillStyle = col.hex;
+    g.fillRect(x, 0, w, PH);
+    if (w > 70) {
+      const light = 0.299 * col.r + 0.587 * col.g + 0.114 * col.b > 150;
+      g.fillStyle = light ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)';
+      g.font = '600 26px system-ui, sans-serif';
+      g.fillText(col.hex.toUpperCase(), x + 16, PH - 46);
+      g.font = '22px system-ui, sans-serif';
+      g.fillText(`${Math.round(col.share * 100)}%`, x + 16, PH - 18);
+    }
+    x += w;
+  });
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  // Place it just to the right of the image, about as wide as the image looks.
+  const b = board.bounds([item]);
+  const scale = b.width / PW;
+  const spot = board.freeSpot(PW * scale, PH * scale, b.x + b.width + 30 + (PW * scale) / 2, b.y + (PH * scale) / 2);
+  const paletteBitmap = await createImageBitmap(blob);
+  const added = board.addImage(paletteBitmap, spot.x, spot.y, { name: `Colours of ${item.name || 'image'}`, blob, scaleX: scale, scaleY: scale });
+  store.saveImage(current.id, added.id, blob).catch(() => {});
+  const data = { ...board.imageJSON(added), blob };
+  history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+  contentChanged();
+  requestRender();
+}
+
+// The k most common colours of an image's pixels (k-means), biggest share first.
+function mainColours(data, k) {
+  const px = [];
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 128) px.push([data[i], data[i + 1], data[i + 2]]);
+  if (!px.length) return [{ r: 128, g: 128, b: 128, hex: '#808080', share: 1 }];
+  // Start from colours spread across the image (k-means++ style), then refine.
+  const centres = [px[Math.floor(px.length / 2)]];
+  while (centres.length < k) {
+    let far = px[0], best = -1;
+    for (const p of px) {
+      const d = Math.min(...centres.map((c) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2));
+      if (d > best) { best = d; far = p; }
+    }
+    centres.push([...far]);
+  }
+  let counts = [];
+  for (let round = 0; round < 10; round++) {
+    const sums = centres.map(() => [0, 0, 0]);
+    counts = centres.map(() => 0);
+    for (const p of px) {
+      let bi = 0, bd = Infinity;
+      centres.forEach((c, i) => { const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2; if (d < bd) { bd = d; bi = i; } });
+      sums[bi][0] += p[0]; sums[bi][1] += p[1]; sums[bi][2] += p[2]; counts[bi]++;
+    }
+    centres.forEach((c, i) => { if (counts[i]) { c[0] = sums[i][0] / counts[i]; c[1] = sums[i][1] / counts[i]; c[2] = sums[i][2] / counts[i]; } });
+  }
+  const hex = (v) => Math.round(v).toString(16).padStart(2, '0');
+  return centres.map((c, i) => ({ r: c[0], g: c[1], b: c[2], hex: `#${hex(c[0])}${hex(c[1])}${hex(c[2])}`, share: counts[i] / px.length }))
+    .filter((c) => c.share >= 0.02).sort((a, b) => b.share - a.share);
 }
 
 function removeNoteById(id) {
@@ -612,7 +817,8 @@ async function addBlobToBoard(blob, name, sourceUrl = '', at = null) {
   let wx = 0, wy = 0;
   if (at) ({ x: wx, y: wy } = at);
   else if (pane) ({ x: wx, y: wy } = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2));
-  await addImages([{ blob, name, sourceUrl }], wx, wy, pane);
+  // Dropped somewhere on purpose: put it there. Otherwise: the nearest empty spot.
+  await addImages([{ blob, name, sourceUrl }], wx, wy, pane, { free: !at });
 }
 
 // "Fill board": download a set of search results and lay them out on the board
@@ -840,6 +1046,111 @@ function addNoteAt(pane, wx, wy) {
   editNote(note, pane);
 }
 
+// ---------- Selecting, moving, scaling and rotating ----------
+
+let activePane = null;  // the board pane you last clicked in (the selection bar shows there)
+
+// Is a scale or rotate handle of the selection under this board point? Returns
+// 'rotate', a corner number (0-3) or null.
+function handleAt(pane, w) {
+  if (!board.selection.length || board.selection.some((x) => x.locked)) return null;
+  const h = board.handles(pane.camera.zoom);
+  const reach = 9 / pane.camera.zoom;
+  if (Math.hypot(w.x - h.rotate.x, w.y - h.rotate.y) <= reach) return 'rotate';
+  const i = h.corners.findIndex((c) => Math.hypot(w.x - c.x, w.y - c.y) <= reach);
+  return i === -1 ? null : i;
+}
+
+function dragTo(d, w, e) {
+  if (d.kind === 'move') {
+    const dx = w.x - d.start.x, dy = w.y - d.start.y;
+    d.items.forEach((item, i) => item.sprite.position.set(d.before[i].x + dx, d.before[i].y + dy));
+    d.moved = true;
+  } else if (d.kind === 'scale') {
+    // Scale from the opposite corner, keeping the shape.
+    const f = Math.max(0.02, Math.hypot(w.x - d.anchor.x, w.y - d.anchor.y) / d.startDist);
+    d.items.forEach((item, i) => {
+      const b = d.before[i];
+      item.sprite.position.set(d.anchor.x + (b.x - d.anchor.x) * f, d.anchor.y + (b.y - d.anchor.y) * f);
+      if (item.kind === 'image') item.sprite.scale.set(b.sx * f, b.sy * f);
+    });
+  } else if (d.kind === 'rotate') {
+    // Turn around the middle of the selection. Shift snaps to 15° steps.
+    let a = Math.atan2(w.y - d.cy, w.x - d.cx) - d.start;
+    if (e.shiftKey) {
+      const step = Math.PI / 12;
+      const base = d.items.length === 1 ? d.before[0].r : 0;
+      a = Math.round((base + a) / step) * step - base;
+    }
+    const cos = Math.cos(a), sin = Math.sin(a);
+    d.items.forEach((item, i) => {
+      const b = d.before[i];
+      const rx = b.x - d.cx, ry = b.y - d.cy;
+      item.sprite.position.set(d.cx + rx * cos - ry * sin, d.cy + rx * sin + ry * cos);
+      if (item.kind === 'image') item.sprite.rotation = b.r + a;
+    });
+  } else if (d.kind === 'marquee' || d.kind === 'crop') {
+    board.marquee.x1 = w.x;
+    board.marquee.y1 = w.y;
+    if (d.kind === 'marquee') {
+      const m = board.marquee;
+      const inside = board.inRect(m.x0, m.y0, m.x1, m.y1);
+      board.selection = [...new Set([...d.base, ...inside])];
+    }
+  }
+}
+
+// The bar of buttons above what's selected (like Miro).
+const selectionBar = document.getElementById('selection-bar');
+const SEL_ICONS = {
+  lock: '<svg viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>',
+  flipX: '<svg viewBox="0 0 16 16"><path d="M8 2v12M6 4L2 12h4zM10 4l4 8h-4z"/></svg>',
+  flipY: '<svg viewBox="0 0 16 16"><path d="M2 8h12M4 6l8-4v4zM4 10l8 4v-4z"/></svg>',
+  crop: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v10h10M1.5 4.5h10v10"/></svg>',
+  grey: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 000-11z" fill="currentColor"/></svg>',
+  colours: '<svg viewBox="0 0 16 16"><rect x="1.5" y="4" width="4.3" height="8" rx="1"/><rect x="5.8" y="4" width="4.3" height="8" rx="1"/><rect x="10.2" y="4" width="4.3" height="8" rx="1"/></svg>',
+  arrange: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+  delete: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>',
+};
+const SEL_ACTIONS = [
+  ['lock', 'Lock (L)', () => setLocked(null, true)],
+  ['flipX', 'Flip left to right', () => flipSelection('x')],
+  ['flipY', 'Flip upside down', () => flipSelection('y')],
+  ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
+  ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['arrange', 'Arrange in a grid', arrangeSelection, (sel) => sel.length > 1],
+  ['delete', 'Delete (Del)', removeSelected],
+];
+for (const [id, title, action] of SEL_ACTIONS) {
+  const b = document.createElement('button');
+  b.dataset.action = id;
+  b.title = title;
+  b.innerHTML = SEL_ICONS[id];
+  b.addEventListener('pointerdown', (e) => e.stopPropagation());
+  b.addEventListener('click', (e) => { e.stopPropagation(); action(); });
+  selectionBar.appendChild(b);
+}
+function placeSelectionBar() {
+  const sel = board.selection;
+  const pane = activePane && boardPanes().includes(activePane) ? activePane : boardPanes()[0];
+  const show = mode === 'board' && sel.length > 0 && !drag && !cropping && pane && !noteEditor.editing;
+  selectionBar.hidden = !show;
+  if (!show) return;
+  for (const [id, , , when] of SEL_ACTIONS) selectionBar.querySelector(`[data-action="${id}"]`).hidden = when ? !when(sel) : false;
+  // Just above the top of the selection, kept inside the pane.
+  const b = board.bounds(sel);
+  const cam = pane.camera;
+  const r = pane.rect;
+  const cx = r.x + cam.x + (b.x + b.width / 2) * cam.zoom;
+  const top = r.y + cam.y + b.y * cam.zoom;
+  const w = selectionBar.offsetWidth, h = selectionBar.offsetHeight;
+  const x = Math.min(Math.max(cx - w / 2, r.x + 8), r.x + r.w - w - 8);
+  let y = top - h - 40;
+  if (y < r.y + 8) y = Math.min(r.y + r.h - h - 8, r.y + cam.y + (b.y + b.height) * cam.zoom + 14);
+  selectionBar.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+}
+
 // ---------- Mouse and pen ----------
 
 const mouse = { x: null, y: null };
@@ -930,19 +1241,45 @@ panesEl.addEventListener('pointerdown', (e) => {
       if (hit?.kind === 'note') editNote(hit, pane);
       else addNoteAt(pane, w.x, w.y);
     }
+  } else if (e.button === 0 && cropping) {
+    // Cropping: drag a box over the part to keep.
+    board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
+    drag = { kind: 'crop', pane };
   } else if (e.button === 0) {
+    const handle = handleAt(pane, w);
     const hit = board.hitTest(w.x, w.y);
-    if (hit) {
-      // Clicked an image or note: select it, raise it to the top and start moving it.
-      board.selected = hit;
+    if (handle !== null) {
+      // A corner handle scales, the round handle above rotates.
+      const box = board.selectionBox();
+      const items = [...board.selection];
+      const before = items.map(stateOf);
+      if (handle === 'rotate') {
+        drag = { kind: 'rotate', pane, items, before, cx: box.cx, cy: box.cy, start: Math.atan2(w.y - box.cy, w.x - box.cx) };
+      } else {
+        const anchor = box.corners[(handle + 2) % 4];
+        drag = { kind: 'scale', pane, items, before, anchor, startDist: Math.max(1e-6, Math.hypot(w.x - anchor.x, w.y - anchor.y)) };
+      }
+    } else if (e.shiftKey) {
+      // Shift: click adds or removes one; dragging on empty space draws a selection box.
+      if (hit) { board.toggleSelected(hit); drag = null; }
+      else {
+        board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
+        drag = { kind: 'marquee', pane, base: [...board.selection] };
+      }
+    } else if (hit) {
+      // Clicked an image or note: select it (keeping a group selected if it's part of
+      // one), raise it to the top and start moving everything selected.
+      if (!board.isSelected(hit)) board.selected = hit;
       board.bringToFront(hit);
-      drag = { kind: 'move', pane, item: hit, offsetX: w.x - hit.sprite.x, offsetY: w.y - hit.sprite.y, from: { x: hit.sprite.x, y: hit.sprite.y }, moved: false };
+      const items = [...board.selection];
+      drag = { kind: 'move', pane, items, before: items.map(stateOf), start: w, moved: false };
     } else {
       // Clicked empty space: deselect and pan.
       board.selected = null;
       drag = { kind: 'pan', pane };
     }
   }
+  activePane = pane;
   panesEl.classList.toggle('panning', drag?.kind === 'pan');
   updateCursor();
   requestRender();
@@ -953,15 +1290,24 @@ panesEl.addEventListener('pointermove', (e) => {
   const dy = e.clientY - (mouse.y ?? e.clientY);
   mouse.x = e.clientX; mouse.y = e.clientY;
   updateCursor();
-  if (!drag) return;
+  if (!drag) {
+    // Show which handle the mouse is over.
+    const pane = viewports.paneFromElement(e.target);
+    let over = null;
+    if (pane?.type === 'board' && toolbar.tool === 'select') {
+      const p = localPoint(pane, e);
+      over = handleAt(pane, pane.camera.toWorld(p.x, p.y));
+    }
+    panesEl.dataset.handle = over === null ? '' : over === 'rotate' ? 'rotate' : over % 2 ? 'nesw' : 'nwse';
+    return;
+  }
   if (drag.kind === 'pan') {
     drag.pane.camera.panBy(dx, dy);
-  } else if (drag.kind === 'move') {
-    // It follows the mouse in the pane you're dragging in; every other pane updates too.
+  } else if (['move', 'scale', 'rotate', 'marquee', 'crop'].includes(drag.kind)) {
+    // These follow the mouse in the pane you're dragging in; every other pane updates too.
     const p = localPoint(drag.pane, e);
     const w = drag.pane.camera.toWorld(p.x, p.y);
-    drag.item.sprite.position.set(w.x - drag.offsetX, w.y - drag.offsetY);
-    drag.moved = true;
+    dragTo(drag, w, e);
   } else if (drag.kind === 'draw') {
     // A tablet sends more points than there are frames; use them all for smooth lines.
     const events = e.getCoalescedEvents?.() || [e];
@@ -979,13 +1325,14 @@ function endDrag() {
   drag = null;
   panesEl.classList.remove('panning');
 
-  if (d.kind === 'move' && d.moved) {
-    const { kind, id } = d.item;
-    const from = d.from;
-    const to = { x: d.item.sprite.x, y: d.item.sprite.y };
-    const place = (pos) => { const it = board.find(kind, id); if (it) it.sprite.position.set(pos.x, pos.y); requestRender(); };
-    history.push({ undo: () => place(from), redo: () => place(to) });
-    contentChanged();
+  if (['move', 'scale', 'rotate'].includes(d.kind)) {
+    recordChange(d.items, d.before);
+  } else if (d.kind === 'marquee') {
+    board.marquee = null;
+  } else if (d.kind === 'crop') {
+    const m = board.marquee;
+    board.marquee = null;
+    finishCrop(m);
   } else if (d.kind === 'draw') {
     board.redrawStroke(d.stroke, true);
     const data = board.strokeJSON(d.stroke);
@@ -1046,7 +1393,8 @@ let menuTarget = null;
 
 // Lock or unlock one thing, or everything ('all'). Can be undone.
 function setLocked(target, locked) {
-  const changed = board.setLocked(target, locked).map((x) => [x.kind, x.id]);
+  const targets = target === null ? [...board.selection] : [target];
+  const changed = targets.flatMap((t) => board.setLocked(t, locked)).map((x) => [x.kind, x.id]);
   if (!changed.length) return;
   const apply = (value) => {
     for (const [kind, id] of changed) { const x = board.find(kind, id); if (x) board.setLocked(x, value); }
@@ -1077,7 +1425,19 @@ function openMenu(x, y, pane) {
       { label: 'Close pane', shortcut: 'Alt+W', disabled: !several, action: () => paneAction('close', pane) },
       '-',
       { label: board.selected ? 'Fit selection' : 'Fit everything', shortcut: 'F', disabled: board.isEmpty(), action: () => { fitPane(pane, board.selected ? [board.selected] : null); requestRender(); } },
-      { label: board.selected?.kind === 'note' ? 'Delete note' : 'Delete image', shortcut: 'Del', disabled: !board.selected, action: removeSelected },
+      { label: board.selection.length > 1 ? `Delete ${board.selection.length} things` : board.selected?.kind === 'note' ? 'Delete note' : 'Delete image', shortcut: 'Del', disabled: !board.selection.length, action: removeSelected },
+      ...(board.selection.some((x) => x.kind === 'image') ? [
+        '-',
+        { label: 'Flip left to right', action: () => flipSelection('x') },
+        { label: 'Flip upside down', action: () => flipSelection('y') },
+        { label: 'Greyscale on / off', action: toggleGrey },
+        ...(board.selected?.kind === 'image' ? [
+          { label: 'Crop…', action: startCrop },
+          ...(board.selected.crop ? [{ label: 'Undo crop (show the whole image)', action: resetCrop }] : []),
+          { label: 'Extract colours', action: extractColours },
+        ] : []),
+      ] : []),
+      ...(board.selection.length > 1 ? [{ label: 'Arrange in a grid', action: arrangeSelection }] : []),
       ...(menuTarget ? [{
         label: `${menuTarget.locked ? 'Unlock' : 'Lock'} ${menuTarget.kind === 'note' ? 'note' : 'image'}`,
         shortcut: 'L',
@@ -1104,7 +1464,7 @@ panesEl.addEventListener('contextmenu', (e) => {
     const p = localPoint(pane, e);
     const w = pane.camera.toWorld(p.x, p.y);
     const hit = board.hitTest(w.x, w.y, { includeLocked: true });
-    board.selected = hit && !hit.locked ? hit : null;
+    if (!(hit && !hit.locked && board.isSelected(hit))) board.selected = hit && !hit.locked ? hit : null;
     menuTarget = hit;
     requestRender();
   } else {
@@ -1127,6 +1487,7 @@ window.addEventListener('keydown', (e) => {
   if (mod && e.code === 'KeyS') { e.preventDefault(); hideMenu(); saveToFile({ saveAs: e.shiftKey }); return; }
   if (mod && e.code === 'KeyZ') { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
   if (mod && e.code === 'KeyY') { e.preventDefault(); redo(); return; }
+  if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes].filter((x) => !x.locked); requestRender(); return; }
 
   // Panes (e.code is used so these work on Mac, where Option+letter types a symbol)
   if (e.altKey && !mod) {
@@ -1148,8 +1509,12 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     removeSelected();
-  } else if (e.code === 'KeyL' && board.selected) {
-    setLocked(board.selected, true);
+  } else if (e.code === 'KeyL' && board.selection.length) {
+    setLocked(null, true);
+  } else if (e.key === 'Escape') {
+    if (cropping) { cropping = null; toast('Crop cancelled', 1200); }
+    else board.selected = null;
+    requestRender();
   } else if (TOOL_KEYS[e.code]) {
     toolbar.setTool(TOOL_KEYS[e.code]);
   } else if (e.key === '[' || e.key === ']') {

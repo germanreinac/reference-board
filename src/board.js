@@ -4,7 +4,7 @@
 //
 // Layers, from back to front: images, pen strokes, notes, selection outline.
 
-import { Container, Sprite, Texture, ImageSource, Graphics, Text } from '../vendor/pixi.min.mjs';
+import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, ColorMatrixFilter } from '../vendor/pixi.min.mjs';
 import { getStroke } from '../vendor/perfect-freehand.mjs';
 
 let nextId = 1;
@@ -37,7 +37,17 @@ export class Board {
     this.items = [];       // images, back to front
     this.strokes = [];     // pen strokes
     this.notes = [];       // text notes, back to front
-    this.selected = null;  // the image or note that is selected, if any
+    this.selection = [];   // the images and notes that are selected
+    this.marquee = null;   // the selection box being dragged: { x0, y0, x1, y1 } in board units
+  }
+
+  // The selected thing when exactly one is selected (null otherwise). Setting it
+  // selects just that one (or nothing).
+  get selected() { return this.selection.length === 1 ? this.selection[0] : null; }
+  set selected(item) { this.selection = item ? [item] : []; }
+  isSelected(item) { return this.selection.includes(item); }
+  toggleSelected(item) {
+    this.selection = this.isSelected(item) ? this.selection.filter((x) => x !== item) : [...this.selection, item];
   }
 
   isEmpty() {
@@ -49,7 +59,7 @@ export class Board {
   // Put a decoded image on the board, centred on (x, y).
   // `blob` is the original image file; we keep it so the board can be saved.
   // `index` puts it at a given place in the stack (used by undo).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false } = {}) {
     // Mipmaps are smaller pre-shrunk copies of the image. They keep big photos
     // looking smooth (not sparkly or jagged) when you zoom far out.
     const source = new ImageSource({ resource: bitmap, autoGenerateMipmaps: true });
@@ -70,7 +80,14 @@ export class Board {
       sourceUrl,             // where the image came from, when we know it
       blob,
       locked: !!locked,      // locked things can't be selected, moved or erased
+      source,                // the full picture on the graphics card
+      fullWidth: bitmap.width,
+      fullHeight: bitmap.height,
+      crop: null,            // { x, y, w, h } in the picture's own pixels, when cropped
+      grey: false,           // shown in greyscale
     };
+    if (crop) this.setCrop(item, crop, { keepPlace: false });
+    if (grey) this.setGrey(item, true);
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
     this.items.splice(at, 0, item);
     this.imageLayer.addChildAt(sprite, at);
@@ -83,7 +100,50 @@ export class Board {
       id: item.id, name: item.name, sourceUrl: item.sourceUrl,
       x: s.x, y: s.y, scaleX: s.scale.x, scaleY: s.scale.y, rotation: s.rotation, alpha: s.alpha,
       ...(item.locked ? { locked: true } : {}),
+      ...(item.crop ? { crop: item.crop } : {}),
+      ...(item.grey ? { grey: true } : {}),
     };
+  }
+
+  // Show only part of a picture. `crop` is { x, y, w, h } in the picture's own pixels
+  // (null shows all of it). With keepPlace the visible part stays where it was on the board.
+  setCrop(item, crop, { keepPlace = true } = {}) {
+    const s = item.sprite;
+    const old = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
+    let c = crop;
+    if (c) {
+      const x = Math.max(0, Math.min(item.fullWidth - 1, Math.round(c.x)));
+      const y = Math.max(0, Math.min(item.fullHeight - 1, Math.round(c.y)));
+      c = { x, y, w: Math.max(1, Math.min(item.fullWidth - x, Math.round(c.w))), h: Math.max(1, Math.min(item.fullHeight - y, Math.round(c.h))) };
+      if (c.x === 0 && c.y === 0 && c.w === item.fullWidth && c.h === item.fullHeight) c = null;
+    }
+    const now = c || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
+    if (keepPlace) {
+      // Move the centre so the part that stays visible doesn't jump.
+      const dx = (now.x + now.w / 2) - (old.x + old.w / 2);
+      const dy = (now.y + now.h / 2) - (old.y + old.h / 2);
+      const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+      const lx = dx * s.scale.x, ly = dy * s.scale.y;
+      s.position.set(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
+    }
+    const old_texture = s.texture;
+    s.texture = new Texture({ source: item.source, frame: new Rectangle(now.x, now.y, now.w, now.h) });
+    if (old_texture !== s.texture) old_texture.destroy(false);
+    item.crop = c;
+    item.width = now.w;
+    item.height = now.h;
+  }
+
+  // Greyscale on or off, to check values.
+  setGrey(item, on) {
+    item.grey = !!on;
+    if (on) {
+      const f = new ColorMatrixFilter();
+      f.desaturate();
+      item.sprite.filters = [f];
+    } else {
+      item.sprite.filters = null;
+    }
   }
 
   // ---------- Pen strokes ----------
@@ -197,7 +257,7 @@ export class Board {
     const i = list.indexOf(item);
     if (i === -1) return -1;
     list.splice(i, 1);
-    if (this.selected === item) this.selected = null;
+    this.selection = this.selection.filter((x) => x !== item);
     // Also free the picture from graphics memory.
     if (item.kind === 'note') item.sprite.destroy({ children: true });
     else item.sprite.destroy({ texture: true, textureSource: true });
@@ -214,7 +274,7 @@ export class Board {
     const all = target === 'all' ? [...this.items, ...this.notes, ...this.strokes] : [target];
     const changed = all.filter((x) => !!x.locked !== locked);
     for (const x of changed) x.locked = locked;
-    if (locked && changed.includes(this.selected)) this.selected = null;
+    if (locked) this.selection = this.selection.filter((x) => !changed.includes(x));
     return changed;
   }
 
@@ -223,7 +283,7 @@ export class Board {
     for (const item of [...this.items]) this.remove(item);
     for (const note of [...this.notes]) this.remove(note);
     for (const stroke of [...this.strokes]) this.removeStroke(stroke);
-    this.selected = null;
+    this.selection = [];
   }
 
   // Draw it above the others of its kind.
@@ -283,13 +343,91 @@ export class Board {
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
-  // Redraw the blue outline around the selected image or note.
-  // The line width is divided by zoom so it always looks 2 pixels thick on screen.
-  drawOverlay(zoom) {
-    this.overlay.clear();
-    if (!this.selected) return;
-    const pts = this.corners(this.selected).flatMap((p) => [p.x, p.y]);
-    this.overlay.poly(pts).stroke({ width: 2 / zoom, color: 0x4da3ff, alignment: 0 });
+  // Images and notes inside a rectangle of the board (for the selection box).
+  inRect(x0, y0, x1, y1) {
+    const [l, r, t, b] = [Math.min(x0, x1), Math.max(x0, x1), Math.min(y0, y1), Math.max(y0, y1)];
+    return [...this.items, ...this.notes].filter((item) => {
+      if (item.locked) return false;
+      const box = this.bounds([item]);
+      return box.x < r && box.x + box.width > l && box.y < b && box.y + box.height > t;
+    });
+  }
+
+  // The box the scale and rotate handles sit on: the item itself (turned with it) for
+  // one selected thing, or a straight box around several.
+  // { cx, cy, w, h, rotation, corners: [4 points] }
+  selectionBox() {
+    if (!this.selection.length) return null;
+    if (this.selection.length === 1) {
+      const item = this.selection[0];
+      const s = item.sprite;
+      return { cx: s.x, cy: s.y, w: Math.abs(item.width * s.scale.x), h: Math.abs(item.height * s.scale.y), rotation: s.rotation, corners: this.corners(item) };
+    }
+    const b = this.bounds(this.selection);
+    const corners = [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }];
+    return { cx: b.x + b.width / 2, cy: b.y + b.height / 2, w: b.width, h: b.height, rotation: 0, corners };
+  }
+
+  // Where the handles are, in board units, for a pane at this zoom.
+  // corners: scale from that corner; rotate: the round handle above the top edge.
+  handles(zoom) {
+    const box = this.selectionBox();
+    if (!box) return null;
+    const up = { x: Math.sin(box.rotation), y: -Math.cos(box.rotation) };
+    const topMid = { x: (box.corners[0].x + box.corners[1].x) / 2, y: (box.corners[0].y + box.corners[1].y) / 2 };
+    return {
+      box,
+      corners: box.corners,
+      rotate: { x: topMid.x + up.x * 26 / zoom, y: topMid.y + up.y * 26 / zoom },
+      topMid,
+    };
+  }
+
+  // Redraw the blue outlines, the handles and the selection box. Sizes are divided
+  // by zoom so they look the same on screen at any zoom.
+  drawOverlay(zoom, { handles = true } = {}) {
+    const o = this.overlay;
+    o.clear();
+    const line = 1.5 / zoom;
+    for (const item of this.selection) {
+      o.poly(this.corners(item).flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x4da3ff, alignment: 0.5 });
+    }
+    const h = handles && this.handles(zoom);
+    if (h) {
+      if (this.selection.length > 1) o.poly(h.corners.flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x4da3ff, alpha: 0.6 });
+      if (!this.selection.some((x) => x.locked)) {
+        o.moveTo(h.topMid.x, h.topMid.y).lineTo(h.rotate.x, h.rotate.y).stroke({ width: line, color: 0x4da3ff });
+        o.circle(h.rotate.x, h.rotate.y, 5 / zoom).fill(0xffffff).stroke({ width: line, color: 0x4da3ff });
+        const r = 4.5 / zoom;
+        for (const c of h.corners) o.roundRect(c.x - r, c.y - r, r * 2, r * 2, r * 0.5).fill(0xffffff).stroke({ width: line, color: 0x4da3ff });
+      }
+    }
+    if (this.marquee) {
+      const m = this.marquee;
+      o.rect(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1), Math.abs(m.x1 - m.x0), Math.abs(m.y1 - m.y0))
+        .fill({ color: 0x4da3ff, alpha: 0.08 }).stroke({ width: 1 / zoom, color: 0x4da3ff });
+    }
+  }
+
+  // Where a new picture of this size can go near (x, y) without covering anything:
+  // tries spots in widening rings around the point and takes the closest free one.
+  freeSpot(w, h, x, y, gap = 30) {
+    const boxes = [...this.items, ...this.notes].map((i) => this.bounds([i]));
+    const free = (cx, cy) => boxes.every((b) => cx + w / 2 + gap <= b.x || cx - w / 2 - gap >= b.x + b.width || cy + h / 2 + gap <= b.y || cy - h / 2 - gap >= b.y + b.height);
+    if (free(x, y)) return { x, y };
+    const step = Math.max(40, Math.min(w, h) / 3);
+    for (let ring = 1; ring < 60; ring++) {
+      let best = null;
+      for (let i = -ring; i <= ring; i++) {
+        for (const [dx, dy] of [[i, -ring], [i, ring], [-ring, i], [ring, i]]) {
+          const cx = x + dx * step, cy = y + dy * step;
+          const d = Math.hypot(dx, dy);
+          if ((!best || d < best.d) && free(cx, cy)) best = { x: cx, y: cy, d };
+        }
+      }
+      if (best) return best;
+    }
+    return { x, y };
   }
 
   // ---------- Saving ----------
