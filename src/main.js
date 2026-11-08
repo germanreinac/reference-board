@@ -540,7 +540,10 @@ function alignSelection(how) {
 }
 
 function alignMenu(x, y) {
-  showMenu(x, y, [
+  showMenu(x, y, alignItems());
+}
+function alignItems() {
+  return [
     { label: 'Align left', action: () => alignSelection('left') },
     { label: 'Align centres', action: () => alignSelection('center') },
     { label: 'Align right', action: () => alignSelection('right') },
@@ -555,7 +558,7 @@ function alignMenu(x, y) {
     { label: 'Arrange in a grid', action: arrangeSelection },
     { label: 'Lay out as a storyboard', action: storyboardSelection },
     { label: 'Colour script (main colours under each image)', action: colourScript },
-  ]);
+  ];
 }
 
 // A frame around what's selected, with a little room around it.
@@ -2808,86 +2811,123 @@ function setLocked(target, locked) {
   requestRender();
 }
 
+// The right-click menu (and the ⋯ menu in the top bar, which has no pane).
+// Kept short: what you can do with what's selected first, then a few groups.
 function openMenu(x, y, pane) {
   const l = layout();
   const several = l.panes().length > 1;
-  const items = [
-    { label: 'All boards', action: goHome },
-    { label: 'New board', action: newBoard },
-    { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
-    { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
-    { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
-    { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
+  const sel = board.selection;
+  const imgs = sel.filter((x) => x.kind === 'image');
+  const one = board.selected;
+  const n = sel.length;
+
+  const boardMenu = [
     { label: board.frames.length ? `Present (${board.frames.length} frame${board.frames.length > 1 ? 's' : ''})` : 'Present', shortcut: `${MOD}Enter`, disabled: board.isEmpty(), action: startPresent },
     '-',
+    { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
+    { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
+    { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
     { label: 'Back up all boards', action: backupAllBoards },
-    ...(isInstalled() ? [] : [{ label: 'Install as an app…', action: installApp }]),
+    '-',
+    { label: 'New board', action: newBoard },
+    { label: 'All boards', action: goHome },
     '-',
     { label: 'Capture screen…', action: captureScreen },
+    { label: 'Lock everything', action: () => setLocked('all', true) },
+    { label: 'Unlock everything', action: () => setLocked('all', false) },
+  ];
+  const settingsMenu = [
+    { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
+    { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
+    { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
+    '-',
+    ...(isInstalled() ? [] : [{ label: 'Install as an app…', action: installApp }]),
     { label: document.documentElement.dataset.refboardExtension ? 'Browser extension: installed ✓' : 'Get the browser extension…', action: () => window.open(EXTENSION_HELP, '_blank', 'noopener') },
   ];
-  if (pane) {
-    items.push('-',
-      { label: 'Split side by side', shortcut: 'Alt+V', action: () => paneAction('split-row', pane) },
-      { label: 'Split top and bottom', shortcut: 'Alt+H', action: () => paneAction('split-col', pane) },
-      { label: l.maximized ? 'Restore panes' : 'Maximize pane', shortcut: 'Ctrl+Space', disabled: !several, action: () => paneAction('maximize', pane) },
-      { label: 'Close pane', shortcut: 'Alt+W', disabled: !several, action: () => paneAction('close', pane) },
-      '-',
-      { label: board.selected ? 'Fit selection' : 'Fit everything', shortcut: 'F', disabled: board.isEmpty(), action: () => { fitPane(pane, board.selected ? [board.selected] : null); requestRender(); } },
-      { label: board.selection.length > 1 ? `Delete ${board.selection.length} things` : board.selected?.kind === 'note' ? 'Delete note' : 'Delete image', shortcut: 'Del', disabled: !board.selection.length, action: removeSelected },
-      ...(board.selection.some((x) => x.kind === 'image') ? [
-        '-',
-        { label: 'Flip left to right', action: () => flipSelection('x') },
-        { label: 'Flip upside down', action: () => flipSelection('y') },
-        { label: 'Greyscale on / off', action: toggleGrey },
-        ...(board.selected?.kind === 'image' ? [
-          { label: 'Crop…', action: startCrop },
-          ...(board.selected.crop ? [{ label: 'Undo crop (show the whole image)', action: resetCrop }] : []),
-          { label: 'Extract colours', action: extractColours },
-        ] : []),
-      ] : []),
-      ...(board.selection.length > 1 ? [
-        { label: 'Align and spread…', action: () => alignMenu(x, y) },
-        { label: 'Group', shortcut: `${MOD}G`, action: groupSelection },
-      ] : []),
-      ...(board.selection.some((s) => s.group) ? [{ label: 'Ungroup', shortcut: `${MOD}Shift+G`, action: ungroupSelection }] : []),
-      ...(board.selection.length ? [
-        '-',
-        { label: 'Duplicate', shortcut: `${MOD}D`, action: duplicateSelection },
-        { label: 'Copy', shortcut: `${MOD}C`, action: copySelection },
-        { label: 'Bring to front', action: () => reorderSelection(true) },
-        { label: 'Send to back', action: () => reorderSelection(false) },
-        { label: 'Put a frame around', action: frameSelection },
-      ] : []),
-      ...(board.selection.some((x) => x.kind === 'image') ? [
-        '-',
-        { label: board.selection.filter((x) => x.kind === 'image').every((x) => x.star) ? 'Remove star' : 'Star as a favourite', shortcut: 'M', action: toggleStar },
-        { label: board.focus ? 'Stop focusing on starred' : 'Focus on starred', shortcut: 'Shift+M', action: () => setFocus(!board.focus) },
-        ...(board.selected?.kind === 'image' ? [{ label: board.selected.caption ? 'Edit caption' : 'Write a caption', shortcut: 'Enter', action: () => editCaption(board.selected, pane) }] : []),
-        ...(board.selection.length === 2 && board.selection.every((x) => x.kind === 'image') ? [{ label: 'Compare these two…', action: compareSelection }] : []),
-        ...(board.selection.filter((x) => x.kind === 'image').length > 1 ? [{ label: 'Lay out as a storyboard', action: storyboardSelection }] : []),
-        { label: 'Colour script', action: colourScript },
-      ] : []),
-      ...(board.selected?.kind === 'image' && board.selected.sourceUrl ? [{ label: 'Open where it came from', action: () => window.open(board.selected.sourceUrl, '_blank', 'noopener') }] : []),
-      ...(board.selected?.kind === 'image' ? [
-        { label: 'Copy image', action: () => copyImage(board.selected) },
-        { label: 'Download image', action: () => downloadImage(board.selected) },
-      ] : []),
-      ...(menuTarget ? [{
-        label: `${menuTarget.locked ? 'Unlock' : 'Lock'} ${menuTarget.kind === 'note' ? 'note' : 'image'}`,
-        shortcut: 'L',
-        action: () => setLocked(menuTarget, !menuTarget.locked),
-      }] : []),
-      { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
-      { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
-      { label: 'Lock everything', action: () => setLocked('all', true) },
-      { label: 'Unlock everything', action: () => setLocked('all', false) },
+
+  // The ⋯ button in the top bar: the board's own menu.
+  if (!pane) {
+    showMenu(x, y, [...boardMenu, '-', { label: 'Settings', submenu: settingsMenu }]);
+    return;
+  }
+
+  const paneMenu = [
+    { label: 'Split side by side', shortcut: 'Alt+V', action: () => paneAction('split-row', pane) },
+    { label: 'Split top and bottom', shortcut: 'Alt+H', action: () => paneAction('split-col', pane) },
+    { label: l.maximized ? 'Restore panes' : 'Maximize pane', shortcut: 'Ctrl+Space', disabled: !several, action: () => paneAction('maximize', pane) },
+    { label: 'Close pane', shortcut: 'Alt+W', disabled: !several, action: () => paneAction('close', pane) },
+  ];
+  const groups = ['-',
+    { label: 'Pane', submenu: paneMenu },
+    { label: 'Board', submenu: boardMenu },
+    { label: 'Settings', submenu: settingsMenu },
+  ];
+
+  // Nothing selected: everyday things, then the groups.
+  if (!n) {
+    const at = pane.camera.toWorld(x - pane.rect.x, y - pane.rect.y);
+    showMenu(x, y, [
+      // Right-clicked something locked: it can't be selected, so offer to unlock it here.
+      ...(menuTarget?.locked ? [{ label: `Unlock ${menuTarget.kind === 'image' ? 'image' : menuTarget.kind === 'note' ? 'note' : menuTarget.kind}`, shortcut: 'L', action: () => setLocked(menuTarget, false) }, '-'] : []),
+      ...(clipboard ? [{ label: 'Paste here', shortcut: `${MOD}V`, action: () => pasteThings(clipboard, at) }] : []),
+      { label: 'Fit everything', shortcut: 'F', disabled: board.isEmpty(), action: () => { fitPane(pane, null); requestRender(); } },
+      { label: 'Select all', shortcut: `${MOD}A`, disabled: board.isEmpty(), action: () => { board.selection = [...board.items, ...board.notes, ...board.shapes].filter((t) => !t.locked); requestRender(); } },
+      ...(board.starred.length ? [{ label: board.focus ? 'Stop focusing on starred' : 'Focus on starred', shortcut: 'Shift+M', action: () => setFocus(!board.focus) }] : []),
       '-',
       { label: 'Undo', shortcut: `${MOD}Z`, disabled: !history.done.length, action: undo },
       { label: 'Redo', shortcut: `${MOD}Shift+Z`, disabled: !history.undone.length, action: redo },
-    );
+      ...groups,
+    ]);
+    return;
   }
-  showMenu(x, y, items);
+
+  // Something selected: what you can do with it.
+  const what = n > 1 ? `${n} things` : one.kind === 'image' ? 'image' : one.kind === 'note' ? (one.style === 'text' ? 'text' : 'note') : one.kind;
+  const imageMenu = [
+    { label: 'Flip left to right', action: () => flipSelection('x') },
+    { label: 'Flip upside down', action: () => flipSelection('y') },
+    { label: 'Greyscale on / off', action: toggleGrey },
+    ...(one?.kind === 'image' ? [
+      { label: 'Crop…', action: startCrop },
+      ...(one.crop ? [{ label: 'Show the whole image', action: resetCrop }] : []),
+    ] : []),
+    '-',
+    ...(one?.kind === 'image' ? [{ label: 'Extract colours', action: extractColours }] : []),
+    { label: 'Colour script', action: colourScript },
+    '-',
+    ...(one?.kind === 'image' ? [
+      { label: 'Copy image', action: () => copyImage(one) },
+      { label: 'Download image', action: () => downloadImage(one) },
+      ...(one.sourceUrl ? [{ label: 'Open where it came from', action: () => window.open(one.sourceUrl, '_blank', 'noopener') }] : []),
+    ] : []),
+  ];
+  const arrangeMenu = [
+    ...(n > 1 ? [{ label: 'Align and spread', submenu: alignItems() }] : []),
+    ...(imgs.length > 1 ? [{ label: 'Lay out as a storyboard', action: storyboardSelection }] : []),
+    '-',
+    ...(n > 1 ? [{ label: 'Group', shortcut: `${MOD}G`, action: groupSelection }] : []),
+    ...(sel.some((s) => s.group) ? [{ label: 'Ungroup', shortcut: `${MOD}Shift+G`, action: ungroupSelection }] : []),
+    { label: 'Put a frame around', action: frameSelection },
+    '-',
+    { label: 'Bring to front', action: () => reorderSelection(true) },
+    { label: 'Send to back', action: () => reorderSelection(false) },
+    { label: board.selected ? 'Zoom to fit it' : 'Zoom to fit them', shortcut: 'F', action: () => { fitPane(pane, sel); requestRender(); } },
+  ];
+  const locked = menuTarget?.locked;
+  showMenu(x, y, [
+    { label: 'Copy', shortcut: `${MOD}C`, action: copySelection },
+    { label: 'Duplicate', shortcut: `${MOD}D`, action: duplicateSelection },
+    { label: `Delete ${what}`, shortcut: 'Del', action: removeSelected },
+    '-',
+    ...(imgs.length ? [{ label: imgs.every((x) => x.star) ? 'Remove star' : 'Star as a favourite', shortcut: 'M', action: toggleStar }] : []),
+    ...(one?.kind === 'image' ? [{ label: one.caption ? 'Edit caption' : 'Write a caption', shortcut: 'Enter', action: () => editCaption(one, pane) }] : []),
+    ...(n === 2 && imgs.length === 2 ? [{ label: 'Compare these two…', action: compareSelection }] : []),
+    '-',
+    ...(imgs.length ? [{ label: 'Image', submenu: imageMenu }] : []),
+    { label: 'Arrange', submenu: arrangeMenu },
+    { label: locked ? 'Unlock' : 'Lock', shortcut: 'L', action: () => (menuTarget ? setLocked(menuTarget, !locked) : setLocked(null, true)) },
+    ...groups,
+  ]);
 }
 
 panesEl.addEventListener('contextmenu', (e) => {

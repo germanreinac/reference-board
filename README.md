@@ -34,7 +34,7 @@ Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing 
 | Actual size | `1` sets the zoom to 100% |
 | Delete | `Delete` or `Backspace` |
 | Lock / unlock | Right-click an image or note, or press `L` with it selected. **Lock everything** / **Unlock everything** are in the same menu. Locked things can't be selected, moved or erased |
-| Menu | Right-click anywhere, or click the board name in the top-left corner |
+| Menu | Right-click. On something selected: copy, duplicate, delete, star, caption, then **Image** (flip, greyscale, crop, colours…), **Arrange** (align, group, frame, layer order) and **Lock**. On empty space: fit, select all, undo, redo. Always at the bottom: **Pane** (split, maximize, close), **Board** (present, save, open, back up…) and **Settings** (light/dark, snapping, liquid motion). The **⋯** button in the top bar has the Board menu |
 
 ### What a pane shows
 

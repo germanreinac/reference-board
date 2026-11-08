@@ -1550,3 +1550,7 @@ body[data-motion="on"] #toast:not(.show) { transform: translate(-50%, 14px) scal
 .junction:hover::after, .junction.dragging::after { opacity: 1; transform: scale(1); }
 .junction.dragging::after { transform: scale(1.5); }
 #panes.single .junction, body.presenting .junction { display: none; }
+
+/* Submenus: the › row stays highlighted while its submenu is open */
+.menu-item.has-sub kbd { opacity: 0.5; font-size: 14px; line-height: 1; }
+.menu-item.open:not(:disabled) { background: rgba(128, 128, 128, 0.18); }
