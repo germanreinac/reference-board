@@ -1484,6 +1484,7 @@ async function connectDrive() {
     toast('Connected to Google Drive. Your boards are being copied to an "Art Direction" folder…', 3500);
     await syncNow();
     if (driveState === 'synced') toast('Your boards are in Google Drive ✓', 2500);
+    else if (drive.lastError()) toast(`Couldn't sync: ${drive.lastError()}`, 9000);
   } catch (err) {
     toast(err.message || "Couldn't connect to Google Drive.", 4000);
   }
@@ -1515,7 +1516,8 @@ function driveMenu(x, y) {
   }
   showMenu(x, y, [
     ...(drive.needsReconnect() || driveState === 'reconnect' ? [{ label: 'Reconnect Google Drive', action: connectDrive }] : []),
-    { label: 'Sync now', action: async () => { await syncNow(); toast(driveState === 'synced' ? 'Synced with Google Drive ✓' : "Couldn't sync right now.", 2000); } },
+    ...(driveState === 'error' && drive.lastError() ? [{ label: `Problem: ${drive.lastError().slice(0, 140)}`, disabled: true }, '-'] : []),
+    { label: 'Sync now', action: async () => { await syncNow(); toast(driveState === 'synced' ? 'Synced with Google Drive ✓' : `Couldn't sync: ${drive.lastError() || 'try reconnecting'}`, driveState === 'synced' ? 2000 : 9000); } },
     { label: 'Open the folder in Google Drive', action: () => window.open(drive.driveFolderUrl(), '_blank', 'noopener') },
     { label: 'Save photos from your phone…', action: () => { location.hash = '#/add'; } },
     '-',

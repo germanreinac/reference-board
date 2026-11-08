@@ -1626,3 +1626,5 @@ body[data-mode="add"] #add-page {
 .add-board.on { border-color: var(--accent); background: var(--accent); color: #fff; }
 .add-status { min-height: 1.4em; margin: 0; color: var(--text-strong); }
 .add-help, .add-empty { margin: 8px 0 0; font-size: 13px; line-height: 1.5; opacity: 0.65; }
+/* Longer notes in a menu (e.g. what went wrong with Drive) wrap instead of stretching it */
+.menu-item:disabled span { max-width: 300px; white-space: normal; line-height: 1.4; }

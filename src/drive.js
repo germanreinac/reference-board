@@ -40,6 +40,7 @@ function save(patch) {
 export const isConnected = () => !!load().connected;
 // Boards seen in Drive last time (for the phone page, which may have no boards of its own).
 export const knownBoards = () => load().boards || [];
+export const lastError = () => load().lastError || '';
 
 // ---------- Signing in ----------
 
@@ -66,12 +67,18 @@ async function requestToken(interactive) {
       client_id: CLIENT_ID,
       scope: SCOPE,
       callback: (res) => {
-        if (res.error || !res.access_token) { reject(new Error(res.error_description || res.error || 'Google sign-in was cancelled.')); return; }
+        if (res.error || !res.access_token) {
+          reject(new Error(res.error === 'access_denied' ? 'Google said access was denied. Is your Google account listed under Test users in the Google Cloud console?' : `Google sign-in: ${res.error_description || res.error || 'cancelled'}`));
+          return;
+        }
         const expires = Date.now() + (Number(res.expires_in) || 3600) * 1000 - 60000;
         save({ connected: true, token: res.access_token, expires });
         resolve(res.access_token);
       },
-      error_callback: (err) => reject(new Error(err?.type === 'popup_closed' ? 'Google sign-in was closed.' : 'Google sign-in was blocked. Try again.')),
+      error_callback: (err) => reject(new Error({
+        popup_closed: 'The Google sign-in window was closed before finishing.',
+        popup_failed_to_open: 'Chrome blocked the Google sign-in window. Allow pop-ups for artdirection.io (icon at the right of the address bar) and try again.',
+      }[err?.type] || `Google sign-in didn't work (${err?.type || 'unknown'}).`)),
     });
     client.requestAccessToken({ prompt: interactive ? '' : 'none' });
   });
@@ -108,7 +115,12 @@ async function call(url, opts = {}, retry = true) {
   if (!t) throw new DriveError('reconnect');
   const res = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${t}` } });
   if (res.status === 401 && retry) { save({ token: null, expires: 0 }); return call(url, opts, false); }
-  if (!res.ok) throw new DriveError(`Drive said ${res.status}`);
+  if (!res.ok) {
+    // Google explains what's wrong in the reply; pass that on.
+    let why = '';
+    try { const j = await res.json(); why = j.error?.message || j.error_description || ''; } catch {}
+    throw new DriveError(`Google Drive said ${res.status}${why ? `: ${why}` : ''}`);
+  }
   return res;
 }
 const json = async (url, opts) => (await call(url, opts)).json();
@@ -239,9 +251,11 @@ async function doSync(hooks) {
     }
 
     if (changed) hooks.boardsChanged?.();
+    save({ lastError: '' });
     hooks.onStatus('synced');
   } catch (err) {
     console.warn('Drive sync', err);
+    save({ lastError: err.message, lastErrorAt: Date.now() });
     hooks.onStatus(err.message === 'reconnect' ? 'reconnect' : 'error', err.message);
   }
 }
