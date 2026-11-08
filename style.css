@@ -1722,3 +1722,8 @@ body[data-motion="on"] #help-panel:not([hidden]) .help-box { animation: liquid-i
 .theme-cycle[data-next="colour"] .icon-colour,
 .theme-cycle[data-next="dark"] .icon-moon { display: block; }
 body[data-motion="on"] .theme-cycle:hover svg { animation: alien-wobble 0.6s var(--soft); }
+
+/* "Getting your boards from Drive… 2 of 6" above the boards while they download */
+.drive-progress { margin: -6px 0 14px; color: var(--accent); font-size: 13px; }
+.drive-progress[hidden] { display: none; }
+body[data-motion="on"] .drive-progress::before { content: "●"; margin-right: 8px; animation: drive-pulse 1s ease-in-out infinite; }

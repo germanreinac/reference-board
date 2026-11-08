@@ -81,6 +81,8 @@ async function requestToken(interactive) {
       }[err?.type] || `Google sign-in didn't work (${err?.type || 'unknown'}).`)),
     });
     client.requestAccessToken({ prompt: interactive ? '' : 'none' });
+    // If Google never answers (e.g. its window was blocked silently), give up after a while.
+    if (!interactive) setTimeout(() => reject(new Error('Google sign-in timed out.')), 20000);
   });
 }
 
@@ -130,7 +132,7 @@ async function list(q) {
   const out = [];
   let page = '';
   do {
-    const params = new URLSearchParams({ q, spaces: 'drive', pageSize: '1000', fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,parents,appProperties)' });
+    const params = new URLSearchParams({ q, spaces: 'drive', pageSize: '1000', fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,parents,appProperties,size)' });
     if (page) params.set('pageToken', page);
     const r = await json(`${API}/files?${params}`);
     out.push(...(r.files || []));
@@ -177,6 +179,14 @@ async function rootFolder() {
 
 // ---------- Sync ----------
 
+// Run `work` on every item, `n` at a time.
+async function inParallel(list, n, work) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => {
+    while (next < list.length) await work(list[next++]);
+  }));
+}
+
 const extOf = (type) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' }[type] || 'png');
 const safeName = (s) => String(s || 'image').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'image';
 
@@ -205,7 +215,9 @@ async function doSync(hooks) {
     save({ boards: folders.map((f) => ({ id: f.appProperties?.boardId, name: f.name, folderId: f.id })) });
     let changed = false;
 
-    // 1. Boards on Drive: bring down what's newer there.
+    // 1. Boards on Drive: bring down what's newer there. Each board appears as soon as it's
+    //    in; smaller boards first, so the list fills up quickly. Images come several at once.
+    const toGet = [];
     for (const [boardId, folder] of remote) {
       if (!boardId) continue;
       const data = dataOf.get(folder.id);
@@ -214,21 +226,42 @@ async function doSync(hooks) {
       const remoteTime = Date.parse(data.modifiedTime);
       if (local?.drive?.remoteTime >= remoteTime) continue;              // nothing new up there
       if (local && local.updated > (local.drive?.syncedAt || 0) && local.updated > remoteTime) continue;  // ours is newer: sent up below
-      const text = await (await download(data.id)).text();
-      const parsed = JSON.parse(text);
-      const images = parsed.driveImages || {};
-      for (const item of parsed.board?.items || []) {
-        if (await store.loadImage(boardId, item.id).catch(() => null)) continue;
-        if (images[item.id]) await store.saveImage(boardId, item.id, await download(images[item.id]));
-      }
-      const board = { ...(parsed.board || {}), incoming: local?.board?.incoming || [] };
-      await store.putBoard({
-        ...(local || { id: boardId, created: parsed.created || Date.now(), handle: null }),
-        name: parsed.name || folder.name, updated: parsed.updated || remoteTime, board,
-        drive: { folderId: folder.id, dataId: data.id, images, remoteTime, syncedAt: Date.now() },
-      });
-      changed = true;
+      toGet.push({ boardId, folder, data, local, remoteTime });
     }
+    toGet.sort((a, b) => (Number(a.data.size) || 0) - (Number(b.data.size) || 0));
+    let boardsDone = 0, imagesDone = 0, imagesTotal = 0;
+    const progress = () => hooks.onProgress?.(toGet.length ? `Getting your boards from Drive… ${boardsDone} of ${toGet.length}${imagesTotal ? ` · ${imagesDone} of ${imagesTotal} images` : ''}` : '');
+    for (const job of toGet) {
+      const { boardId, folder, data, local, remoteTime } = job;
+      try {
+        const parsed = JSON.parse(await (await download(data.id)).text());
+        const images = parsed.driveImages || {};
+        const items = parsed.board?.items || [];
+        const missing = [];
+        for (const item of items) if (images[item.id] && !(await store.loadImage(boardId, item.id).catch(() => null))) missing.push(item);
+        imagesTotal += missing.length;
+        progress();
+        await inParallel(missing, 6, async (item) => {
+          try { await store.saveImage(boardId, item.id, await download(images[item.id])); } catch (err) { console.warn('Drive: image skipped', err); }
+          imagesDone++;
+          if (imagesDone % 5 === 0) progress();
+        });
+        const board = { ...(parsed.board || {}), incoming: local?.board?.incoming || [] };
+        await store.putBoard({
+          ...(local || { id: boardId, created: parsed.created || Date.now(), handle: null }),
+          name: parsed.name || folder.name, updated: parsed.updated || remoteTime, board,
+          drive: { folderId: folder.id, dataId: data.id, images, remoteTime, syncedAt: Date.now() },
+        });
+        changed = true;
+        hooks.boardsChanged?.();       // show it on the home screen straight away
+      } catch (err) {
+        console.warn(`Drive: couldn't get "${folder.name}"`, err);
+        if (err.message === 'reconnect') throw err;
+      }
+      boardsDone++;
+      progress();
+    }
+    hooks.onProgress?.('');
 
     // 2. Boards changed here: send them up.
     for (const rec of await store.listBoards()) {

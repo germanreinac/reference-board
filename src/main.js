@@ -1526,11 +1526,19 @@ async function exportBoard(id) {
 const driveButton = document.getElementById('drive-button');
 let driveState = drive.isConnected() ? 'idle' : 'off';
 let lastSynced = 0;
+let driveProgress = '';
 const driveHooks = {
   beforeSync: () => saveNow(),
   isOpen: (id) => docs.has(id),
   queueForBoard: (id, blob, name, src) => receiveBlob(id, blob, name, src),
   boardsChanged: () => { if (mode === 'home') home.refresh(); renderTabs(); announceBoards(); },
+  onProgress: (text) => {
+    driveProgress = text;
+    const el = document.getElementById('drive-progress');
+    el.textContent = text;
+    el.hidden = !text;
+    updateDriveButton();
+  },
   onStatus: (state, detail) => {
     driveState = state;
     if (state === 'synced') lastSynced = Date.now();
@@ -1577,7 +1585,7 @@ function updateDriveButton() {
     const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
     el.title = {
       off: 'Google Drive: not connected. Click to keep your boards in your own Drive',
-      syncing: 'Google Drive: syncing…',
+      syncing: driveProgress || 'Google Drive: syncing…',
       synced: `Google Drive: synced${mins === null ? '' : mins < 1 ? ' just now' : ` ${mins} min ago`}`,
       idle: 'Google Drive: connected',
       reconnect: 'Google Drive: click to reconnect (Google asks again about every hour)',
