@@ -1726,3 +1726,6 @@ body[data-tone="light"] .pane-edges path:first-child { stroke: rgba(0, 0, 0, 0.1
 #panes.single .pane-edges path:first-child { stroke: none; }
 /* While dragging a divider, the liquid shows the movement: no straight highlight line. */
 body[data-motion="on"] .divider.dragging::after { opacity: 0; }
+
+/* Typing a frame's title: the box is invisible, the title and its band on the board show it */
+.frame-rename.ghost { opacity: 0 !important; animation: none !important; width: 40px !important; pointer-events: none; }

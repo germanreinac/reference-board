@@ -609,23 +609,31 @@ function renameFrame(f, pane) {
   input.select();
   const before = [stateOf(f)];
   const original = f.name;
-  // The box grows with what you type (up to the frame's width on screen; past that the
-  // title carries on round the frame, which you see happen as you type).
-  const measure = document.createElement('canvas').getContext('2d');
-  const fit = () => {
-    measure.font = `600 ${input.style.fontSize} Inter, system-ui, sans-serif`;
-    const want = measure.measureText(input.value || ' ').width + 24;
-    input.style.width = `${Math.max(80, Math.min(want, Math.max(120, f.w * z)))}px`;
-    f.name = input.value.trim() || original;
+  // You type into an invisible box; what you see is the title on the board itself, with a
+  // rounded band behind it that follows the text round the frame (curving round the
+  // corners) and a blinking cursor. See Board._drawTitleBand.
+  input.classList.add('ghost');
+  const css = getComputedStyle(document.body);
+  const colour = (name, fallback) => { const v = css.getPropertyValue(name).trim(); return /^#[0-9a-f]{6}$/i.test(v) ? parseInt(v.slice(1), 16) : fallback; };
+  board.titleEdit = { frame: f, caret: input.value.length, fill: colour('--input', 0x141416), accent: colour('--accent', 0x4da3ff) };
+  const update = () => {
+    f.name = input.value.trim() ? input.value : original;
+    board.titleEdit.caret = input.value.trim() ? input.selectionEnd : 0;
+    board.titleEdit.sel = [input.selectionStart, input.selectionEnd];
     board.drawFrame(f);
     requestRender();
   };
-  input.addEventListener('input', fit);
-  fit();
+  for (const ev of ['input', 'keyup', 'select', 'click']) input.addEventListener(ev, update);
+  document.addEventListener('selectionchange', update);
+  const blink = setInterval(requestRender, 300);
+  update();
   let done = false;
   const finish = (save) => {
     if (done) return;
     done = true;
+    clearInterval(blink);
+    document.removeEventListener('selectionchange', update);
+    board.titleEdit = null;
     f.name = save && input.value.trim() ? input.value.trim() : original;
     board.drawFrame(f);
     if (f.name !== original) recordChange([f], before);

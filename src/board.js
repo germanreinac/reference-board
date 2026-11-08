@@ -36,6 +36,9 @@ function textColourFor(hex) {
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#1b1b1d' : '#f5f5f5';
 }
 
+// The total length of the sides before this one (for frame titles going round a frame).
+const sumBefore = (lens, side) => lens.slice(0, side).reduce((a, b) => a + b, 0);
+
 // Captions are laid out at this size and wrap width (see setCaption).
 const CAPTION_SIZE = 32;
 const CAPTION_WRAP = 711;
@@ -189,22 +192,29 @@ export class Board {
   }
 
   // A title longer than the frame is wide carries on round the frame: along the top, then
-  // it turns the corner and runs down the right side, along the bottom, up the left side,
-  // and stops when it gets back to where it started. If even that isn't enough room, the
-  // letters get smaller so it all fits in one lap.
+  // down the right side, along the bottom, up the left side, and stops when it gets back to
+  // where it started. Each corner is a small curved gap (no letters). If even one lap
+  // isn't enough room, the letters get smaller so it all fits.
   _wrapTitle(f) {
     const text = f.name || 'Frame';
     const style = f.title.style;
     const full = CanvasTextMetrics.measureText(text, style).width;
-    if (full <= f.w) {
+    const lap = 2 * (f.w + f.h);
+    const wrapped = full > f.w;
+    const k = wrapped ? Math.min(1, (lap * 0.97) / full) : 1;   // shrink to fit one lap
+    const size = f.titleSize * k;
+    const g = f.titleSize * 0.35;   // gap between the frame's edge and the bottom of the letters
+    // Each letter's width (also used to put the typing cursor in the right place).
+    const advances = [...text].map((ch) => CanvasTextMetrics.measureText(ch === ' ' ? ' ' : ch, style).width * k);
+    f.titleGeo = { size, g, advances, wrapped };
+    // A short title is one ordinary line, sitting just above the frame.
+    f.title.position.set(-f.w / 2, -f.h / 2 - g - f.title.height * 0.92);
+    if (!wrapped) {
       f.title.visible = true;
       if (f.wrap) { f.wrap.destroy({ children: true }); f.wrap = null; f.wrapKey = null; }
       return;
     }
     f.title.visible = false;
-    const lap = 2 * (f.w + f.h);
-    const k = Math.min(1, (lap * 0.97) / full);   // shrink to fit one lap
-    const size = f.titleSize * k;
     const key = `${text}|${size.toFixed(2)}|${this.ink}`;
     if (!f.wrap) { f.wrap = new Container(); f.sprite.addChild(f.wrap); }
     if (f.wrapKey !== key) {
@@ -215,28 +225,108 @@ export class Board {
         const t = new Text({ text: ch, style: st });
         t.anchor.set(0.5, 1);
         t.alpha = 0.7;
-        t.advance = CanvasTextMetrics.measureText(ch === ' ' ? '\u00a0' : ch, f.title.style).width * k;
         f.wrap.addChild(t);
       }
       f.wrapKey = key;
     }
-    // Lay the letters along the path, just outside the frame's edge.
-    const g = f.titleSize * 0.35, w = f.w, h = f.h;
-    const sides = [
-      { len: w, at: (d) => [-w / 2 + d, -h / 2 - g], rot: 0 },
-      { len: h, at: (d) => [w / 2 + g, -h / 2 + d], rot: Math.PI / 2 },
-      { len: w, at: (d) => [w / 2 - d, h / 2 + g], rot: Math.PI },
-      { len: h, at: (d) => [-w / 2 - g, h / 2 - d], rot: -Math.PI / 2 },
-    ];
     let pos = 0;
-    for (const t of f.wrap.children) {
-      let mid = pos + t.advance / 2;
-      let i = 0;
-      while (i < 3 && mid > sides[i].len) { mid -= sides[i].len; i++; }
-      const [x, y] = sides[i].at(Math.min(mid, sides[i].len));
-      t.position.set(x, y);
-      t.rotation = sides[i].rot;
-      pos += t.advance;
+    f.wrap.children.forEach((t, i) => {
+      const p = this._titlePoint(f, pos + advances[i] / 2, g);
+      t.position.set(p.x, p.y);
+      t.rotation = p.rot;
+      pos += advances[i];
+    });
+  }
+
+  // A point on the title's path, `d` along it (counting only the straight sides) and `o`
+  // outside the frame's edge. Returns { x, y, rot, side }.
+  _titlePoint(f, d, o) {
+    const w = f.w, h = f.h;
+    const lens = [w, h, w, h];
+    let side = 0;
+    while (side < 3 && d > lens[side]) { d -= lens[side]; side++; }
+    d = Math.min(d, lens[side]);
+    const at = [
+      { x: -w / 2 + d, y: -h / 2 - o, rot: 0 },
+      { x: w / 2 + o, y: -h / 2 + d, rot: Math.PI / 2 },
+      { x: w / 2 - d, y: h / 2 + o, rot: Math.PI },
+      { x: -w / 2 - o, y: h / 2 - d, rot: -Math.PI / 2 },
+    ][side];
+    return { ...at, side };
+  }
+
+  // Points along the title's path from d0 to d1 (distances along the letters), `o` outside
+  // the edge: straight along the sides, a quarter circle round each corner passed.
+  _bandPath(f, d0, d1, o) {
+    const w = f.w, h = f.h, lens = [w, h, w, h];
+    const corners = [[w / 2, -h / 2, -Math.PI / 2], [w / 2, h / 2, 0], [-w / 2, h / 2, Math.PI / 2]];
+    const pts = [];
+    if (d0 < 0) { const p = this._titlePoint(f, 0, o); pts.push(p.x + d0, p.y); d0 = 0; }
+    let base = 0;
+    for (let side = 0; side < 4; side++) {
+      const a = Math.max(d0, base), b = Math.min(d1, base + lens[side]);
+      if (b >= a && b > base - 0.001) {
+        const p0 = this._titlePoint(f, a, o), p1 = this._titlePoint(f, b, o);
+        if (!pts.length || a > base) pts.push(p0.x, p0.y);
+        pts.push(p1.x, p1.y);
+        if (d1 > base + lens[side] && side < 3) {
+          const [cx, cy, a0] = corners[side];
+          for (let k = 1; k <= 10; k++) {
+            const ang = a0 + (Math.PI / 2) * (k / 10);
+            pts.push(cx + Math.cos(ang) * o, cy + Math.sin(ang) * o);
+          }
+        }
+      }
+      base += lens[side];
+      if (base >= d1) break;
+    }
+    return pts;
+  }
+
+  // While a frame's title is being typed: a rounded band behind the text that follows it
+  // round the frame, curving round each corner, with a blinking cursor.
+  // this.titleEdit = { frame, caret (letter index), fill, accent } or null.
+  _drawTitleBand(now) {
+    for (const f of this.frames) {
+      const editing = this.titleEdit?.frame === f;
+      if (!editing) { if (f.band) { f.band.destroy(); f.band = null; f.caretG.destroy(); f.caretG = null; } continue; }
+      if (!f.band) {
+        f.band = new Graphics();
+        f.caretG = new Graphics();
+        f.sprite.addChildAt(f.band, 1);   // behind the letters
+        f.sprite.addChild(f.caretG);       // in front of them
+      }
+      f.sprite.addChild(f.caretG);
+      const { size, g, advances } = f.titleGeo || { size: f.titleSize, g: f.titleSize * 0.35, advances: [] };
+      const c = g + size * 0.55;                       // the band's middle line, outside the edge
+      const thick = size * 1.55;
+      const total = advances.reduce((a, b) => a + b, 0);
+      const end = Math.min(2 * (f.w + f.h), Math.max(total, size * 2) + size * 0.4);
+      const w = f.w, h = f.h;
+      const pts = this._bandPath(f, -size * 0.2, end, c);
+      f.band.clear();
+      if (pts.length >= 4) {
+        f.band.poly(pts, false).stroke({ width: thick + size * 0.14, color: this.titleEdit.accent, cap: 'round', join: 'round' });
+        f.band.poly(pts, false).stroke({ width: thick, color: this.titleEdit.fill, cap: 'round', join: 'round' });
+      }
+      // Selected letters are highlighted on the band.
+      const [s0, s1] = this.titleEdit.sel || [0, 0];
+      if (s1 > s0) {
+        const d0 = advances.slice(0, s0).reduce((a, b) => a + b, 0), d1 = advances.slice(0, s1).reduce((a, b) => a + b, 0);
+        const sel = this._bandPath(f, d0, d1, c);
+        if (sel.length >= 4) f.band.poly(sel, false).stroke({ width: thick * 0.82, color: this.titleEdit.accent, alpha: 0.35, cap: 'butt', join: 'round' });
+      }
+      // The cursor.
+      f.caretG.clear();
+      if ((now % 1000) < 620) {
+        const n = Math.max(0, Math.min(advances.length, this.titleEdit.caret ?? advances.length));
+        const d = advances.slice(0, n).reduce((a, b) => a + b, 0);
+        const p = this._titlePoint(f, Math.min(d, 2 * (w + h) - 0.01), c);
+        const out = [[0, -1], [1, 0], [0, 1], [-1, 0]][p.side];
+        const L = size * 0.55;
+        f.caretG.moveTo(p.x - out[0] * L, p.y - out[1] * L).lineTo(p.x + out[0] * L, p.y + out[1] * L)
+          .stroke({ width: size * 0.08, color: this.titleEdit.accent, cap: 'round' });
+      }
     }
   }
 
@@ -1066,6 +1156,7 @@ export class Board {
     const now = performance.now();
     this._stepAnimations(now);
     this._stepFx(now);
+    this._drawTitleBand(now);
     this.syncImages();
     this._drawSplashes(o, zoom, now);
     // A small star at the top-right corner of starred images (the same size at any zoom).

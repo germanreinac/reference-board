@@ -73,7 +73,9 @@ export class Viewports {
     this.junctions = []; // handles where dividers meet: drag one to move them all
     // Stirring the dots: the mouse leaves a gentle wake in the dotted background.
     this.stirG = new Graphics();
-    this.stirState = { pane: null, x: 0, y: 0, vx: 0, vy: 0, energy: 0, last: 0, raf: 0 };
+    // energy swings like a spring (it can go below zero: the dots then lean back in), so
+    // the water bounces a few times before it settles.
+    this.stirState = { pane: null, x: 0, y: 0, vx: 0, vy: 0, energy: 0, ev: 0, last: 0, raf: 0 };
     this.setLayout(layout);
     this._flow();
   }
@@ -414,7 +416,7 @@ export class Viewports {
     // Keep the dots fixed to the board as you pan.
     d.tilePosition.set(cam.x % spacing, cam.y % spacing);
     this.app.renderer.render({ container: d, target, clear: true, clearColor: this.background });
-    if (this.stirState.pane === pane && this.stirState.energy > 0.01 && !this.hideDots) this._drawStir(pane, target, spacing);
+    if (this.stirState.pane === pane && (Math.abs(this.stirState.energy) > 0.008 || Math.abs(this.stirState.ev) > 0.05) && !this.hideDots) this._drawStir(pane, target, spacing);
   }
 
   // ---------- Stirring the dots ----------
@@ -434,7 +436,8 @@ export class Viewports {
       st.vy = st.vy * 0.7 + ((y - st.y) / dt) * 0.3;
     } else { st.vx = st.vy = 0; }
     Object.assign(st, { pane, x, y, last: now });
-    st.energy = Math.min(1, st.energy + 0.35);
+    st.ev += 5;                                   // a push into the water
+    st.energy = Math.min(1.2, st.energy + 0.12);
     if (!st.raf) st.raf = requestAnimationFrame((t) => this._stirFrame(t));
   }
 
@@ -444,12 +447,15 @@ export class Viewports {
     if (!st.pane || !this.views.has(st.pane) || st.pane.type !== 'board') { st.energy = 0; return; }
     const dt = Math.min(0.05, (now - (st.frame || now)) / 1000 || 0.016);
     st.frame = now;
-    st.energy *= Math.exp(-dt * 2.2);   // settles back over about a second
+    // A loose spring: overshoots and bounces back a few times, each smaller (about 1.5 s).
+    st.ev += (-70 * st.energy - 3.2 * st.ev) * dt;
+    st.energy = Math.max(-1, Math.min(1.2, st.energy + st.ev * dt));
+    st.wave = (st.wave || 0) + dt;
     st.vx *= Math.exp(-dt * 4);
     st.vy *= Math.exp(-dt * 4);
     this.renderPane(st.pane);
-    if (st.energy > 0.01) st.raf = requestAnimationFrame((t) => this._stirFrame(t));
-    else { st.frame = 0; this.renderPane(st.pane); }
+    if (Math.abs(st.energy) > 0.008 || Math.abs(st.ev) > 0.05) st.raf = requestAnimationFrame((t) => this._stirFrame(t));
+    else { st.energy = st.ev = 0; st.frame = 0; this.renderPane(st.pane); }
   }
 
   _drawStir(pane, target, spacing) {
@@ -475,13 +481,16 @@ export class Viewports {
         if (d > R + r * 3) continue;
         const f = d < R ? (1 - d / R) ** 2 : 0;     // 1 at the mouse, 0 at the edge: no seam
         const nx = d ? dx / d : 0, ny = d ? dy / d : 0;
-        // Pushed aside, carried along a little behind the mouse, with a slow swirl.
+        // Pushed aside (and, as the spring swings back, pulled in), carried along a little
+        // behind the mouse, a slow swirl, and small rings spreading out like on water.
+        const ae = Math.abs(e);
         const push = 10 * f * e;
-        const carry = 0.012 * f * e;
-        const swirl = 3 * f * e * Math.sin(t * 2.4 + d * 0.05);
-        const x = px + nx * push + st.vx * carry - ny * swirl;
-        const y = py + ny * push + st.vy * carry + nx * swirl;
-        g.circle(x, y, r * (1 + 0.5 * f * e * Math.min(1, speed / 600 + 0.3))).fill({ color: this.dotColour, alpha: 1 - 0.25 * f * e });
+        const carry = 0.012 * f * Math.max(0, e);
+        const swirl = 3 * f * ae * Math.sin(t * 2.4 + d * 0.05);
+        const ring = 3.2 * f * Math.min(1, ae * 1.5) * Math.sin(d * 0.085 - (st.wave || 0) * 9);
+        const x = px + nx * (push + ring) + st.vx * carry - ny * swirl;
+        const y = py + ny * (push + ring) + st.vy * carry + nx * swirl;
+        g.circle(x, y, r * (1 + 0.5 * f * ae * Math.min(1, speed / 600 + 0.3))).fill({ color: this.dotColour, alpha: 1 - 0.25 * f * Math.min(1, ae) });
       }
     }
     this.app.renderer.render({ container: g, target, clear: false });
