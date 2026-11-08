@@ -1008,8 +1008,7 @@ body.drag-over::after {
 
 /* Light/dark switch in the top bar: shows the sun in dark mode, the moon in light mode */
 #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
-#bar-theme-button .icon-moon, body[data-tone="light"] #bar-theme-button .icon-sun { display: none; }
-body[data-tone="light"] #bar-theme-button .icon-moon { display: block; }
+
 /* Folded toolbar: a single, clear "show" button */
 #toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
 #toolbar.collapsed .tool.mini svg { width: 18px; height: 18px; stroke-width: 1.8; }
@@ -1715,3 +1714,11 @@ body[data-motion="on"] #help-panel:not([hidden]) .help-box { animation: liquid-i
 .help-row span { color: var(--text-strong); }
 .help-row kbd { border: 0; padding: 0; font: inherit; text-align: right; opacity: 0.75; }
 .help-foot { margin: 4px 0 0; opacity: 0.7; }
+
+/* The look button shows what it switches to next: sun (light), alien (colour), moon (dark) */
+.theme-cycle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; display: none; }
+.theme-cycle .eye { fill: currentColor; stroke: none; }
+.theme-cycle[data-next="light"] .icon-sun,
+.theme-cycle[data-next="colour"] .icon-colour,
+.theme-cycle[data-next="dark"] .icon-moon { display: block; }
+body[data-motion="on"] .theme-cycle:hover svg { animation: alien-wobble 0.6s var(--soft); }

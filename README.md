@@ -214,16 +214,16 @@ ash, and a small character with a broom comes to sweep the piles away, one at a 
 Dragging something into another pane pushes through a thin layer of jelly: it sticks at
 the edge for a moment while the gap bulges, then breaks through with a splash. Into a pane
 showing the same board it carries on there; into another board's pane, a floating copy
-follows the mouse and lands on that board.
+follows the mouse and a copy lands on that board.
 
 Turn it off with **Liquid motion** in the right-click menu (then everything happens at
 once). It's off from the start if your computer is set to reduce motion.
 
 ### Light, dark and colour mode
 
-The sun/moon button switches between dark and light. The 👽 button is **colour mode**: a
-random soft, desaturated palette (sage, lavender, peach, dusty blue, sand, mint, rose, lilac
-grey). Click it again for another one. The choice is remembered in this browser.
+One button in the top bar goes round: **dark → light → colour → dark…** Colour mode is a soft,
+desaturated palette, picked at random each time from mint, pink and apricot (never the same
+one twice in a row). The icon shows what comes next; the choice is remembered in this browser.
 
 ### Shortcuts
 
@@ -243,8 +243,8 @@ menu (**⋯**). The **⋯** button on a board's card can rename it, save it to a
   Pick one and that pane shows it, next to the others. When panes show different boards, each
   has a name label in its corner (click it to change); the one with the blue outline is the
   board you're working on: the last one you clicked. Each board has its own undo.
-- **Move things between boards** by dragging them from one board's pane and letting go over
-  another's. Hold `Alt` while letting go to copy instead.
+- **Copy things to another board** by dragging them from one board's pane and letting go over
+  another's (the originals stay). Hold `Alt` while letting go to move them instead.
 
 - **Boards save as you work.** They're kept in Chrome on this computer, so closing the tab doesn't lose anything.
 - **Save to file** (Ctrl/⌘ + S) creates a `.refboard` file with all images and the pane layout inside it. Use it to back up a board or share it.

@@ -25,7 +25,7 @@ import { RESULT_DRAG_TYPE } from './search-pane.js';
 import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
-import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, randomColours } from './theme.js';
+import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, nextTheme, pastelName } from './theme.js';
 import { VERSION } from './version.js';
 import { LEVELS } from './board.js';
 import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
@@ -738,7 +738,7 @@ function endGhost(d) {
 }
 
 // Dragging things out of one board's pane and letting go over a pane that shows another
-// board moves them there (hold Alt to copy instead). Returns false if it's the same board.
+// board copies them there (the originals stay). Hold Alt to move them instead. Returns false if it's the same board.
 function moveToOtherBoard(d) {
   const target = mouse.x === null ? null : viewports.paneAt(mouse.x, mouse.y);
   const to = docOfPane(target);
@@ -751,12 +751,12 @@ function moveToOtherBoard(d) {
   // Keep them under the mouse the way you were holding them.
   const w = target.camera.toWorld(mouse.x - target.rect.x, mouse.y - target.rect.y);
   const at = { x: w.x + (box.x + box.width / 2 - d.start.x), y: w.y + (box.y + box.height / 2 - d.start.y) };
-  const copy = altHeld;
+  const copy = !altHeld;
   if (!copy) { board.selection = [...d.items]; removeSelected(); }
   activate(to);
   activePane = target;
   pasteThings({ things, box }, at);
-  toast(`${copy ? 'Copied' : 'Moved'} to ${to.meta.name}${copy ? '' : '. Undo in each board puts it back'}`, 2200);
+  toast(`${copy ? 'Copied' : 'Moved'} to ${to.meta.name}${copy ? ' (hold Alt while letting go to move instead)' : '. Undo in each board puts it back'}`, 2400);
   return true;
 }
 
@@ -1868,12 +1868,23 @@ document.getElementById('tab-add').addEventListener('click', async (e) => {
 // ---------- Board name and home button ----------
 
 document.getElementById('home-button').addEventListener('click', goHome);
-document.getElementById('theme-button').addEventListener('click', toggleTheme);
-document.getElementById('bar-theme-button').addEventListener('click', toggleTheme);
-for (const id of ['alien-button', 'bar-alien-button']) document.getElementById(id).addEventListener('click', alienColours);
-function alienColours() {
-  toast(`Colour mode: ${randomColours()}. Click 👽 again for another, or the sun/moon to go back.`, 2600);
+// One button for the look: dark → light → colour → dark… (see src/theme.js).
+function cycleTheme() {
+  toggleTheme();
+  if (currentTheme() === 'pastel') toast(`Colour mode: ${pastelName()}`, 1400);
+  updateThemeButtons();
 }
+function updateThemeButtons() {
+  const next = nextTheme();
+  for (const id of ['theme-button', 'bar-theme-button']) {
+    const b = document.getElementById(id);
+    b.dataset.next = next;
+    b.title = `Switch to ${next === 'colour' ? 'colour mode (a random soft palette)' : `${next} mode`}`;
+  }
+}
+document.getElementById('theme-button').addEventListener('click', cycleTheme);
+document.getElementById('bar-theme-button').addEventListener('click', cycleTheme);
+updateThemeButtons();
 
 // ---------- Shortcuts and help ----------
 //
@@ -3154,8 +3165,7 @@ function openMenu(x, y, pane) {
     { label: 'Unlock everything', action: () => setLocked('all', false) },
   ];
   const settingsMenu = [
-    { label: currentTheme() === 'dark' ? 'Light mode' : 'Dark mode', action: toggleTheme },
-    { label: 'Colour mode (random) 👽', action: alienColours },
+    { label: { light: 'Light mode', colour: 'Colour mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
     { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
     { label: drive.isConnected() ? 'Google Drive: connected ✓' : 'Connect Google Drive…', action: () => (drive.isConnected() ? driveMenu(x, y) : connectDrive()) },

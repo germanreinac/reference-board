@@ -1,5 +1,5 @@
-// Light mode, dark mode, and "alien" colour mode: a random soft, desaturated palette
-// (sage, lavender, peach…) for when you want something colourful but calm. The choice is
+// Dark mode, light mode, and colour mode: a soft, desaturated palette (mint, pink or
+// apricot, picked at random) for when you want something colourful but calm. The choice is
 // remembered in this browser.
 //
 // The page's own colours live in style.css (body[data-theme]); colour mode sets them on
@@ -14,14 +14,9 @@ export const THEMES = {
 // Colour mode palettes: soft and muted, never loud. [name, background, gap between panes,
 // accent, darkest text]. The rest is mixed from these.
 export const PASTELS = [
-  ['Sage', '#e2e8dd', '#b6c1af', '#6f9a6a', '#2c3529'],
-  ['Lavender', '#e6e2ef', '#bfb7d2', '#8a78c2', '#2f2a3c'],
-  ['Peach', '#f1e4dd', '#d6bfb2', '#cf8467', '#3b2c25'],
-  ['Dusty blue', '#dfe6ed', '#b3c0cd', '#5f8ab5', '#26323f'],
-  ['Sand', '#ece5d6', '#cfc4aa', '#b0893a', '#352f20'],
   ['Mint', '#dfece7', '#b1cbc2', '#4f9c88', '#233a33'],
-  ['Rose', '#efe0e4', '#d4b7bf', '#c4707f', '#3c262d'],
-  ['Lilac grey', '#e4e3e8', '#bcbac6', '#7b7a9e', '#2a2933'],
+  ['Pink', '#efe0e4', '#d4b7bf', '#c4707f', '#3c262d'],
+  ['Apricot', '#f2e6d6', '#d8c3a5', '#c98a3a', '#3a2e1f'],
 ];
 
 const STORAGE = 'refboard-theme';
@@ -85,15 +80,20 @@ export function setTheme(name) {
   window.dispatchEvent(new CustomEvent('themechange', { detail: themeColours() }));
 }
 
+// The theme button goes round: dark → light → colour → dark… Each time it reaches colour,
+// it picks one of the palettes at random (never the same one twice in a row).
 export function toggleTheme() {
-  setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+  const t = currentTheme();
+  if (t === 'dark') setTheme('light');
+  else if (t === 'light') randomColours();
+  else setTheme('dark');
 }
+export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'dark' }[currentTheme()]);
 
 // Colour mode: a different random palette each time.
 export function randomColours() {
   let next = pastel;
-  if (PASTELS.length > 1) while (next === pastel && currentTheme() === 'pastel') next = Math.floor(Math.random() * PASTELS.length);
-  if (currentTheme() !== 'pastel') next = Math.floor(Math.random() * PASTELS.length);
+  while (PASTELS.length > 1 && next === pastel) next = Math.floor(Math.random() * PASTELS.length);
   pastel = next;
   setTheme('pastel');
   return pastelName();
