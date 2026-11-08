@@ -1628,3 +1628,34 @@ body[data-mode="add"] #add-page {
 .add-help, .add-empty { margin: 8px 0 0; font-size: 13px; line-height: 1.5; opacity: 0.65; }
 /* Longer notes in a menu (e.g. what went wrong with Drive) wrap instead of stretching it */
 .menu-item:disabled span { max-width: 300px; white-space: normal; line-height: 1.4; }
+
+/* A floating copy of what you're dragging into another board's pane */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 25;
+  width: 120px;
+  height: 90px;
+  border-radius: 10px;
+  background: var(--card) center / cover no-repeat;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 0 2px var(--accent);
+  pointer-events: none;
+  transition: transform 0.07s linear;
+}
+@keyframes ghost-in { 0% { scale: 0.5; opacity: 0; } 60% { scale: 1.08; opacity: 1; } 100% { scale: 1; } }
+body[data-motion="on"] .drag-ghost { animation: ghost-in 0.35s var(--soft) both; }
+.drag-ghost[data-count]::after {
+  content: attr(data-count);
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 12px/22px Inter, system-ui, sans-serif;
+  text-align: center;
+}

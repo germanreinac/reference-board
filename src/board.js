@@ -51,7 +51,13 @@ export class Board {
     this.shapeLayer = new Container();  // rectangles, ellipses, lines and arrows
     this.captionLayer = new Container(); // the text under images
     this.overlay = new Graphics();      // selection outline, drawn on top
-    this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.overlay);
+    this.fxLayer = new Container();      // things burning away (see burn())
+    this.fx = new Graphics();            // flames, smoke, ash piles and the sweeper
+    this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.fxLayer, this.fx, this.overlay);
+    this.burning = [];     // { box, thing, mask, glow, b, start, dur }
+    this.particles = [];   // { x, y, vx, vy, life, age, r, colour, alpha, kind }
+    this.piles = [];       // ash left behind: { x, y, w, left (1 → 0 as it's swept), start }
+    this.sweeper = null;   // the little cleaner with the broom (only ever one)
     this.focus = false;    // Focus on starred: everything that isn't starred fades back
     this.splashes = [];    // little splashes where images land: { x, y, r, colour, start }
 
@@ -343,7 +349,234 @@ export class Board {
   }
 
   animating() {
-    return this.splashes.length > 0 || this.items.some((i) => i.anim);
+    return this.splashes.length > 0 || this.items.some((i) => i.anim)
+      || this.burning.length > 0 || this.particles.length > 0 || this.piles.length > 0 || !!this.sweeper;
+  }
+
+  // ---------- Burning things away, and the sweeper ----------
+  //
+  // Deleting something sets it alight: a glowing, ragged edge eats it from the bottom up,
+  // with flames and smoke, and leaves a little pile of ash. A small character with a broom
+  // walks over and sweeps the piles away, one at a time, at their own pace — you can
+  // delete as fast as you like, there's only ever one sweeper.
+
+  // Take a thing off the board and burn it (instead of removing it in one go).
+  burn(item) {
+    const list = this.listOf(item.kind);
+    const i = list.indexOf(item);
+    if (i === -1) return;
+    list.splice(i, 1);
+    this.selection = this.selection.filter((x) => x !== item);
+    if (item.captionText) { item.captionText.destroy(); item.captionText = null; }
+    const thing = item.sprite;
+    const b = thing.getLocalBounds();
+    const box = new Container();
+    box.position.set(thing.x, thing.y);
+    box.rotation = thing.rotation;
+    box.scale.set(item.anim?.sx ?? thing.scale.x, item.anim?.sy ?? thing.scale.y);
+    thing.removeFromParent();
+    thing.position.set(0, 0);
+    thing.rotation = 0;
+    thing.scale.set(1);
+    const mask = new Graphics();
+    const glow = new Graphics();
+    box.addChild(thing, mask, glow);
+    thing.mask = mask;
+    this.fxLayer.addChild(box);
+    this.burning.push({ box, thing, mask, glow, image: item.kind === 'image', b: { x: b.x, y: b.y, w: b.width, h: b.height }, start: performance.now(), dur: 850 + Math.random() * 300, seed: Math.random() * 10 });
+  }
+
+  // A point in a burning thing's own space → the board.
+  _toBoard(f, lx, ly) {
+    const c = f.box;
+    const x = lx * c.scale.x, y = ly * c.scale.y;
+    const cos = Math.cos(c.rotation), sin = Math.sin(c.rotation);
+    return { x: c.x + x * cos - y * sin, y: c.y + x * sin + y * cos };
+  }
+
+  _stepFx(now) {
+    if (now === this._fxNow) return;     // several panes draw each frame: move things once
+    const dt = Math.min(0.1, ((now - (this._fxNow || now)) / 1000) || 0.016);
+    this._fxNow = now;
+
+    // Burning: the front moves up from the bottom with a ragged, glowing edge.
+    for (const f of [...this.burning]) {
+      const p = Math.min(1, (now - f.start) / f.dur);
+      const { x, y, w, h } = f.b;
+      const front = y + h * (1 - p);
+      const edge = [];
+      const n = 18;
+      for (let k = 0; k <= n; k++) {
+        const ex = x + w - (w * k) / n;   // right to left
+        const ragged = Math.sin(ex * 0.05 + f.seed + now * 0.012) * 0.5 + Math.sin(ex * 0.13 - now * 0.02 + f.seed * 2) * 0.35;
+        edge.push(ex, front + ragged * h * 0.05);
+      }
+      f.mask.clear().poly([x - 2, y - h, x + w + 2, y - h, x + w + 2, edge[1], ...edge, x - 2, edge[edge.length - 1]]).fill(0xffffff);
+      // Scorched band, then the glowing edge.
+      const scorch = [];
+      for (let k = 0; k < edge.length; k += 2) scorch.push(edge[k], edge[k + 1] - h * 0.07);
+      const rev = [];
+      for (let k = edge.length - 2; k >= 0; k -= 2) rev.push(edge[k], edge[k + 1]);
+      f.glow.clear();
+      if (p < 1) {
+        f.glow.poly([...scorch, ...rev]).fill({ color: 0x1a0e08, alpha: 0.55 });
+        f.glow.poly(edge, false).stroke({ width: h * 0.03, color: 0xff6a1a, alpha: 0.9, join: 'round', cap: 'round' });
+        f.glow.poly(edge, false).stroke({ width: h * 0.012, color: 0xffe08a, join: 'round', cap: 'round' });
+        // Flames, embers and smoke rise from the edge.
+        const size = Math.max(w * Math.abs(f.box.scale.x), h * Math.abs(f.box.scale.y));
+        for (let k = 0; k < 3; k++) {
+          const j = Math.floor(Math.random() * (edge.length / 2)) * 2;
+          const pt = this._toBoard(f, edge[j], edge[j + 1]);
+          const kind = Math.random() < 0.6 ? 'flame' : Math.random() < 0.5 ? 'ember' : 'smoke';
+          this.particles.push({
+            x: pt.x, y: pt.y, kind, age: 0,
+            vx: (Math.random() - 0.5) * size * 0.08,
+            vy: -size * (kind === 'smoke' ? 0.35 : kind === 'ember' ? 0.7 : 0.6) * (0.6 + Math.random()),
+            life: kind === 'smoke' ? 1.2 : kind === 'ember' ? 0.8 : 0.35,
+            r: size * (kind === 'smoke' ? 0.035 : kind === 'ember' ? 0.006 : 0.022) * (0.6 + Math.random() * 0.8),
+          });
+        }
+      } else {
+        // Burnt out: what's left is a little pile of ash where its bottom was.
+        const base = this._toBoard(f, x + w / 2, y + h);
+        const width = Math.max(w * Math.abs(f.box.scale.x), 20);
+        this.piles.push({ x: base.x, y: base.y, w: Math.max(40, Math.min(420, width * 0.3)), left: 1, start: now });
+        f.box.destroy({ children: true, texture: f.image, textureSource: f.image });
+        this.burning.splice(this.burning.indexOf(f), 1);
+      }
+    }
+
+    // Particles drift and fade.
+    for (const q of this.particles) {
+      q.age += dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+      q.vx *= 0.98;
+      if (q.kind === 'smoke') q.r *= 1 + dt * 0.8;
+    }
+    this.particles = this.particles.filter((q) => q.age < q.life);
+    if (this.particles.length > 900) this.particles.splice(0, this.particles.length - 900);
+
+    this._stepSweeper(now, dt);
+    this._drawFx(now);
+  }
+
+  _stepSweeper(now, dt) {
+    let s = this.sweeper;
+    const piles = this.piles.filter((pl) => pl.left > 0);
+    if (!s && piles.length && now - (this._lastSweeperGone || 0) > 600) {
+      // A sweeper walks in from the left of the first pile, about 6 of its sizes away.
+      const pl = piles[0];
+      const size = pl.w * 0.8;
+      s = this.sweeper = { x: pl.x - size * 4, y: pl.y, size, state: 'walk', target: pl, facing: 1, t: 0, phase: 0 };
+    }
+    if (!s) return;
+    s.t += dt;
+    const speed = s.size * 2.2;
+    if (s.state === 'walk') {
+      const pl = s.target;
+      if (!pl || pl.left <= 0) { s.target = piles[0] || null; if (!s.target) { s.state = 'leave'; s.t = 0; } return; }
+      s.size += (pl.w * 0.8 - s.size) * Math.min(1, dt * 3);
+      const goal = pl.x - pl.w * 0.55 - s.size * 0.45;   // stand just left of the pile
+      const dx = goal - s.x, dy = pl.y - s.y;
+      const dist = Math.hypot(dx, dy);
+      const v = Math.max(speed, dist / 2.5);              // far piles: hurry a bit
+      s.facing = dx >= 0 ? 1 : -1;
+      if (dist < v * dt) { s.x = goal; s.y = pl.y; s.state = 'sweep'; s.t = 0; s.facing = 1; }
+      else { s.x += (dx / dist) * v * dt; s.y += (dy / dist) * v * dt; s.phase += dt * 9; }
+    } else if (s.state === 'sweep') {
+      const pl = s.target;
+      pl.left = Math.max(0, pl.left - dt / 1.8);
+      s.phase += dt * 11;
+      if (Math.random() < 0.5) {
+        this.particles.push({ kind: 'dust', x: pl.x - pl.w * 0.3 + Math.random() * pl.w * 0.4, y: pl.y - Math.random() * pl.w * 0.1, vx: pl.w * (0.5 + Math.random()), vy: -pl.w * 0.25 * Math.random(), age: 0, life: 0.8, r: pl.w * 0.06 * (0.5 + Math.random()) });
+      }
+      if (pl.left <= 0) {
+        this.piles.splice(this.piles.indexOf(pl), 1);
+        // The next pile (nearest first), or off they go.
+        const rest = this.piles.filter((x) => x.left > 0).sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
+        s.target = rest[0] || null;
+        s.state = s.target ? 'walk' : 'leave';
+        s.t = 0;
+      }
+    } else if (s.state === 'leave') {
+      s.facing = -1;
+      s.x -= speed * dt;
+      s.phase += dt * 9;
+      if (s.t > 1.6) { this.sweeper = null; this._lastSweeperGone = now; }
+      if (piles.length) { s.target = piles[0]; s.state = 'walk'; }
+    }
+  }
+
+  _drawFx(now) {
+    const g = this.fx;
+    g.clear();
+    for (const q of this.particles) {
+      const k = 1 - q.age / q.life;
+      if (q.kind === 'flame') g.circle(q.x, q.y, q.r * (0.4 + k * 0.6)).fill({ color: k > 0.5 ? 0xffd166 : 0xff7a1a, alpha: 0.85 * k });
+      else if (q.kind === 'ember') g.circle(q.x, q.y, q.r).fill({ color: 0xffb347, alpha: k });
+      else g.circle(q.x, q.y, q.r).fill({ color: q.kind === 'dust' ? 0x8a8580 : 0x55524f, alpha: (q.kind === 'dust' ? 0.5 : 0.28) * k });
+    }
+    // Ash piles: a soft grey mound with darker specks; fresh ones still glow a little.
+    for (const pl of this.piles) {
+      const w = pl.w * (0.35 + 0.65 * pl.left), h = w * 0.32;
+      if (w < 0.5) continue;
+      g.ellipse(pl.x, pl.y, w * 0.5, h * 0.5).fill({ color: 0x4a4644, alpha: 0.95 });
+      g.ellipse(pl.x - w * 0.05, pl.y - h * 0.18, w * 0.32, h * 0.32).fill({ color: 0x6b6662 });
+      for (let k = 0; k < 7; k++) {
+        const a = k * 2.4 + pl.start * 0.001;
+        g.circle(pl.x + Math.cos(a) * w * 0.33, pl.y + Math.sin(a) * h * 0.25, w * 0.025).fill(0x2c2a29);
+      }
+      const hot = 1 - Math.min(1, (now - pl.start) / 2500);
+      if (hot > 0) g.circle(pl.x + w * 0.08, pl.y - h * 0.1, w * 0.04).fill({ color: 0xff8a2a, alpha: hot * (0.6 + 0.4 * Math.sin(now * 0.02)) });
+    }
+    if (this.sweeper) this._drawSweeper(g, this.sweeper, now);
+  }
+
+  // The sweeper: a little round character in a red bandana, with a broom.
+  // (Placeholder art: swap in your own character later.)
+  _drawSweeper(g, s, now) {
+    const S = s.size, f = s.facing, x = s.x, y = s.y;
+    const walking = s.state !== 'sweep';
+    const step = Math.sin(s.phase);
+    const bob = walking ? Math.abs(step) * S * 0.05 : Math.abs(Math.sin(s.phase)) * S * 0.02;
+    const ink = 0x2b2b30, line = { width: S * 0.05, color: ink, join: 'round', cap: 'round' };
+    const fade = s.state === 'leave' ? Math.max(0, 1 - s.t / 1.6) : 1;
+    g.ellipse(x, y + S * 0.02, S * 0.42, S * 0.08).fill({ color: 0x000000, alpha: 0.25 * fade });
+    // Feet.
+    for (const side of [-1, 1]) {
+      const lift = walking ? Math.max(0, side * step) * S * 0.08 : 0;
+      g.ellipse(x + side * S * 0.14 + (walking ? side * step * S * 0.06 : 0), y - S * 0.04 - lift, S * 0.11, S * 0.06).fill({ color: ink, alpha: fade });
+    }
+    // Broom: the handle from the hands down to the bristles on the ground.
+    const swing = s.state === 'sweep' ? Math.sin(s.phase) * 0.55 : 0.25;
+    const hx = x + f * S * 0.22, hy = y - S * 0.55 - bob;
+    const bx = x + f * (S * 0.55 + Math.sin(swing) * S * 0.35), by = y - S * 0.06;
+    g.moveTo(hx, hy).lineTo(bx, by).stroke({ width: S * 0.06, color: 0x8b5a2b, cap: 'round', alpha: fade });
+    g.poly([bx - S * 0.18, by + S * 0.05, bx + S * 0.18, by + S * 0.05, bx + S * 0.08, by - S * 0.12, bx - S * 0.08, by - S * 0.12]).fill({ color: 0xd9a441, alpha: fade }).stroke({ ...line, width: S * 0.035, alpha: fade });
+    // Body.
+    g.roundRect(x - S * 0.3, y - S * 0.95 - bob, S * 0.6, S * 0.86, S * 0.28).fill({ color: 0xf2e6cf, alpha: fade }).stroke({ ...line, alpha: fade });
+    // Bandana.
+    g.roundRect(x - S * 0.31, y - S * 0.97 - bob, S * 0.62, S * 0.2, S * 0.1).fill({ color: 0xe8573f, alpha: fade });
+    g.poly([x - f * S * 0.3, y - S * 0.88 - bob, x - f * S * 0.48, y - S * 0.8 - bob + Math.sin(now * 0.012) * S * 0.04, x - f * S * 0.3, y - S * 0.8 - bob]).fill({ color: 0xe8573f, alpha: fade });
+    // Eyes (they blink now and then) and rosy cheeks.
+    const blink = (now % 3200) < 120 ? 0.15 : 1;
+    for (const ex of [0.02, 0.16]) {
+      g.ellipse(x + f * S * ex, y - S * 0.62 - bob, S * 0.035, S * 0.055 * blink).fill({ color: ink, alpha: fade });
+    }
+    g.circle(x + f * S * 0.22, y - S * 0.52 - bob, S * 0.04).fill({ color: 0xf08a7a, alpha: 0.7 * fade });
+    // Arm reaching for the broom.
+    g.moveTo(x + f * S * 0.05, y - S * 0.45 - bob).lineTo(hx, hy).stroke({ ...line, alpha: fade });
+  }
+
+  // Let any burning finish instantly and clear the ash (e.g. when leaving a board).
+  clearFx() {
+    for (const f of this.burning) f.box.destroy({ children: true, texture: f.image, textureSource: f.image });
+    this.burning = [];
+    this.particles = [];
+    this.piles = [];
+    this.sweeper = null;
+    this.fx.clear();
   }
 
   // Finish any landing animations right away (e.g. when you grab an image mid-pop).
@@ -642,6 +875,7 @@ export class Board {
 
   // Remove everything (used when leaving a board).
   clear() {
+    this.clearFx();
     for (const item of [...this.items]) this.remove(item);
     for (const note of [...this.notes]) this.remove(note);
     for (const shape of [...this.shapes]) this.remove(shape);
@@ -778,6 +1012,7 @@ export class Board {
     o.clear();
     const now = performance.now();
     this._stepAnimations(now);
+    this._stepFx(now);
     this.syncImages();
     this._drawSplashes(o, zoom, now);
     // A small star at the top-right corner of starred images (the same size at any zoom).

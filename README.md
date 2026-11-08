@@ -207,6 +207,15 @@ through the gaps; closing squeezes the pane shut; dragging a divider leaves ripp
 move all of them at once (double-click it to even them out). Images pop in with a little splash in their own colours. Menus, bars
 and buttons spring open and give a little when pressed.
 
+Deleting sets things alight: they burn away from the bottom up and leave a little pile of
+ash, and a small character with a broom comes to sweep the piles away, one at a time
+(there's only ever one sweeper, so it takes its time). Undo still brings things back.
+
+Dragging something into another pane pushes through a thin layer of jelly: it sticks at
+the edge for a moment while the gap bulges, then breaks through with a splash. Into a pane
+showing the same board it carries on there; into another board's pane, a floating copy
+follows the mouse and lands on that board.
+
 Turn it off with **Liquid motion** in the right-click menu (then everything happens at
 once). It's off from the start if your computer is set to reduce motion.
 

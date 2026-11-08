@@ -10,7 +10,7 @@ import { Application, Graphics } from '../vendor/pixi.min.mjs';
 import { Board } from './board.js';
 import { Camera } from './camera.js';
 import { openCompare, compareOpen } from './compare.js';
-import { motionOn, setMotion, averageColour } from './liquid.js';
+import { motionOn, setMotion, averageColour, ripple } from './liquid.js';
 import * as drive from './drive.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
@@ -352,7 +352,15 @@ function removeSelected() {
   const items = [...board.selection];
   if (!items.length) return;
   const gone = items.map(thingData);
-  for (const item of items) removeThing(item.kind, item.id);
+  if (motionOn()) {
+    // Up in flames (with a sweeper to tidy the ash).
+    for (const item of items) {
+      if (item.kind === 'image' && current) store.deleteImage(current.id, item.id).catch(() => {});
+      board.burn(item);
+    }
+  } else {
+    for (const item of items) removeThing(item.kind, item.id);
+  }
   history.push({
     undo: () => Promise.all(gone.map(restoreThing)).then(requestRender),
     redo: () => gone.forEach((g) => removeThing(g.kind, g.data.id)),
@@ -655,6 +663,75 @@ async function pasteThings(clip, at = null) {
   board.selection = added;
   contentChanged();
   requestRender();
+}
+
+// ---------- Pushing through the jelly between panes ----------
+//
+// Dragging something towards another pane, it sticks at the edge for a moment while the
+// gap bulges and ripples, then breaks through with a splash. Into a pane showing the same
+// board, it carries on under the mouse there. Into another board's pane, a floating copy
+// follows the mouse and it lands on that board when you let go.
+
+const MEMBRANE = 36;   // how far past the edge (pixels) before it breaks through
+let lastJellyRipple = 0;
+
+// Returns the screen point the dragged things should follow.
+function portalDrag(d, e) {
+  const cursor = { x: e.clientX, y: e.clientY };
+  if (!motionOn()) return cursor;
+  const r = d.pane.rect;
+  const inside = cursor.x >= r.x && cursor.x <= r.x + r.w && cursor.y >= r.y && cursor.y <= r.y + r.h;
+  if (inside) { endGhost(d); d.broke = null; return cursor; }
+  const over = viewports.paneAt(cursor.x, cursor.y);
+  const depth = Math.max(r.x - cursor.x, cursor.x - (r.x + r.w), r.y - cursor.y, cursor.y - (r.y + r.h));
+  const clamped = { x: Math.max(r.x, Math.min(r.x + r.w, cursor.x)), y: Math.max(r.y, Math.min(r.y + r.h, cursor.y)) };
+  if (!over || over.type !== 'board') return d.ghost ? clamped : cursor;   // window edge, top bar, a tool pane
+  if (d.ghost) { moveGhost(d, cursor); return clamped; }
+  if (depth < MEMBRANE) {
+    // Stuck in the jelly: the gap bulges where you push.
+    const now = performance.now();
+    if (now - lastJellyRipple > 55) { ripple(clamped.x, clamped.y, 2 + depth * 0.22); lastJellyRipple = now; }
+    return clamped;
+  }
+  // Through!
+  ripple(clamped.x, clamped.y, 12);
+  viewports.wobble(3, [d.pane, over]);
+  if (docOfPane(over) === docOfPane(d.pane)) {
+    // Same board: keep dragging in that pane (the board point under the mouse stays the same).
+    d.pane = over;
+    d.snap = null;
+    activePane = over;
+    return cursor;
+  }
+  startGhost(d, cursor);
+  return clamped;
+}
+
+function startGhost(d, at) {
+  const el = document.createElement('div');
+  el.className = 'drag-ghost';
+  const img = d.items.find((x) => x.kind === 'image' && x.blob);
+  if (img) {
+    d.ghostUrl = URL.createObjectURL(img.blob);
+    el.style.backgroundImage = `url("${d.ghostUrl}")`;
+    const k = Math.min(1, 160 / Math.max(img.width, img.height));
+    Object.assign(el.style, { width: `${img.width * k}px`, height: `${img.height * k}px` });
+  }
+  if (d.items.length > 1) el.dataset.count = String(d.items.length);
+  document.body.appendChild(el);
+  d.ghost = el;
+  for (const x of d.items) { x.ghostAlpha = x.sprite.alpha; x.sprite.alpha *= 0.25; }
+  moveGhost(d, at);
+}
+function moveGhost(d, at) {
+  if (d.ghost) d.ghost.style.transform = `translate(${at.x}px, ${at.y}px) translate(-50%, -50%) rotate(-4deg)`;
+}
+function endGhost(d) {
+  if (!d?.ghost) return;
+  d.ghost.remove();
+  d.ghost = null;
+  if (d.ghostUrl) URL.revokeObjectURL(d.ghostUrl);
+  for (const x of d.items) { if (x.ghostAlpha !== undefined) { x.sprite.alpha = x.ghostAlpha; delete x.ghostAlpha; } }
 }
 
 // Dragging things out of one board's pane and letting go over a pane that shows another
@@ -2868,8 +2945,9 @@ panesEl.addEventListener('pointermove', (e) => {
     drag.pane.camera.panBy(dx, dy);
   } else if (['move', 'scale', 'rotate', 'marquee', 'crop', 'create'].includes(drag.kind)) {
     // These follow the mouse in the pane you're dragging in; every other pane updates too.
-    const p = localPoint(drag.pane, e);
-    const w = drag.pane.camera.toWorld(p.x, p.y);
+    // Moving things into another pane pushes through a thin layer of jelly first.
+    const at = drag.kind === 'move' ? portalDrag(drag, e) : { x: e.clientX, y: e.clientY };
+    const w = drag.pane.camera.toWorld(at.x - drag.pane.rect.x, at.y - drag.pane.rect.y);
     dragTo(drag, w, e);
   } else if (drag.kind === 'draw') {
     // A tablet sends more points than there are frames; use them all for smooth lines.
@@ -2887,6 +2965,7 @@ function endDrag() {
   const d = drag;
   drag = null;
   board.guides = [];
+  endGhost(d);
   panesEl.classList.remove('panning');
 
   if (d.kind === 'create') {
