@@ -4,7 +4,7 @@
 //
 // Layers, from back to front: images, pen strokes, notes, selection outline.
 
-import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, ColorMatrixFilter } from '../vendor/pixi.min.mjs';
+import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, ColorMatrixFilter, CanvasTextMetrics } from '../vendor/pixi.min.mjs';
 import { getStroke } from '../vendor/perfect-freehand.mjs';
 import { fontStack } from './fonts.js';
 
@@ -185,6 +185,59 @@ export class Board {
     f.title.style.fill = this.ink;
     f.title.alpha = 0.7;
     f.title.position.set(-f.w / 2, -f.h / 2 - f.titleSize * 1.5);
+    this._wrapTitle(f);
+  }
+
+  // A title longer than the frame is wide carries on round the frame: along the top, then
+  // it turns the corner and runs down the right side, along the bottom, up the left side,
+  // and stops when it gets back to where it started. If even that isn't enough room, the
+  // letters get smaller so it all fits in one lap.
+  _wrapTitle(f) {
+    const text = f.name || 'Frame';
+    const style = f.title.style;
+    const full = CanvasTextMetrics.measureText(text, style).width;
+    if (full <= f.w) {
+      f.title.visible = true;
+      if (f.wrap) { f.wrap.destroy({ children: true }); f.wrap = null; f.wrapKey = null; }
+      return;
+    }
+    f.title.visible = false;
+    const lap = 2 * (f.w + f.h);
+    const k = Math.min(1, (lap * 0.97) / full);   // shrink to fit one lap
+    const size = f.titleSize * k;
+    const key = `${text}|${size.toFixed(2)}|${this.ink}`;
+    if (!f.wrap) { f.wrap = new Container(); f.sprite.addChild(f.wrap); }
+    if (f.wrapKey !== key) {
+      // One small text per letter (only when the words or size change).
+      f.wrap.removeChildren().forEach((c) => c.destroy());
+      const st = { fontFamily: style.fontFamily, fontWeight: style.fontWeight, fontSize: size, fill: this.ink };
+      for (const ch of [...text]) {
+        const t = new Text({ text: ch, style: st });
+        t.anchor.set(0.5, 1);
+        t.alpha = 0.7;
+        t.advance = CanvasTextMetrics.measureText(ch === ' ' ? '\u00a0' : ch, f.title.style).width * k;
+        f.wrap.addChild(t);
+      }
+      f.wrapKey = key;
+    }
+    // Lay the letters along the path, just outside the frame's edge.
+    const g = f.titleSize * 0.35, w = f.w, h = f.h;
+    const sides = [
+      { len: w, at: (d) => [-w / 2 + d, -h / 2 - g], rot: 0 },
+      { len: h, at: (d) => [w / 2 + g, -h / 2 + d], rot: Math.PI / 2 },
+      { len: w, at: (d) => [w / 2 - d, h / 2 + g], rot: Math.PI },
+      { len: h, at: (d) => [-w / 2 - g, h / 2 - d], rot: -Math.PI / 2 },
+    ];
+    let pos = 0;
+    for (const t of f.wrap.children) {
+      let mid = pos + t.advance / 2;
+      let i = 0;
+      while (i < 3 && mid > sides[i].len) { mid -= sides[i].len; i++; }
+      const [x, y] = sides[i].at(Math.min(mid, sides[i].len));
+      t.position.set(x, y);
+      t.rotation = sides[i].rot;
+      pos += t.advance;
+    }
   }
 
   // The frame whose name label is at this point (names sit just above the frame).

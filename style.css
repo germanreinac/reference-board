@@ -529,20 +529,8 @@ button { font: inherit; color: inherit; }
 .mannequin-pane.compact .mq-bottom input[type="range"] { width: 56px; }
 .pane.narrow .mq-top { right: 8px; }
 
-/* With several panes, each gets a soft edge so the split is easy to see:
-   a faint outline and a gentle shadow inside its border. */
-#panes:not(.single) .pane::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: 3px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 0 22px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
-body[data-tone="light"] #panes:not(.single) .pane::before {
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), inset 0 0 22px rgba(0, 0, 0, 0.09);
-}
+/* With several panes, each gets a faint outline so the split is easy to see. It's drawn
+   along the liquid edge itself (see .pane-edges), so it bends with the waves. */
 .pane-tools, .pane-zoom { z-index: 2; }
 
 /* Dividers: the gap between panes, which you can drag. A line shows on hover. */
@@ -1194,7 +1182,9 @@ body.presenting #panes { cursor: pointer; }
 .frame-rename {
   position: fixed;
   z-index: 15;
-  min-width: 120px;
+  box-sizing: border-box;
+  min-width: 80px;
+  font-weight: 600;
   padding: 1px 4px;
   margin: -2px 0 0 -5px;
   border: 1px solid var(--accent);
@@ -1729,3 +1719,10 @@ body[data-motion="on"] .theme-cycle:hover svg { animation: alien-wobble 0.6s var
 .drive-progress { margin: -6px 0 14px; color: var(--accent); font-size: 13px; }
 .drive-progress[hidden] { display: none; }
 body[data-motion="on"] .drive-progress::before { content: "●"; margin-right: 8px; animation: drive-pulse 1s ease-in-out infinite; }
+
+/* The faint outline along each pane's liquid edge */
+.pane-edges path:first-child { stroke: rgba(255, 255, 255, 0.08); stroke-width: 1; }
+body[data-tone="light"] .pane-edges path:first-child { stroke: rgba(0, 0, 0, 0.1); }
+#panes.single .pane-edges path:first-child { stroke: none; }
+/* While dragging a divider, the liquid shows the movement: no straight highlight line. */
+body[data-motion="on"] .divider.dragging::after { opacity: 0; }

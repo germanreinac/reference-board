@@ -608,11 +608,27 @@ function renameFrame(f, pane) {
   input.focus();
   input.select();
   const before = [stateOf(f)];
+  const original = f.name;
+  // The box grows with what you type (up to the frame's width on screen; past that the
+  // title carries on round the frame, which you see happen as you type).
+  const measure = document.createElement('canvas').getContext('2d');
+  const fit = () => {
+    measure.font = `600 ${input.style.fontSize} Inter, system-ui, sans-serif`;
+    const want = measure.measureText(input.value || ' ').width + 24;
+    input.style.width = `${Math.max(80, Math.min(want, Math.max(120, f.w * z)))}px`;
+    f.name = input.value.trim() || original;
+    board.drawFrame(f);
+    requestRender();
+  };
+  input.addEventListener('input', fit);
+  fit();
   let done = false;
   const finish = (save) => {
     if (done) return;
     done = true;
-    if (save && input.value.trim()) { f.name = input.value.trim(); board.drawFrame(f); recordChange([f], before); }
+    f.name = save && input.value.trim() ? input.value.trim() : original;
+    board.drawFrame(f);
+    if (f.name !== original) recordChange([f], before);
     input.remove();
     requestRender();
   };
@@ -2622,7 +2638,7 @@ const SEL_ICONS = {
   align: '<svg viewBox="0 0 16 16"><path d="M2.5 1.5v13"/><rect x="4.5" y="3.5" width="8" height="3" rx="1"/><rect x="4.5" y="9.5" width="5" height="3" rx="1"/></svg>',
   group: '<svg viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke-dasharray="2 2"/><rect x="4" y="4" width="4" height="4" rx="1"/><rect x="8.5" y="8.5" width="3.5" height="3.5" rx="1"/></svg>',
   ungroup: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/><path d="M9.5 3.5l3 3M12.5 3.5l-3 3"/></svg>',
-  frame: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v13M11.5 1.5v13M1.5 4.5h13M1.5 11.5h13"/></svg>',
+  frame: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M2.5 2.4h5.5"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"/></svg>',
   delete: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>',
   star: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>',
