@@ -255,6 +255,48 @@ export class Board {
     return { ...at, side };
   }
 
+  // The outline of a band `thick` wide around a line (flat x, y list): one side out, the
+  // other side back. Returns points for roundShape.
+  _bandOutline(flat, thick) {
+    const P = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const p = { x: flat[i], y: flat[i + 1] };
+      if (!P.length || Math.hypot(p.x - P[P.length - 1].x, p.y - P[P.length - 1].y) > 0.01) P.push(p);
+    }
+    if (P.length < 2) return [];
+    const half = thick / 2;
+    const normal = (a, b) => { const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1; return { x: -dy / l, y: dx / l }; };
+    const out = [], back = [];
+    for (let i = 0; i < P.length; i++) {
+      const n0 = normal(P[Math.max(0, i - 1)], P[Math.max(1, i)]);
+      const n1 = normal(P[Math.min(P.length - 2, i)], P[Math.min(P.length - 1, i + 1)]);
+      let nx = n0.x + n1.x, ny = n0.y + n1.y;
+      const l = Math.hypot(nx, ny) || 1;
+      nx /= l; ny /= l;
+      out.push({ x: P[i].x + nx * half, y: P[i].y + ny * half });
+      back.push({ x: P[i].x - nx * half, y: P[i].y - ny * half });
+    }
+    return [...out, ...back.reverse()];
+  }
+
+  // While editing a frame's title: which gap between letters is nearest to this board
+  // point (0 = before the first letter). -1 if the point isn't on the title band.
+  titleIndexAt(f, wx, wy) {
+    const geo = f.titleGeo;
+    if (!geo) return -1;
+    const lx = wx - f.sprite.x, ly = wy - f.sprite.y;
+    const c = geo.g + geo.size * 0.55;
+    let best = -1, bestD = geo.size * 1.1;
+    let d = 0;
+    for (let i = 0; i <= geo.advances.length; i++) {
+      const p = this._titlePoint(f, Math.min(d, 2 * (f.w + f.h) - 0.01), c);
+      const dist = Math.hypot(p.x - lx, p.y - ly);
+      if (dist < bestD) { bestD = dist; best = i; }
+      d += geo.advances[i] || 0;
+    }
+    return best;
+  }
+
   // Points along the title's path from d0 to d1 (distances along the letters), `o` outside
   // the edge: straight along the sides, a quarter circle round each corner passed.
   _bandPath(f, d0, d1, o) {
@@ -305,9 +347,10 @@ export class Board {
       const w = f.w, h = f.h;
       const pts = this._bandPath(f, -size * 0.2, end, c);
       f.band.clear();
-      if (pts.length >= 4) {
-        f.band.poly(pts, false).stroke({ width: thick + size * 0.14, color: this.titleEdit.accent, cap: 'round', join: 'round' });
-        f.band.poly(pts, false).stroke({ width: thick, color: this.titleEdit.fill, cap: 'round', join: 'round' });
+      const outline = this._bandOutline(pts, thick);
+      if (outline.length >= 4) {
+        // Like the toolbar: square-ish ends with rounded corners; smooth round the frame's corners.
+        f.band.roundShape(outline, size * 0.42).fill(this.titleEdit.fill).stroke({ width: size * 0.09, color: this.titleEdit.accent, join: 'round' });
       }
       // Selected letters are highlighted on the band.
       const [s0, s1] = this.titleEdit.sel || [0, 0];

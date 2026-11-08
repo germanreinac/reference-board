@@ -594,6 +594,31 @@ function frameSelection() {
 }
 
 // Rename a frame: a text box over its name.
+// While typing, clicking on the title's band moves the cursor there (drag to select).
+let titleEditor = null;
+panesEl.addEventListener('pointerdown', (e) => {
+  if (!titleEditor || e.button !== 0) return;
+  const pane = viewports.paneAt(e.clientX, e.clientY);
+  if (pane?.type !== 'board') return;
+  const at = (ev) => { const w = pane.camera.toWorld(ev.clientX - pane.rect.x, ev.clientY - pane.rect.y); return board.titleIndexAt(titleEditor.f, w.x, w.y); };
+  const i0 = at(e);
+  if (i0 < 0) return;                       // clicked elsewhere: that finishes the title as usual
+  e.preventDefault();                       // keep typing (don't let the box lose focus)
+  e.stopImmediatePropagation();
+  const { input } = titleEditor;
+  input.focus();
+  input.setSelectionRange(i0, i0);
+  input.dispatchEvent(new Event('select'));
+  const move = (ev) => {
+    const i1 = at(ev);
+    if (i1 < 0) return;
+    input.setSelectionRange(Math.min(i0, i1), Math.max(i0, i1), i1 < i0 ? 'backward' : 'forward');
+    input.dispatchEvent(new Event('select'));
+  };
+  const up = () => { window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerup', up, true); };
+  window.addEventListener('pointermove', move, true);
+  window.addEventListener('pointerup', up, true);
+}, true);
 function renameFrame(f, pane) {
   const input = document.createElement('input');
   input.className = 'frame-rename';
@@ -606,7 +631,8 @@ function renameFrame(f, pane) {
   });
   document.body.appendChild(input);
   input.focus();
-  input.select();
+  input.setSelectionRange(input.value.length, input.value.length);   // start at the end
+  titleEditor = { f, input };
   const before = [stateOf(f)];
   const original = f.name;
   // You type into an invisible box; what you see is the title on the board itself, with a
@@ -618,7 +644,7 @@ function renameFrame(f, pane) {
   board.titleEdit = { frame: f, caret: input.value.length, fill: colour('--input', 0x141416), accent: colour('--accent', 0x4da3ff) };
   const update = () => {
     f.name = input.value.trim() ? input.value : original;
-    board.titleEdit.caret = input.value.trim() ? input.selectionEnd : 0;
+    board.titleEdit.caret = input.value.trim() ? (input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd) : 0;
     board.titleEdit.sel = [input.selectionStart, input.selectionEnd];
     board.drawFrame(f);
     requestRender();
@@ -634,6 +660,7 @@ function renameFrame(f, pane) {
     clearInterval(blink);
     document.removeEventListener('selectionchange', update);
     board.titleEdit = null;
+    titleEditor = null;
     f.name = save && input.value.trim() ? input.value.trim() : original;
     board.drawFrame(f);
     if (f.name !== original) recordChange([f], before);
