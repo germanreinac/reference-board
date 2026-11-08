@@ -10,6 +10,7 @@ import { Application, Graphics } from '../vendor/pixi.min.mjs';
 import { Board } from './board.js';
 import { Camera } from './camera.js';
 import { openCompare, compareOpen } from './compare.js';
+import { motionOn, setMotion, averageColour } from './liquid.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
 import { Home } from './home.js';
@@ -127,6 +128,8 @@ function requestRender() {
     placeToolbar();
     placeSelectionBar();
     emptyHint.classList.toggle('hidden', !board.isEmpty() || noteEditor.editing);
+    // Keep drawing while something is moving (springs, wobbles, splashes).
+    if (viewports.animating() || [...docs.values()].some((d) => d.board.animating())) requestRender();
   });
 }
 window.addEventListener('resize', () => { if (mode === 'board') { viewports.position(); requestRender(); } });
@@ -306,10 +309,11 @@ async function addImages(list, wx, wy, pane, { free = false } = {}) {
   }
   let x = wx - totalWidth / 2;
   const added = [];
-  for (const { entry, bitmap } of decoded) {
+  for (const [i, { entry, bitmap }] of decoded.entries()) {
     const item = board.addImage(bitmap, x + bitmap.width / 2, wy, entry);
     x += bitmap.width + GAP;
     added.push(item);
+    if (motionOn()) board.popIn(item, averageColour(bitmap), i * 60);
     store.saveImage(boardId, item.id, entry.blob).catch((err) => console.warn('Saving image failed', err));
   }
   board.selected = added[added.length - 1];
@@ -388,7 +392,7 @@ const IMAGE_PROPS = ['caption', 'star'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
-  const st = { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: s.scale.x, sy: s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
+  const st = { kind: item.kind, id: item.id, x: s.x, y: s.y, sx: item.anim?.sx ?? s.scale.x, sy: item.anim?.sy ?? s.scale.y, r: s.rotation, crop: item.crop || null, grey: !!item.grey };
   for (const k of propsOf(item.kind)) st[k] = item[k];
   st.group = item.group || null;
   return st;
@@ -1631,12 +1635,35 @@ function paneAction(action, pane, button) {
       toast(l.panes().length >= 16 ? 'That\'s the most panes there can be.' : 'That pane is too small to split.', 2000);
       return;
     }
+    // The new pane opens out of the old one with a spring, and the edges ripple.
+    const split = l.splits().find((n) => n.a.pane === pane);
+    viewports.rebuild();
+    if (split) {
+      const both = [split.a.pane, split.b.pane];
+      viewports.springSplit(split, 0.985, 0.5, () => viewChanged());
+      viewports.wobble(5, both);
+    }
+    viewChanged();
+    requestRender();
+    return;
   } else if (action === 'close') {
     if (docOfPane(pane) === activeDoc) activate(mainDoc);
-    if (!l.close(pane)) return;
-    releaseUnusedBoards();
+    const parent = l.splits().find((n) => n.a.pane === pane || n.b.pane === pane);
+    const finish = () => {
+      if (!l.close(pane)) return;
+      releaseUnusedBoards();
+      viewports.rebuild();
+      viewports.wobble(4);
+      viewChanged();
+      requestRender();
+    };
+    // Squeeze the pane shut first (when it sits directly in a split), then remove it.
+    if (parent && !l.maximized && motionOn()) viewports.springSplit(parent, parent.ratio, parent.a.pane === pane ? 0 : 1, finish);
+    else finish();
+    return;
   } else if (action === 'maximize') {
     l.toggleMaximize(pane);
+    viewports.wobble(3);
   }
   viewports.rebuild();
   viewChanged();
@@ -1780,6 +1807,7 @@ async function fillBoard(results, query) {
     });
     store.saveImage(boardId, item.id, p.blob).catch((err) => console.warn('Saving image failed', err));
     added.push(item);
+    if (motionOn()) board.popIn(item, averageColour(p.bitmap), added.length * 45);
   }
   const saved = added.map((item) => ({ ...board.imageJSON(item), blob: item.blob }));
   history.push({
@@ -2536,6 +2564,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   if (document.activeElement === nameInput) nameInput.blur();
   activate(docOfPane(pane));  // clicking a pane that shows another board starts working on it
   finishCaption();
+  board.settleAll();
   if (e.button === 2) return;  // right button: handled by the menu
   panesEl.setPointerCapture(e.pointerId);
 
@@ -2850,6 +2879,7 @@ function openMenu(x, y, pane) {
         action: () => setLocked(menuTarget, !menuTarget.locked),
       }] : []),
       { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
+      { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
       { label: 'Lock everything', action: () => setLocked('all', true) },
       { label: 'Unlock everything', action: () => setLocked('all', false) },
       '-',

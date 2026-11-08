@@ -25,10 +25,15 @@ export function showMenu(x, y, items) {
   }
   document.body.appendChild(el);
 
-  // Keep the menu inside the window.
-  const r = el.getBoundingClientRect();
-  el.style.left = `${Math.max(4, Math.min(x, window.innerWidth - r.width - 4))}px`;
-  el.style.top = `${Math.max(4, Math.min(y, window.innerHeight - r.height - 4))}px`;
+  // Keep the menu inside the window. (offsetWidth/Height: its real size, not the
+  // slightly shrunk size it starts at when it springs open.)
+  const r = { width: el.offsetWidth, height: el.offsetHeight };
+  const left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
+  const top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  // Spring open from the corner nearest to where it was asked for.
+  el.style.transformOrigin = `${x <= left + 2 ? 'left' : 'right'} ${y <= top + 2 ? 'top' : 'bottom'}`;
   current = el;
 }
 

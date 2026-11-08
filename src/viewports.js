@@ -14,6 +14,7 @@
 import { RenderTexture, Sprite, Matrix, TilingSprite, Texture } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
+import { paneOutline, wobbleWave, spring, motionOn } from './liquid.js';
 
 const ICONS = {
   'split-row': '<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>',
@@ -59,6 +60,15 @@ export class Viewports {
     this.views = new Map();         // pane -> { el, zoomEl, texture, sprite }
     this.dividers = [];             // { split, el }
     this.matrix = new Matrix();
+    // The space between panes, drawn over everything as one shape with a soft-cornered
+    // hole for each pane. When panes split or close, the edges wobble for a moment.
+    this.edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.edges.classList.add('pane-edges');
+    this.edgePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.edgePath.setAttribute('fill-rule', 'evenodd');
+    this.edges.appendChild(this.edgePath);
+    this.wobbles = [];   // { start, amp, panes: Set | null }
+    this.springs = 0;    // springs moving dividers right now
     this.setLayout(layout);
   }
 
@@ -87,6 +97,7 @@ export class Viewports {
     this.dividers = this.layout.splits().map((split) => this._createDivider(split));
 
     this.el.classList.toggle('single', panes.length === 1);
+    this.el.appendChild(this.edges);  // always on top of the panes
     this.position();
   }
 
@@ -139,6 +150,12 @@ export class Viewports {
     if (pane.type !== 'board') view.editor = this.createEditor(pane, view.host);
   }
 
+  // Is this pane on either side of that split?
+  _inside(node, pane) {
+    if (node.type === 'pane') return node.pane === pane;
+    return this._inside(node.a, pane) || this._inside(node.b, pane);
+  }
+
   editorOf(pane) {
     return this.views.get(pane)?.editor || null;
   }
@@ -158,6 +175,7 @@ export class Viewports {
       };
       const up = () => {
         el.classList.remove('dragging');
+        this.wobble(2.5, this.layout.panes().filter((p) => this._inside(split, p)));
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
         el.removeEventListener('pointercancel', up);
@@ -169,10 +187,8 @@ export class Viewports {
     });
     // Double-click a divider to make both sides equal again.
     el.addEventListener('dblclick', () => {
-      split.ratio = 0.5;
-      this.position();
-      this.requestRender();
-      this.onLayoutChanged();
+      this.springSplit(split, split.ratio, 0.5, () => this.onLayoutChanged());
+      this.wobble(3);
     });
     this.el.appendChild(el);
     return { split, el };
@@ -229,6 +245,50 @@ export class Viewports {
         : { left: r.x, top: a.y + a.h, width: r.w, height: GAP };
       for (const k in box) el.style[k] = `${box[k]}px`;
     }
+    this.drawEdges();
+  }
+
+  // ---------- Liquid edges ----------
+
+  // Make pane edges wobble like water (all panes, or just these).
+  wobble(amp = 5, panes = null) {
+    if (!motionOn()) return;
+    this.wobbles.push({ start: performance.now(), amp, panes: panes && new Set(panes) });
+    this.requestRender();
+  }
+
+  // Still moving? (The app keeps drawing frames while this is true.)
+  animating() {
+    const now = performance.now();
+    this.wobbles = this.wobbles.filter((w) => now - w.start < 900);
+    return this.wobbles.length > 0 || this.springs > 0;
+  }
+
+  drawEdges() {
+    const w = window.innerWidth, h = window.innerHeight;
+    const now = performance.now();
+    const parts = [`M-40 -40H${w + 40}V${h + 40}H-40Z`];
+    for (const pane of this.layout.visiblePanes()) {
+      if (!pane.rect) continue;
+      const waves = this.wobbles
+        .filter((wb) => !wb.panes || wb.panes.has(pane))
+        .map((wb) => wobbleWave(wb.start, now, wb.amp, pane.id))
+        .filter(Boolean);
+      const wave = waves.length ? (edge, u) => waves.reduce((sum, f) => sum + f(edge, u), 0) : null;
+      parts.push(paneOutline(pane.rect, wave));
+    }
+    this.edgePath.setAttribute('d', parts.join(''));
+  }
+
+  // Move a divider to a new ratio with a spring (it overshoots a little and settles).
+  springSplit(split, from, to, onDone = () => {}) {
+    this.springs++;
+    split.ratio = from;
+    spring(from, to, (v) => {
+      split.ratio = Math.max(0.001, Math.min(0.999, v));
+      this.position();
+      this.requestRender();
+    }, { onDone: () => { this.springs--; onDone(); } });
   }
 
   // Which pane is under this window position?

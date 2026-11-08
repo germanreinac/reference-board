@@ -53,6 +53,7 @@ export class Board {
     this.overlay = new Graphics();      // selection outline, drawn on top
     this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.overlay);
     this.focus = false;    // Focus on starred: everything that isn't starred fades back
+    this.splashes = [];    // little splashes where images land: { x, y, r, colour, start }
 
     this.items = [];       // images, back to front
     this.strokes = [];     // pen strokes
@@ -260,7 +261,7 @@ export class Board {
     const s = item.sprite;
     return {
       id: item.id, name: item.name, sourceUrl: item.sourceUrl,
-      x: s.x, y: s.y, scaleX: s.scale.x, scaleY: s.scale.y, rotation: s.rotation, alpha: item.opacity ?? 1,
+      x: s.x, y: s.y, scaleX: item.anim?.sx ?? s.scale.x, scaleY: item.anim?.sy ?? s.scale.y, rotation: s.rotation, alpha: item.opacity ?? 1,
       ...(item.locked ? { locked: true } : {}),
       ...(item.crop ? { crop: item.crop } : {}),
       ...(item.grey ? { grey: true } : {}),
@@ -327,6 +328,59 @@ export class Board {
     const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
     const y0 = f.h / 2, y1 = f.h / 2 + f.gap + f.textH;
     return [[-f.w / 2, y0], [f.w / 2, y0], [f.w / 2, y1], [-f.w / 2, y1]].map(([x, y]) => ({ x: s.x + x * cos - y * sin, y: s.y + x * sin + y * cos }));
+  }
+
+  // ---------- Landing: images pop in with a splash ----------
+
+  // The image grows in from smaller, overshoots a touch and settles (like a drop
+  // landing in water), with a ring and droplets in its own colour. `delay` in ms.
+  popIn(item, colour = 0x4da3ff, delay = 0) {
+    const s = item.sprite;
+    item.anim = { start: performance.now() + delay, sx: s.scale.x, sy: s.scale.y };
+    const b = this.bounds([item]);
+    s.scale.set(item.anim.sx * 0.001, item.anim.sy * 0.001);
+    this.splashes.push({ x: s.x, y: s.y, r: Math.hypot(b.width, b.height) / 2, colour, start: item.anim.start });
+  }
+
+  animating() {
+    return this.splashes.length > 0 || this.items.some((i) => i.anim);
+  }
+
+  // Finish any landing animations right away (e.g. when you grab an image mid-pop).
+  settleAll() {
+    for (const item of this.items) if (item.anim) { item.sprite.scale.set(item.anim.sx, item.anim.sy); delete item.anim; }
+  }
+
+  _stepAnimations(now) {
+    for (const item of this.items) {
+      const a = item.anim;
+      if (!a) continue;
+      const t = (now - a.start) / 1000;
+      if (t < 0) { item.sprite.scale.set(a.sx * 0.001, a.sy * 0.001); continue; }
+      if (t > 0.7) { item.sprite.scale.set(a.sx, a.sy); delete item.anim; continue; }
+      // From 55 % to a little over full size and back: a damped spring.
+      const f = 1 - 0.45 * Math.exp(-7 * t) * Math.cos(15 * t);
+      item.sprite.scale.set(a.sx * f, a.sy * f);
+    }
+    this.splashes = this.splashes.filter((sp) => now - sp.start < 650);
+  }
+
+  _drawSplashes(o, zoom, now) {
+    for (const sp of this.splashes) {
+      const t = (now - sp.start) / 650;
+      if (t < 0) continue;
+      const ease = 1 - (1 - t) ** 3;
+      const fade = 1 - t;
+      // A ring spreading out…
+      o.circle(sp.x, sp.y, sp.r * (0.62 + 0.3 * ease)).stroke({ width: (2.5 / zoom) * fade + 0.5 / zoom, color: sp.colour, alpha: 0.35 * fade });
+      // …and droplets thrown outward.
+      for (let i = 0; i < 9; i++) {
+        const ang = i * 0.698 + (sp.start % 1000) * 0.006;
+        const dist = sp.r * (0.7 + 0.4 * ease + (i % 3) * 0.06);
+        const size = (6 - (i % 3) * 1.5) / zoom * fade + sp.r * 0.012 * fade;
+        o.circle(sp.x + Math.cos(ang) * dist, sp.y + Math.sin(ang) * dist, size).fill({ color: sp.colour, alpha: 0.85 * fade });
+      }
+    }
   }
 
   // Keep captions under their images, and apply Focus mode. Cheap, so it runs every frame.
@@ -634,8 +688,8 @@ export class Board {
         const dy = wy - s.y;
         const cos = Math.cos(-s.rotation);
         const sin = Math.sin(-s.rotation);
-        const lx = (dx * cos - dy * sin) / s.scale.x;
-        const ly = (dx * sin + dy * cos) / s.scale.y;
+        const lx = (dx * cos - dy * sin) / (item.anim?.sx ?? s.scale.x);
+        const ly = (dx * sin + dy * cos) / (item.anim?.sy ?? s.scale.y);
         if (Math.abs(lx) <= item.width / 2 && Math.abs(ly) <= item.height / 2) return item;
         if (item.captionText) {
           // The caption counts as part of its image.
@@ -651,8 +705,9 @@ export class Board {
   // The four corners of an image or note on the board, after rotation and scale.
   corners(item) {
     const s = item.sprite;
-    const hw = (item.width / 2) * s.scale.x;
-    const hh = (item.height / 2) * s.scale.y;
+    // (While an image is popping in, use the size it's settling to.)
+    const hw = (item.width / 2) * (item.anim?.sx ?? s.scale.x);
+    const hh = (item.height / 2) * (item.anim?.sy ?? s.scale.y);
     const cos = Math.cos(s.rotation);
     const sin = Math.sin(s.rotation);
     return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => ({
@@ -721,7 +776,10 @@ export class Board {
   drawOverlay(zoom, { handles = true } = {}) {
     const o = this.overlay;
     o.clear();
+    const now = performance.now();
+    this._stepAnimations(now);
     this.syncImages();
+    this._drawSplashes(o, zoom, now);
     // A small star at the top-right corner of starred images (the same size at any zoom).
     for (const item of this.items) {
       if (!item.star || !item.sprite.visible) continue;

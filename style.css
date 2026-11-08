@@ -1060,15 +1060,19 @@ body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
 .pane-tools { border-radius: var(--radius); }
 /* Panes get rounded corners too: a ring in the gap colour, clipped by the pane. */
 .pane { overflow: hidden; }
-.pane::after {
-  content: "";
+/* The space between panes is one shape drawn over everything (see src/liquid.js):
+   soft corners, and edges that ripple for a moment when panes split or close. */
+.pane-edges {
   position: absolute;
   inset: 0;
-  z-index: 3;
-  border-radius: 10px;
-  box-shadow: 0 0 0 12px var(--gap);
+  z-index: 4;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+  overflow: visible;
 }
+.pane-edges path { fill: var(--gap); }
+body.presenting .pane-edges { display: none; }
 .home-note a { color: var(--accent); }
 
 /* Typing free text: no background, just a soft outline */
@@ -1477,3 +1481,47 @@ body.presenting #panes { cursor: pointer; }
 .mood-palette button:not(.mood-swatch-x):hover { color: var(--text-strong); border-color: var(--border-strong); }
 .mood-palette button[hidden] { display: none; }
 .mood-palette.empty .mood-palette-label { opacity: 0.5; }
+
+/* ---------- Liquid motion ----------
+   Things open with a little spring, as if they had some weight and give. All of it is
+   switched off with Liquid motion: off (board menu), or reduced motion on the computer. */
+
+:root { --spring: cubic-bezier(0.34, 1.56, 0.64, 1); --soft: cubic-bezier(0.22, 1, 0.36, 1); }
+:root { --radius-s: 8px; --radius: 10px; --radius-l: 16px; }
+
+@keyframes liquid-in {
+  0% { opacity: 0; transform: scale(0.9, 0.86); }
+  60% { opacity: 1; transform: scale(1.015, 1.03); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes liquid-up {
+  0% { opacity: 0; transform: translateY(10px) scale(0.94, 0.9); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.02, 1.04); }
+  100% { opacity: 1; transform: none; }
+}
+body[data-motion="on"] .menu,
+body[data-motion="on"] .star-panel { transform-origin: top left; animation: liquid-in 0.32s var(--soft) both; }
+body[data-motion="on"] .star-panel { transform-origin: top right; }
+body[data-motion="on"] #selection-bar:not([hidden]) > * { animation: liquid-up 0.34s var(--soft) both; }
+body[data-motion="on"] #present-hud:not([hidden]) { animation: liquid-up 0.4s var(--soft) both; }
+body[data-motion="on"] .caption-editor,
+body[data-motion="on"] .frame-rename { animation: liquid-in 0.25s var(--soft) both; transform-origin: top left; }
+
+/* Buttons give a little when pressed and spring back. */
+body[data-motion="on"] :is(#toolbar button, #selection-bar button, .pane-tools button, #board-bar button, .tab, .text-button, .menu-item, .star-thumb, .board-card) {
+  transition: transform 0.35s var(--spring), background-color 0.15s, color 0.15s, opacity 0.2s;
+}
+body[data-motion="on"] :is(#toolbar button, #selection-bar button, .pane-tools button, #board-bar button, .text-button):active { transform: scale(0.88); transition-duration: 0.08s; }
+body[data-motion="on"] :is(#toolbar button, #selection-bar button, .pane-tools button):hover { transform: scale(1.08); }
+body[data-motion="on"] .star-thumb:hover, body[data-motion="on"] .board-card:hover { transform: scale(1.025); }
+body[data-motion="on"] .tab:active { transform: scale(0.95); }
+
+/* Messages slide up with a bounce. */
+body[data-motion="on"] #toast { transition: opacity 0.2s, transform 0.45s var(--spring); }
+
+/* The divider glows like a thin stream of light while you hover or drag it. */
+.divider::after { transition: opacity 0.15s, transform 0.35s var(--spring); }
+body[data-motion="on"] .divider.row.dragging::after { transform: scaleX(1.8); }
+body[data-motion="on"] .divider.col.dragging::after { transform: scaleY(1.8); }
+.divider { z-index: 5; }
+body[data-motion="on"] #toast:not(.show) { transform: translate(-50%, 14px) scale(0.94); }

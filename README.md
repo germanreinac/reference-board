@@ -198,6 +198,16 @@ Hover over a pane to see its buttons in the top-right corner.
 
 Keyboard shortcuts act on the pane under the mouse.
 
+### Liquid motion
+
+Panes have soft corners. Splitting a pane opens the new one with a spring, and the edges
+ripple like water for a moment; closing squeezes the pane shut; letting go of a divider
+makes it wobble. Images pop in with a little splash in their own colours. Menus, bars
+and buttons spring open and give a little when pressed.
+
+Turn it off with **Liquid motion** in the right-click menu (then everything happens at
+once). It's off from the start if your computer is set to reduce motion.
+
 ### Light and dark mode
 
 Switch with the sun / moon button in the top bar or on the home screen, or **Light mode** / **Dark mode** in the board
