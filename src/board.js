@@ -163,13 +163,20 @@ export class Board {
   // A frame marks an area of the board, with a name above it. Frames are the slides
   // of Present mode, and moving a frame moves what's inside it.
 
-  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, locked = false, index }) {
+  // A frame's title has text settings like any text: a level (Title, Heading 1…, sizes
+  // relative to titleBase), a font, weight, italic and colour (null = the board's ink).
+  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, titleBase, level = 'body', font = 'Inter', weight, italic = false, color = null, locked = false, index }) {
     const c = new Container();
     const bg = new Graphics();
-    const title = new Text({ text: name, style: { fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '600', fontSize: titleSize } });
+    const base = titleBase ?? titleSize;
+    const title = new Text({ text: name, style: { fontFamily: fontStack(font), fontWeight: '600', fontSize: titleSize } });
     c.addChild(bg, title);
     c.position.set(x, y);
-    const item = { kind: 'frame', id: takeId(id), sprite: c, bg, title, w, h, name, titleSize, locked: !!locked, width: w, height: h };
+    const item = {
+      kind: 'frame', id: takeId(id), sprite: c, bg, title, w, h, name, locked: !!locked, width: w, height: h,
+      titleBase: base, level: LEVELS[level] ? level : 'body', font, weight: weight ?? (LEVELS[level]?.weight >= 600 ? LEVELS[level].weight : 600), italic: !!italic, color,
+      titleSize: base * (LEVELS[level]?.size ?? 1),
+    };
     this.drawFrame(item);
     const at = index === undefined ? this.frames.length : Math.max(0, Math.min(index, this.frames.length));
     this.frames.splice(at, 0, item);
@@ -183,9 +190,10 @@ export class Board {
     f.bg.clear();
     f.bg.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, Math.min(f.w, f.h) * 0.012)
       .fill({ color: this.ink, alpha: 0.035 })
-      .stroke({ width: f.titleSize * 0.08, color: this.ink, alpha: 0.22 });
+      .stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: 0.22 });
+    f.titleSize = f.titleBase * (LEVELS[f.level]?.size ?? 1);
     f.title.text = f.name || 'Frame';
-    f.title.style.fill = this.ink;
+    Object.assign(f.title.style, { fontFamily: fontStack(f.font || 'Inter'), fontWeight: String(f.weight || 600), fontStyle: f.italic ? 'italic' : 'normal', fontSize: f.titleSize, fill: f.color || this.ink });
     f.title.alpha = 0.7;
     f.title.position.set(-f.w / 2, -f.h / 2 - f.titleSize * 1.5);
     this._wrapTitle(f);
@@ -199,11 +207,12 @@ export class Board {
     const text = f.name || 'Frame';
     const style = f.title.style;
     const full = CanvasTextMetrics.measureText(text, style).width;
-    const lap = 2 * (f.w + f.h);
     const wrapped = full > f.w;
-    const k = wrapped ? Math.min(1, (lap * 0.97) / full) : 1;   // shrink to fit one lap
+    // One lap at most. Typing stops there (see titleFits); only if the frame is later made
+    // smaller than its title do the letters shrink to stay inside one lap.
+    const k = wrapped ? Math.min(1, this.titleRoom(f) / full) : 1;
     const size = f.titleSize * k;
-    const g = f.titleSize * 0.35;   // gap between the frame's edge and the bottom of the letters
+    const g = f.titleBase * 0.35;   // gap between the frame's edge and the bottom of the letters
     // Each letter's width (also used to put the typing cursor in the right place).
     const advances = [...text].map((ch) => CanvasTextMetrics.measureText(ch === ' ' ? ' ' : ch, style).width * k);
     f.titleGeo = { size, g, advances, wrapped };
@@ -215,12 +224,12 @@ export class Board {
       return;
     }
     f.title.visible = false;
-    const key = `${text}|${size.toFixed(2)}|${this.ink}`;
+    const key = `${text}|${size.toFixed(2)}|${f.color || this.ink}|${style.fontFamily}|${style.fontWeight}|${style.fontStyle}`;
     if (!f.wrap) { f.wrap = new Container(); f.sprite.addChild(f.wrap); }
     if (f.wrapKey !== key) {
       // One small text per letter (only when the words or size change).
       f.wrap.removeChildren().forEach((c) => c.destroy());
-      const st = { fontFamily: style.fontFamily, fontWeight: style.fontWeight, fontSize: size, fill: this.ink };
+      const st = { fontFamily: style.fontFamily, fontWeight: style.fontWeight, fontStyle: style.fontStyle, fontSize: size, fill: f.color || this.ink };
       for (const ch of [...text]) {
         const t = new Text({ text: ch, style: st });
         t.anchor.set(0.5, 1);
@@ -236,6 +245,17 @@ export class Board {
       t.rotation = p.rot;
       pos += advances[i];
     });
+  }
+
+  // How much room a title has: once round the frame, stopping a little short of where it
+  // started.
+  titleRoom(f) {
+    return 2 * (f.w + f.h) - f.titleSize * 1.2;
+  }
+
+  // Would this title fit (without shrinking)?
+  titleFits(f, text) {
+    return CanvasTextMetrics.measureText(text || ' ', f.title.style).width <= Math.max(f.w, this.titleRoom(f));
   }
 
   // A point on the title's path, `d` along it (counting only the straight sides) and `o`
@@ -377,6 +397,7 @@ export class Board {
   frameTitleAt(wx, wy) {
     for (let i = this.frames.length - 1; i >= 0; i--) {
       const f = this.frames[i];
+      if (f.titleGeo?.wrapped && this.titleIndexAt(f, wx, wy) >= 0) return f;   // anywhere round the frame
       const t = f.title;
       const x = f.sprite.x + t.x, y = f.sprite.y + t.y;
       if (wx >= x && wx <= x + Math.max(t.width, f.titleSize * 4) && wy >= y && wy <= y + t.height) return f;
@@ -391,7 +412,11 @@ export class Board {
   }
 
   frameJSON(f) {
-    return { id: f.id, x: f.sprite.x, y: f.sprite.y, w: f.w, h: f.h, name: f.name, titleSize: f.titleSize, ...(f.locked ? { locked: true } : {}) };
+    return {
+      id: f.id, x: f.sprite.x, y: f.sprite.y, w: f.w, h: f.h, name: f.name, titleSize: f.titleSize, titleBase: f.titleBase,
+      level: f.level, font: f.font, weight: f.weight, ...(f.italic ? { italic: true } : {}), ...(f.color ? { color: f.color } : {}),
+      ...(f.locked ? { locked: true } : {}),
+    };
   }
 
   // What's inside a frame (its middle is within the frame): moves with it.

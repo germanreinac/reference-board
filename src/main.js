@@ -400,7 +400,7 @@ function removeThing(kind, id) {
 // and greyscale change. Saved before and after an edit, for undo.
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
-const FRAME_PROPS = ['w', 'h', 'name'];
+const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'titleBase'];
 const IMAGE_PROPS = ['caption', 'star'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
@@ -619,7 +619,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointermove', move, true);
   window.addEventListener('pointerup', up, true);
 }, true);
-function renameFrame(f, pane) {
+function renameFrame(f, pane, at = -1) {
   const input = document.createElement('input');
   input.className = 'frame-rename';
   input.value = f.name;
@@ -631,7 +631,9 @@ function renameFrame(f, pane) {
   });
   document.body.appendChild(input);
   input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);   // start at the end
+  // Start where you double-clicked (or at the end).
+  const startAt = at >= 0 ? Math.min(at, input.value.length) : input.value.length;
+  input.setSelectionRange(startAt, startAt);
   titleEditor = { f, input };
   const before = [stateOf(f)];
   const original = f.name;
@@ -642,7 +644,16 @@ function renameFrame(f, pane) {
   const css = getComputedStyle(document.body);
   const colour = (name, fallback) => { const v = css.getPropertyValue(name).trim(); return /^#[0-9a-f]{6}$/i.test(v) ? parseInt(v.slice(1), 16) : fallback; };
   board.titleEdit = { frame: f, caret: input.value.length, fill: colour('--input', 0x141416), accent: colour('--accent', 0x4da3ff) };
+  let lastGood = input.value, lastSel = [input.selectionStart, input.selectionEnd], warned = 0;
   const update = () => {
+    if (!board.titleFits(f, input.value)) {
+      // Gone all the way round: no more room (make the frame bigger for more).
+      input.value = lastGood;
+      input.setSelectionRange(lastSel[0], lastSel[1]);
+      if (Date.now() - warned > 2500) { toast('The title has gone all the way round. Make the frame bigger for more room.', 2600); warned = Date.now(); }
+    }
+    lastGood = input.value;
+    lastSel = [input.selectionStart, input.selectionEnd];
     f.name = input.value.trim() ? input.value : original;
     board.titleEdit.caret = input.value.trim() ? (input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd) : 0;
     board.titleEdit.sel = [input.selectionStart, input.selectionEnd];
@@ -1287,9 +1298,9 @@ async function loadBoard(data, getBlob, board, { withLayout = true } = {}) {
     for (const x of data?.shapes || []) board.addShape(x);
     for (const f of data?.frames || []) board.addFrame(f);
     // Make sure the fonts the text uses are loaded, then lay the text out again.
-    const used = [...new Set(board.notes.map((n) => `${n.font}|${n.weight}|${n.italic}`))];
+    const used = [...new Set([...board.notes, ...board.frames].map((n) => `${n.font || 'Inter'}|${n.weight}|${!!n.italic}`))];
     Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
-      .then(() => { board.relayoutNotes(); requestRender(); });
+      .then(() => { board.relayoutNotes(); board.frames.forEach((f) => board.drawFrame(f)); requestRender(); });
     board.selected = null;
     if (withLayout) viewports.setLayout(data?.layout ? Layout.fromJSON(data.layout) : new Layout());
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
@@ -2762,11 +2773,26 @@ function fillFontMenu(current) {
 
 const selectedNotes = () => board.selection.filter((x) => x.kind === 'note');
 const selectedShapes = () => board.selection.filter((x) => x.kind === 'shape');
+const selectedFrames = () => board.selection.filter((x) => x.kind === 'frame');
 
 // Change text (or shape) settings on everything selected, as one undo step.
 function setTextProps(props) {
   const notes = selectedNotes();
   const shapes = selectedShapes();
+  const frames = selectedFrames();
+  if (frames.length && !notes.length && !shapes.length) {
+    // Frame titles: level, font, bold, italic and colour, like text.
+    editSelection((f) => {
+      if (props.level) { f.level = props.level; f.weight = Math.max(600, LEVELS[props.level].weight); }
+      for (const k of ['font', 'italic', 'color', 'weight']) if (k in props) f[k] = props[k];
+      board.drawFrame(f);
+    }, frames);
+    if (props.font || props.weight || 'italic' in props) {
+      Promise.all(frames.map((f) => ensureFont(f.font, f.weight, f.italic))).then(() => { frames.forEach((f) => board.drawFrame(f)); requestRender(); });
+    }
+    lastControls = '';
+    return;
+  }
   if (shapes.length && !notes.length) {
     editSelection((x) => {
       if ('color' in props) x.color = props.color;
@@ -2803,11 +2829,12 @@ fontSelect.addEventListener('change', async () => {
   lastControls = '';
 });
 textControls.querySelector('[data-text="bold"]').addEventListener('click', () => {
-  const notes = selectedNotes();
-  setTextProps({ weight: notes.every((n) => n.weight >= 600) ? 400 : 700 });
+  const list = selectedNotes().length ? selectedNotes() : selectedFrames();
+  setTextProps({ weight: list.every((n) => n.weight >= 600) ? 400 : 700 });
 });
 textControls.querySelector('[data-text="italic"]').addEventListener('click', () => {
-  setTextProps({ italic: !selectedNotes().every((n) => n.italic) });
+  const list = selectedNotes().length ? selectedNotes() : selectedFrames();
+  setTextProps({ italic: !list.every((n) => n.italic) });
 });
 textControls.querySelector('[data-text="align"]').addEventListener('click', () => {
   const order = ['left', 'center', 'right'];
@@ -2830,10 +2857,27 @@ let lastControls = '';
 function updateTextControls(sel) {
   const notes = sel.filter((x) => x.kind === 'note');
   const shapes = sel.filter((x) => x.kind === 'shape');
+  const frames = sel.filter((x) => x.kind === 'frame');
   const isText = notes.length > 0 && notes.length === sel.length;
   const isShape = shapes.length > 0 && shapes.length === sel.length;
-  textControls.hidden = !isText && !isShape;
+  const isFrame = frames.length > 0 && frames.length === sel.length;
+  textControls.hidden = !isText && !isShape && !isFrame;
   if (textControls.hidden) { palette.hidden = true; return; }
+  if (isFrame) {
+    // A frame's title: level, font, bold, italic, colour (no alignment or box).
+    for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"]')) el.hidden = false;
+    for (const el of textControls.querySelectorAll('[data-text="align"], [data-text="box"], [data-text="fill"]')) el.hidden = true;
+    const f = frames[0];
+    const key = frames.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.color}`).join(',') + customFonts().join(',');
+    if (key === lastControls) return;
+    lastControls = key;
+    levelSelect.value = f.level || 'body';
+    fillFontMenu(f.font || 'Inter');
+    textControls.querySelector('[data-text="bold"]').classList.toggle('on', frames.every((x) => x.weight >= 600));
+    textControls.querySelector('[data-text="italic"]').classList.toggle('on', frames.every((x) => x.italic));
+    textControls.querySelector('.sel-colour').style.setProperty('--c', f.color || `#${board.ink.toString(16).padStart(6, '0')}`);
+    return;
+  }
   // Shapes only get a colour and a fill; text gets everything else.
   for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], [data-text="align"], [data-text="box"]')) el.hidden = !isText;
   textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse'));
@@ -3153,7 +3197,7 @@ panesEl.addEventListener('dblclick', (e) => {
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const title = board.frameTitleAt(w.x, w.y);
-  if (title) return renameFrame(title, pane);
+  if (title) return renameFrame(title, pane, board.titleIndexAt(title, w.x, w.y));
   const hit = board.hitTest(w.x, w.y);
   if (hit?.kind === 'note') editNote(hit, pane);
   else if (hit?.kind === 'frame') renameFrame(hit, pane);

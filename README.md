@@ -148,7 +148,7 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 | Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
 | Text | `T`, then click and type. Start with `# `, `## ` or `### ` for a heading, and lines with `- ` become bullets. Click away to finish. The **box** button in the bar puts the text on a coloured block or an outline |
 | Shape | `S`, then drag. Click the shape button again to choose rectangle, ellipse, line or arrow. Shift keeps squares, circles and 45° lines. The bar sets the colour and whether it's filled |
-| Frame | The frame button in the toolbar (or `A`), then drag a box (or click for a 16:9 one). A name longer than the frame carries on round it (top, right, bottom, left) and stops after one lap, getting smaller if needed. **Put a frame around** in the bar frames what's selected. Moving a frame moves what's inside it. Double-click its name to rename it |
+| Frame | The frame button in the toolbar (or `A`), then drag a box (or click for a 16:9 one). A name longer than the frame carries on round it (top, right, bottom, left); typing stops after one lap (make the frame bigger for more). Double-click anywhere on the name to edit it there. With a frame selected, the bar sets the name's level, font, bold, italic and colour. **Put a frame around** in the bar frames what's selected. Moving a frame moves what's inside it. Double-click its name to rename it |
 | Sticky note | `N`, then click where the note should go and type. Click away to finish |
 | Edit a note | Double-click it |
 | Brush size | `[` and `]`, or the slider |
