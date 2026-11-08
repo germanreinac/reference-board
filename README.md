@@ -219,11 +219,16 @@ follows the mouse and lands on that board.
 Turn it off with **Liquid motion** in the right-click menu (then everything happens at
 once). It's off from the start if your computer is set to reduce motion.
 
-### Light and dark mode
+### Light, dark and colour mode
 
-Switch with the sun / moon button in the top bar or on the home screen, or **Light mode** / **Dark mode** in the board
-menu (**⋯**). Boards have a dotted background that stays fixed to the board as you pan and
-zoom; the dots double or halve their spacing as you zoom so they never get too dense.
+The sun/moon button switches between dark and light. The 👽 button is **colour mode**: a
+random soft, desaturated palette (sage, lavender, peach, dusty blue, sand, mint, rose, lilac
+grey). Click it again for another one. The choice is remembered in this browser.
+
+### Shortcuts
+
+The **?** button in the top bar (or the `?` key) lists every shortcut, so the board itself
+stays clear. The "drop images here" hint only shows on a brand-new, empty board.
 
 ### Your boards
 

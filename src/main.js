@@ -25,7 +25,7 @@ import { RESULT_DRAG_TYPE } from './search-pane.js';
 import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
-import { loadTheme, themeColours, toggleTheme, currentTheme } from './theme.js';
+import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, randomColours } from './theme.js';
 import { VERSION } from './version.js';
 import { LEVELS } from './board.js';
 import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
@@ -85,7 +85,7 @@ const viewports = new Viewports({
 });
 const layout = () => viewports.layout;
 viewports.setColours(themeColours());
-board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
+board.setInk(themeInk());
 
 // The panes showing the board (not search or the mannequin).
 const boardPanes = () => layout().visiblePanes().filter((p) => p.type === 'board');
@@ -128,7 +128,10 @@ function requestRender() {
     noteEditor.position();
     placeToolbar();
     placeSelectionBar();
-    emptyHint.classList.toggle('hidden', !board.isEmpty() || noteEditor.editing);
+    // The "drop images here" hint is for a brand-new board: only while every board on
+    // screen is empty.
+    const allEmpty = boardPanes().every((p) => (docOfPane(p)?.board || board).isEmpty());
+    emptyHint.classList.toggle('hidden', !allEmpty || noteEditor.editing);
     // Keep drawing while something is moving (springs, wobbles, splashes).
     if (viewports.animating() || [...docs.values()].some((d) => d.board.animating())) requestRender();
   });
@@ -153,7 +156,7 @@ function placeToolbar() {
 // Light and dark mode: redraw the board in the new colours.
 window.addEventListener('themechange', (e) => {
   viewports.setColours(e.detail);
-  for (const d of docs.values()) d.board.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
+  for (const d of docs.values()) d.board.setInk(themeInk());
   app.renderer.background.color = e.detail.gap;
   requestRender();
 });
@@ -195,7 +198,7 @@ function updateTitle() {
 
 function makeDoc(meta) {
   const b = new Board();
-  b.setInk(currentTheme() === 'light' ? 0x1f1f22 : 0xffffff);
+  b.setInk(themeInk());
   return { meta, board: b, history: new History(() => updateHistoryButtons()), thumbStale: false, layoutJSON: null };
 }
 
@@ -1867,6 +1870,56 @@ document.getElementById('tab-add').addEventListener('click', async (e) => {
 document.getElementById('home-button').addEventListener('click', goHome);
 document.getElementById('theme-button').addEventListener('click', toggleTheme);
 document.getElementById('bar-theme-button').addEventListener('click', toggleTheme);
+for (const id of ['alien-button', 'bar-alien-button']) document.getElementById(id).addEventListener('click', alienColours);
+function alienColours() {
+  toast(`Colour mode: ${randomColours()}. Click 👽 again for another, or the sun/moon to go back.`, 2600);
+}
+
+// ---------- Shortcuts and help ----------
+//
+// The ? button in the top bar (or the ? key) lists what you can do, so the board itself
+// stays clear of instructions.
+
+const HELP = [
+  ['Getting around', [
+    ['Zoom', 'Scroll'], ['Pan', 'Drag empty space, middle mouse, or Space + drag'], ['Fit everything (or the selection)', 'F'], ['Actual size', '1'],
+  ]],
+  ['Adding', [
+    ['Images', 'Drop them in, or paste with Ctrl/⌘ + V'], ['From any website', 'Right-click → Save image to board (browser extension)'],
+    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'artdirection.io/#/add'],
+  ]],
+  ['Tools', [
+    ['Select and move', 'V'], ['Hand', 'H'], ['Pen', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
+  ]],
+  ['Selection', [
+    ['Select several', 'Shift-click, or Shift-drag a box'], ['Select all', 'Ctrl/⌘ + A'], ['Duplicate / copy', 'Ctrl/⌘ + D / C'],
+    ['Group / ungroup', 'Ctrl/⌘ + G / Shift + G'], ['Nudge', 'Arrow keys (Shift: more)'], ['Delete', 'Delete'],
+    ['Star a favourite / focus on stars', 'M / Shift + M'], ['Caption', 'Enter, or double-click an image'], ['Lock', 'L'],
+  ]],
+  ['Panes and boards', [
+    ['Split side by side / top and bottom', 'Alt + V / H'], ['Close pane', 'Alt + W'], ['Maximize pane', 'Ctrl + Space'],
+    ['Move several dividers', 'Drag where they meet'], ['Switch board tab', 'Alt + 1…9'], ['Present', 'Ctrl/⌘ + Enter'],
+    ['Undo / redo', 'Ctrl/⌘ + Z / Shift + Z'], ['Save to file / open', 'Ctrl/⌘ + S / O'],
+  ]],
+];
+const helpPanel = document.createElement('div');
+helpPanel.id = 'help-panel';
+helpPanel.hidden = true;
+helpPanel.innerHTML = `
+  <div class="help-box" role="dialog" aria-label="Shortcuts and help">
+    <div class="help-head"><strong>Shortcuts</strong><button class="help-close" title="Close (Esc)">×</button></div>
+    <div class="help-cols">${HELP.map(([title, rows]) => `
+      <section><h3>${title}</h3>${rows.map(([what, how]) => `<div class="help-row"><span>${what}</span><kbd>${how}</kbd></div>`).join('')}</section>`).join('')}
+    </div>
+    <p class="help-foot">Right-click anything for more. Settings (light, dark, colour mode, snapping, liquid motion) are in the right-click menu and the ⋯ button.</p>
+  </div>`;
+document.body.appendChild(helpPanel);
+function toggleHelp(open = helpPanel.hidden) {
+  helpPanel.hidden = !open;
+}
+helpPanel.addEventListener('pointerdown', (e) => { if (e.target === helpPanel) toggleHelp(false); });
+helpPanel.querySelector('.help-close').addEventListener('click', () => toggleHelp(false));
+document.getElementById('help-button').addEventListener('click', () => toggleHelp());
 document.getElementById('board-menu-button').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   openMenu(r.right - 230, r.bottom + 4, null);
@@ -3101,7 +3154,9 @@ function openMenu(x, y, pane) {
     { label: 'Unlock everything', action: () => setLocked('all', false) },
   ];
   const settingsMenu = [
-    { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
+    { label: currentTheme() === 'dark' ? 'Light mode' : 'Dark mode', action: toggleTheme },
+    { label: 'Colour mode (random) 👽', action: alienColours },
+    { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
     { label: drive.isConnected() ? 'Google Drive: connected ✓' : 'Connect Google Drive…', action: () => (drive.isConnected() ? driveMenu(x, y) : connectDrive()) },
     { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
@@ -3383,6 +3438,8 @@ window.addEventListener('keydown', (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (presenting) { presentKey(e); return; }
   if (compareOpen()) return;
+  if (!helpPanel.hidden && e.key === 'Escape') { toggleHelp(false); return; }
+  if (e.key === '?' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); toggleHelp(); return; }
   if (mod && e.key === 'Enter' && mode === 'board' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); startPresent(); return; }
   if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
   if (e.target.closest?.('input, textarea, select')) return;

@@ -540,7 +540,7 @@ button { font: inherit; color: inherit; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 0 22px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
-body[data-theme="light"] #panes:not(.single) .pane::before {
+body[data-tone="light"] #panes:not(.single) .pane::before {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), inset 0 0 22px rgba(0, 0, 0, 0.09);
 }
 .pane-tools, .pane-zoom { z-index: 2; }
@@ -1008,8 +1008,8 @@ body.drag-over::after {
 
 /* Light/dark switch in the top bar: shows the sun in dark mode, the moon in light mode */
 #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
-#bar-theme-button .icon-moon, body[data-theme="light"] #bar-theme-button .icon-sun { display: none; }
-body[data-theme="light"] #bar-theme-button .icon-moon { display: block; }
+#bar-theme-button .icon-moon, body[data-tone="light"] #bar-theme-button .icon-sun { display: none; }
+body[data-tone="light"] #bar-theme-button .icon-moon { display: block; }
 /* Folded toolbar: a single, clear "show" button */
 #toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
 #toolbar.collapsed .tool.mini svg { width: 18px; height: 18px; stroke-width: 1.8; }
@@ -1137,10 +1137,10 @@ body.presenting .pane-edges { display: none; }
 /* ---------- Present mode ---------- */
 
 #present-button svg { fill: currentColor; stroke: none; }
-body[data-theme="light"] #present-button:hover,
-body[data-theme="light"] #home-button:hover,
-body[data-theme="light"] #board-menu-button:hover,
-body[data-theme="light"] #bar-theme-button:hover { background: rgba(0, 0, 0, 0.06); }
+body[data-tone="light"] #present-button:hover,
+body[data-tone="light"] #home-button:hover,
+body[data-tone="light"] #board-menu-button:hover,
+body[data-tone="light"] #bar-theme-button:hover { background: rgba(0, 0, 0, 0.06); }
 
 /* Everything but the board goes away while presenting. */
 body.presenting #board-bar,
@@ -1659,3 +1659,59 @@ body[data-motion="on"] .drag-ghost { animation: ghost-in 0.35s var(--soft) both;
   font: 600 12px/22px Inter, system-ui, sans-serif;
   text-align: center;
 }
+
+/* ---------- Colour mode and help buttons in the top bar ---------- */
+
+#bar-alien-button, #help-button, #alien-button { display: grid; place-items: center; }
+#bar-alien-button, #help-button {
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+#bar-alien-button:hover, #help-button:hover { background: rgba(128, 128, 128, 0.14); color: var(--text-strong); }
+:is(#bar-alien-button, #alien-button, #help-button) svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; stroke-linecap: round; }
+:is(#bar-alien-button, #alien-button) .eye { fill: currentColor; stroke: none; }
+body[data-theme="pastel"] :is(#bar-alien-button, #alien-button) { color: var(--accent); }
+body[data-motion="on"] :is(#bar-alien-button, #alien-button):hover svg { animation: alien-wobble 0.6s var(--soft); }
+@keyframes alien-wobble { 30% { transform: rotate(-12deg) scale(1.1); } 60% { transform: rotate(9deg); } }
+
+/* ---------- Shortcuts and help ---------- */
+
+#help-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.35);
+}
+#help-panel[hidden] { display: none; }
+.help-box {
+  width: min(860px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 20px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-l, 16px);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  font-size: 12.5px;
+}
+body[data-motion="on"] #help-panel:not([hidden]) .help-box { animation: liquid-in 0.35s var(--soft) both; transform-origin: top right; }
+.help-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; color: var(--text-strong); font-size: 15px; }
+.help-close { width: 28px; height: 28px; border: 0; border-radius: 8px; background: none; color: inherit; font-size: 20px; line-height: 1; cursor: pointer; }
+.help-close:hover { background: rgba(128, 128, 128, 0.15); }
+.help-cols { columns: 260px 3; column-gap: 28px; }
+.help-cols section { break-inside: avoid; margin-bottom: 14px; }
+.help-cols h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); }
+.help-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.help-row span { color: var(--text-strong); }
+.help-row kbd { border: 0; padding: 0; font: inherit; text-align: right; opacity: 0.75; }
+.help-foot { margin: 4px 0 0; opacity: 0.7; }
