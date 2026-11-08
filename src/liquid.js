@@ -44,50 +44,82 @@ export function spring(from, to, onUpdate, { onDone = () => {}, stiffness = 340,
   return () => { stopped = true; cancelAnimationFrame(raf); };
 }
 
-// ---------- Pane outlines ----------
+// ---------- Pane outlines: a liquid surface ----------
+//
+// The space between panes behaves like one liquid surface. Every point on screen has a
+// small sideways push (`push`), so both sides of a gap bend together, like a stream:
+//   - at rest, slow gentle waves flow along the gaps, so no edge is ever ruler-straight
+//   - things that happen (splitting, closing, dragging a divider) drop "ripples" that
+//     spread out in rings from where they happened, and fade
+// Corners are rounded and the waves fade out towards them, so corners stay put.
 
-export const CORNER = 14;   // how round pane corners are (pixels)
+export const CORNER = 16;   // how round pane corners are (pixels)
+const CALM = 2.4;           // how far edges sway at rest (pixels)
 
-// The outline of a pane as an SVG path: a rounded rectangle with smooth corners.
-// `wave(edge, u)` pushes the edge in or out (pixels) at u (0 to 1 along the edge),
-// for the water wobble; it's 0 when everything is still.
-export function paneOutline({ x, y, w, h }, wave = null) {
+const ripples = [];         // { x, y, amp, start }
+
+// Drop a ripple at (x, y) on screen. `amp` is how strong (pixels).
+export function ripple(x, y, amp = 6) {
+  if (!motionOn()) return;
+  ripples.push({ x, y, amp, start: performance.now() });
+  if (ripples.length > 40) ripples.splice(0, ripples.length - 40);
+}
+
+// Are there ripples still spreading?
+export function rippling(now = performance.now()) {
+  for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].start > 1600) ripples.splice(i, 1);
+  return ripples.length > 0;
+}
+
+// How far the liquid pushes a point sideways: along x for upright edges (axis 'x'),
+// along y for flat edges (axis 'y'). `t` is in seconds.
+export function push(axis, x, y, t, now) {
+  let d;
+  if (axis === 'x') {
+    d = CALM * (0.6 * Math.sin(0.011 * y + 0.004 * x + 0.8 * t) + 0.4 * Math.sin(0.027 * y - 0.009 * x - 1.25 * t + 1.3));
+  } else {
+    d = CALM * (0.6 * Math.sin(0.010 * x + 0.005 * y + 0.7 * t + 2.1) + 0.4 * Math.sin(0.024 * x - 0.008 * y - 1.1 * t));
+  }
+  for (const r of ripples) {
+    const tt = (now - r.start) / 1000;
+    if (tt < 0) continue;
+    const dist = Math.hypot(x - r.x, y - r.y);
+    // A ring moving outward (about 260 px a second), fading with time and distance.
+    d += r.amp * Math.exp(-2.6 * tt) * Math.exp(-dist / 520) * Math.sin(0.03 * dist - 7.8 * tt);
+  }
+  return d;
+}
+
+// The outline of a pane as an SVG path: a rounded rectangle whose sides follow the
+// liquid. `t` (seconds) and `now` (ms) say where the waves are; motion off = still waves.
+export function paneOutline({ x, y, w, h }, t = 0, now = 0) {
   const R = Math.min(CORNER, w / 2, h / 2);
-  const k = R * 0.18;  // corner handles close to the corner: smooth, squarish corners
+  const k = R * 0.2;
   const pts = [];
-  const edge = (i, ax, ay, bx, by, nx, ny) => {
-    // A straight run from (ax, ay) to (bx, by), pushed along the normal (nx, ny) by the wave.
-    if (!wave) { pts.push(`L${bx.toFixed(1)} ${by.toFixed(1)}`); return; }
-    const n = 14;
+  // A side from (ax, ay) to (bx, by). Upright sides move along x, flat sides along y.
+  const side = (ax, ay, bx, by, axis) => {
+    const len = Math.hypot(bx - ax, by - ay);
+    const n = Math.max(2, Math.min(40, Math.round(len / 22)));
     for (let s = 1; s <= n; s++) {
       const u = s / n;
-      const d = wave(i, u);
-      pts.push(`L${(ax + (bx - ax) * u + nx * d).toFixed(1)} ${(ay + (by - ay) * u + ny * d).toFixed(1)}`);
+      const px = ax + (bx - ax) * u, py = ay + (by - ay) * u;
+      // Fade the waves out over the last bit before each corner, so corners stay put.
+      const edgeDist = Math.min(u, 1 - u) * len;
+      const fade = Math.min(1, edgeDist / 40);
+      const d = push(axis, px, py, t, now) * fade;
+      pts.push(axis === 'x' ? `L${(px + d).toFixed(1)} ${py.toFixed(1)}` : `L${px.toFixed(1)} ${(py + d).toFixed(1)}`);
     }
   };
   pts.push(`M${x + R} ${y}`);
-  edge(0, x + R, y, x + w - R, y, 0, 1);                                   // top
+  side(x + R, y, x + w - R, y, 'y');                                       // top
   pts.push(`C${x + w - k} ${y} ${x + w} ${y + k} ${x + w} ${y + R}`);
-  edge(1, x + w, y + R, x + w, y + h - R, -1, 0);                          // right
+  side(x + w, y + R, x + w, y + h - R, 'x');                               // right
   pts.push(`C${x + w} ${y + h - k} ${x + w - k} ${y + h} ${x + w - R} ${y + h}`);
-  edge(2, x + w - R, y + h, x + R, y + h, 0, -1);                          // bottom
+  side(x + w - R, y + h, x + R, y + h, 'y');                               // bottom
   pts.push(`C${x + k} ${y + h} ${x} ${y + h - k} ${x} ${y + h - R}`);
-  edge(3, x, y + h - R, x, y + R, 1, 0);                                   // left
+  side(x, y + h - R, x, y + R, 'x');                                       // left
   pts.push(`C${x} ${y + k} ${x + k} ${y} ${x + R} ${y}Z`);
   return pts.join('');
-}
-
-// A wobble that started at `start` (ms): how far edges move at time `now`, for a pane.
-// Each edge sways in its own way (one or two bulges), dying out in about 0.7 s.
-export function wobbleWave(start, now, amp, seed) {
-  const t = (now - start) / 1000;
-  if (t > 0.9) return null;
-  const a = amp * Math.exp(-t * 5.5);
-  return (edge, u) => {
-    const m = 1 + ((seed + edge) % 2);           // one or two bulges along the edge
-    const phase = (seed * 1.7 + edge * 2.3) % 6.28;
-    return a * Math.sin(Math.PI * u * m) * Math.cos(2 * Math.PI * 3.1 * t + phase);
-  };
 }
 
 // The average colour of a picture, for the splash when it lands.

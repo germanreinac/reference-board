@@ -200,9 +200,11 @@ Keyboard shortcuts act on the pane under the mouse.
 
 ### Liquid motion
 
-Panes have soft corners. Splitting a pane opens the new one with a spring, and the edges
-ripple like water for a moment; closing squeezes the pane shut; letting go of a divider
-makes it wobble. Images pop in with a little splash in their own colours. Menus, bars
+The gaps between panes behave like a liquid: they're never quite straight, and slow waves
+flow along them. Splitting a pane opens the new one with a spring and sends ripples
+through the gaps; closing squeezes the pane shut; dragging a divider leaves ripples behind
+(the faster, the bigger). Where dividers meet, a drop of liquid pools: grab that point to
+move all of them at once (double-click it to even them out). Images pop in with a little splash in their own colours. Menus, bars
 and buttons spring open and give a little when pressed.
 
 Turn it off with **Liquid motion** in the right-click menu (then everything happens at

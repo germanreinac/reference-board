@@ -1525,3 +1525,28 @@ body[data-motion="on"] .divider.row.dragging::after { transform: scaleX(1.8); }
 body[data-motion="on"] .divider.col.dragging::after { transform: scaleY(1.8); }
 .divider { z-index: 5; }
 body[data-motion="on"] #toast:not(.show) { transform: translate(-50%, 14px) scale(0.94); }
+
+/* Where dividers meet: grab the dot to move them all at once */
+.junction {
+  position: absolute;
+  z-index: 6;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  cursor: move;
+  touch-action: none;
+}
+.junction::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.15s, transform 0.4s var(--spring, ease);
+}
+.junction:hover::after, .junction.dragging::after { opacity: 1; transform: scale(1); }
+.junction.dragging::after { transform: scale(1.5); }
+#panes.single .junction, body.presenting .junction { display: none; }

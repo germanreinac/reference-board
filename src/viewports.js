@@ -14,7 +14,7 @@
 import { RenderTexture, Sprite, Matrix, TilingSprite, Texture } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
-import { paneOutline, wobbleWave, spring, motionOn } from './liquid.js';
+import { paneOutline, ripple, rippling, spring, motionOn } from './liquid.js';
 
 const ICONS = {
   'split-row': '<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>',
@@ -61,15 +61,18 @@ export class Viewports {
     this.dividers = [];             // { split, el }
     this.matrix = new Matrix();
     // The space between panes, drawn over everything as one shape with a soft-cornered
-    // hole for each pane. When panes split or close, the edges wobble for a moment.
+    // hole for each pane. Its edges move like a liquid (see src/liquid.js).
     this.edges = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.edges.classList.add('pane-edges');
     this.edgePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     this.edgePath.setAttribute('fill-rule', 'evenodd');
-    this.edges.appendChild(this.edgePath);
-    this.wobbles = [];   // { start, amp, panes: Set | null }
+    // A drop of liquid where gaps cross, like mercury pooling.
+    this.dropPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.edges.append(this.edgePath, this.dropPath);
     this.springs = 0;    // springs moving dividers right now
+    this.junctions = []; // handles where dividers meet: drag one to move them all
     this.setLayout(layout);
+    this._flow();
   }
 
   setLayout(layout) {
@@ -163,35 +166,85 @@ export class Viewports {
   _createDivider(split) {
     const el = document.createElement('div');
     el.className = `divider ${split.dir}`;
-    el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('dragging');
-      const move = (ev) => {
-        this.layout.dragDivider(split, ev.clientX, ev.clientY);
-        this.position();
-        this.requestRender();
-      };
-      const up = () => {
-        el.classList.remove('dragging');
-        this.wobble(2.5, this.layout.panes().filter((p) => this._inside(split, p)));
-        el.removeEventListener('pointermove', move);
-        el.removeEventListener('pointerup', up);
-        el.removeEventListener('pointercancel', up);
-        this.onLayoutChanged();
-      };
-      el.addEventListener('pointermove', move);
-      el.addEventListener('pointerup', up);
-      el.addEventListener('pointercancel', up);
-    });
+    el.addEventListener('pointerdown', (e) => this._dragSplits(e, el, [split]));
     // Double-click a divider to make both sides equal again.
     el.addEventListener('dblclick', () => {
       this.springSplit(split, split.ratio, 0.5, () => this.onLayoutChanged());
-      this.wobble(3);
+      const r = split.rect;
+      ripple(r.x + r.w / 2, r.y + r.h / 2, 5);
     });
     this.el.appendChild(el);
     return { split, el };
+  }
+
+  // Drag one or more dividers with the mouse. The faster you move, the bigger the
+  // ripples you leave behind.
+  _dragSplits(e, el, splits) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+    let last = { x: e.clientX, y: e.clientY, t: performance.now() }, lastRipple = 0;
+    const move = (ev) => {
+      for (const split of splits) this.layout.dragDivider(split, ev.clientX, ev.clientY);
+      const now = performance.now();
+      const speed = Math.hypot(ev.clientX - last.x, ev.clientY - last.y) / Math.max(1, now - last.t) * 1000;
+      last = { x: ev.clientX, y: ev.clientY, t: now };
+      if (now - lastRipple > 70 && speed > 60) { ripple(ev.clientX, ev.clientY, Math.min(9, speed * 0.012)); lastRipple = now; }
+      this.position();
+      this.requestRender();
+    };
+    const up = (ev) => {
+      el.classList.remove('dragging');
+      ripple(ev.clientX, ev.clientY, 4);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      this.onLayoutChanged();
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  // Where dividers meet (a + or a T), a round handle moves all of them at once.
+  _placeJunctions() {
+    const boxes = this.layout.maximized ? [] : this.dividers.map(({ split, el }) => {
+      const a = split.a.rect, r = split.rect;
+      return split.dir === 'row'
+        ? { split, x0: a.x + a.w, x1: a.x + a.w + GAP, y0: r.y, y1: r.y + r.h }
+        : { split, x0: r.x, x1: r.x + r.w, y0: a.y + a.h, y1: a.y + a.h + GAP };
+    });
+    const touch = (b, x, y, pad) => x >= b.x0 - pad && x <= b.x1 + pad && y >= b.y0 - pad && y <= b.y1 + pad;
+    const found = [];
+    for (const v of boxes.filter((b) => b.split.dir === 'row')) {
+      for (const h of boxes.filter((b) => b.split.dir === 'col')) {
+        const x = (v.x0 + v.x1) / 2, y = (h.y0 + h.y1) / 2;
+        if (!touch(v, x, y, 3) || !touch(h, x, y, 3)) continue;
+        if (found.some((j) => Math.hypot(j.x - x, j.y - y) < 8)) continue;
+        found.push({ x, y, splits: boxes.filter((b) => touch(b, x, y, 4)).map((b) => b.split) });
+      }
+    }
+    while (this.junctions.length < found.length) {
+      const el = document.createElement('div');
+      el.className = 'junction';
+      el.title = 'Drag to move these dividers together';
+      const j = { el, splits: [] };
+      el.addEventListener('pointerdown', (e) => this._dragSplits(e, el, j.splits));
+      el.addEventListener('dblclick', () => { for (const sp of j.splits) this.springSplit(sp, sp.ratio, 0.5, () => this.onLayoutChanged()); ripple(j.x, j.y, 6); });
+      this.junctions.push(j);
+    }
+    this.junctions.forEach((j, i) => {
+      const f = found[i];
+      if (!f) { j.el.remove(); return; }
+      // While you're dragging one, keep the dividers it grabbed (they stay together).
+      if (!j.el.classList.contains('dragging')) j.splits = f.splits;
+      Object.assign(j, { x: f.x, y: f.y });
+      j.el.style.left = `${f.x}px`;
+      j.el.style.top = `${f.y}px`;
+      if (j.el.parentNode !== this.el) this.el.appendChild(j.el);
+    });
+    this.junctions = this.junctions.filter((j, i) => found[i] || j.el.classList.contains('dragging'));
   }
 
   // Lay everything out for the current window size.
@@ -245,39 +298,53 @@ export class Viewports {
         : { left: r.x, top: a.y + a.h, width: r.w, height: GAP };
       for (const k in box) el.style[k] = `${box[k]}px`;
     }
+    this._placeJunctions();
     this.drawEdges();
   }
 
   // ---------- Liquid edges ----------
 
-  // Make pane edges wobble like water (all panes, or just these).
+  // Send ripples through the liquid edges: from the middle of these panes (or the window).
   wobble(amp = 5, panes = null) {
-    if (!motionOn()) return;
-    this.wobbles.push({ start: performance.now(), amp, panes: panes && new Set(panes) });
-    this.requestRender();
+    const list = (panes || this.layout.visiblePanes()).filter((p) => p.rect);
+    if (!list.length) return;
+    const x0 = Math.min(...list.map((p) => p.rect.x)), x1 = Math.max(...list.map((p) => p.rect.x + p.rect.w));
+    const y0 = Math.min(...list.map((p) => p.rect.y)), y1 = Math.max(...list.map((p) => p.rect.y + p.rect.h));
+    ripple((x0 + x1) / 2, (y0 + y1) / 2, amp * 1.4);
   }
 
-  // Still moving? (The app keeps drawing frames while this is true.)
+  // Still moving? (The app keeps redrawing the board while this is true. The liquid
+  // edges have their own, much cheaper, loop below.)
   animating() {
-    const now = performance.now();
-    this.wobbles = this.wobbles.filter((w) => now - w.start < 900);
-    return this.wobbles.length > 0 || this.springs > 0;
+    return this.springs > 0;
   }
 
-  drawEdges() {
+  drawEdges(now = performance.now()) {
     const w = window.innerWidth, h = window.innerHeight;
-    const now = performance.now();
+    const t = motionOn() ? now / 1000 : 0;
     const parts = [`M-40 -40H${w + 40}V${h + 40}H-40Z`];
-    for (const pane of this.layout.visiblePanes()) {
-      if (!pane.rect) continue;
-      const waves = this.wobbles
-        .filter((wb) => !wb.panes || wb.panes.has(pane))
-        .map((wb) => wobbleWave(wb.start, now, wb.amp, pane.id))
-        .filter(Boolean);
-      const wave = waves.length ? (edge, u) => waves.reduce((sum, f) => sum + f(edge, u), 0) : null;
-      parts.push(paneOutline(pane.rect, wave));
-    }
+    for (const pane of this.layout.visiblePanes()) if (pane.rect) parts.push(paneOutline(pane.rect, t, now));
     this.edgePath.setAttribute('d', parts.join(''));
+    const drops = this.junctions.filter((j) => j.el.isConnected).map((j, i) => {
+      const r = (j.el.classList.contains('dragging') ? 13 : 9) + Math.sin(t * 1.7 + i) * 1.2;
+      return `M${j.x - r} ${j.y}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0Z`;
+    });
+    this.dropPath.setAttribute('d', drops.join(''));
+  }
+
+  // The liquid keeps flowing slowly: redraw the edges about 20 times a second at rest,
+  // and every frame while ripples are spreading. Only the outline is redrawn, not the board.
+  _flow() {
+    let last = 0;
+    const tick = (now) => {
+      requestAnimationFrame(tick);
+      if (!motionOn() || document.body.dataset.mode !== 'board' || document.body.classList.contains('presenting')) return;
+      const busy = rippling(now) || this.springs > 0;
+      if (!busy && now - last < 50) return;
+      last = now;
+      this.drawEdges(now);
+    };
+    requestAnimationFrame(tick);
   }
 
   // Move a divider to a new ratio with a spring (it overshoots a little and settles).
