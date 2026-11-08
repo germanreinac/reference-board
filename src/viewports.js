@@ -11,7 +11,7 @@
 // A pane can also show a tool instead of the board (image search, the 3D
 // mannequin). Those tools live inside the pane's HTML box; see src/editors.js.
 
-import { RenderTexture, Sprite, Matrix, TilingSprite, Texture } from '../vendor/pixi.min.mjs';
+import { RenderTexture, Sprite, Matrix, TilingSprite, Texture, Graphics } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
 import { paneOutline, ripple, rippling, spring, motionOn } from './liquid.js';
@@ -71,6 +71,9 @@ export class Viewports {
     this.edges.append(this.edgePath, this.dropPath);
     this.springs = 0;    // springs moving dividers right now
     this.junctions = []; // handles where dividers meet: drag one to move them all
+    // Stirring the dots: the mouse leaves a gentle wake in the dotted background.
+    this.stirG = new Graphics();
+    this.stirState = { pane: null, x: 0, y: 0, vx: 0, vy: 0, energy: 0, last: 0, raf: 0 };
     this.setLayout(layout);
     this._flow();
   }
@@ -411,6 +414,90 @@ export class Viewports {
     // Keep the dots fixed to the board as you pan.
     d.tilePosition.set(cam.x % spacing, cam.y % spacing);
     this.app.renderer.render({ container: d, target, clear: true, clearColor: this.background });
+    if (this.stirState.pane === pane && this.stirState.energy > 0.01 && !this.hideDots) this._drawStir(pane, target, spacing);
+  }
+
+  // ---------- Stirring the dots ----------
+  //
+  // Near the mouse the dots drift a little, as if you were moving through water or fog:
+  // pushed aside, trailing behind the way you move, then easing back into the grid when
+  // you stop. Only a circle around the mouse is redrawn, and only in that pane.
+
+  stir(pane, x, y) {
+    const st = this.stirState;
+    if (!motionOn() || pane?.type !== 'board') { st.pane = null; return; }
+    const now = performance.now();
+    if (st.pane === pane && st.last) {
+      const dt = Math.max(0.008, (now - st.last) / 1000);
+      // Smoothed speed, so the wake follows the movement rather than every jitter.
+      st.vx = st.vx * 0.7 + ((x - st.x) / dt) * 0.3;
+      st.vy = st.vy * 0.7 + ((y - st.y) / dt) * 0.3;
+    } else { st.vx = st.vy = 0; }
+    Object.assign(st, { pane, x, y, last: now });
+    st.energy = Math.min(1, st.energy + 0.35);
+    if (!st.raf) st.raf = requestAnimationFrame((t) => this._stirFrame(t));
+  }
+
+  _stirFrame(now) {
+    const st = this.stirState;
+    st.raf = 0;
+    if (!st.pane || !this.views.has(st.pane) || st.pane.type !== 'board') { st.energy = 0; return; }
+    const dt = Math.min(0.05, (now - (st.frame || now)) / 1000 || 0.016);
+    st.frame = now;
+    st.energy *= Math.exp(-dt * 2.2);   // settles back over about a second
+    st.vx *= Math.exp(-dt * 4);
+    st.vy *= Math.exp(-dt * 4);
+    this.renderPane(st.pane);
+    if (st.energy > 0.01) st.raf = requestAnimationFrame((t) => this._stirFrame(t));
+    else { st.frame = 0; this.renderPane(st.pane); }
+  }
+
+  _drawStir(pane, target, spacing) {
+    const st = this.stirState;
+    const R = 140;                                   // how far the stirring reaches (pixels)
+    const cam = pane.camera;
+    const ox = (cam.x % spacing) + spacing / 2, oy = (cam.y % spacing) + spacing / 2;
+    const r = 2.4 * spacing / DOT_CELL;              // dot radius on screen
+    const g = this.stirG;
+    g.clear();
+    // Hide the still dots under the circle, then draw them where the water has moved them.
+    g.circle(st.x, st.y, R + r * 2).fill(this.background);
+    const t = performance.now() / 1000;
+    const speed = Math.min(1600, Math.hypot(st.vx, st.vy));
+    const e = st.energy;
+    const i0 = Math.floor((st.x - R - ox) / spacing) - 1, i1 = Math.ceil((st.x + R - ox) / spacing) + 1;
+    const j0 = Math.floor((st.y - R - oy) / spacing) - 1, j1 = Math.ceil((st.y + R - oy) / spacing) + 1;
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const px = ox + i * spacing, py = oy + j * spacing;
+        const dx = px - st.x, dy = py - st.y;
+        const d = Math.hypot(dx, dy);
+        if (d > R + r * 3) continue;
+        const f = d < R ? (1 - d / R) ** 2 : 0;     // 1 at the mouse, 0 at the edge: no seam
+        const nx = d ? dx / d : 0, ny = d ? dy / d : 0;
+        // Pushed aside, carried along a little behind the mouse, with a slow swirl.
+        const push = 10 * f * e;
+        const carry = 0.012 * f * e;
+        const swirl = 3 * f * e * Math.sin(t * 2.4 + d * 0.05);
+        const x = px + nx * push + st.vx * carry - ny * swirl;
+        const y = py + ny * push + st.vy * carry + nx * swirl;
+        g.circle(x, y, r * (1 + 0.5 * f * e * Math.min(1, speed / 600 + 0.3))).fill({ color: this.dotColour, alpha: 1 - 0.25 * f * e });
+      }
+    }
+    this.app.renderer.render({ container: g, target, clear: false });
+  }
+
+  // Redraw just one pane (used for the stirring, so the rest of the window isn't redrawn).
+  renderPane(pane) {
+    const view = this.views.get(pane);
+    if (!view || pane.type !== 'board' || !this.layout.visiblePanes().includes(pane)) return;
+    const cam = pane.camera;
+    const board = this.boardOf(pane);
+    board.drawOverlay(cam.zoom);
+    this.drawDots(pane, view.texture);
+    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
+    this.app.renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
+    this.app.render();
   }
 
   // Draw the board into every visible pane, then put the panes on screen.

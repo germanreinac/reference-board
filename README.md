@@ -216,6 +216,10 @@ the edge for a moment while the gap bulges, then breaks through with a splash. I
 showing the same board it carries on there; into another board's pane, a floating copy
 follows the mouse and a copy lands on that board.
 
+Moving the mouse over the dotted background stirs it gently: the dots near the mouse drift
+aside and trail behind the way you move, like water or fog, then settle back into the grid.
+Only the pane under the mouse is redrawn for it.
+
 Turn it off with **Liquid motion** in the right-click menu (then everything happens at
 once). It's off from the start if your computer is set to reduce motion.
 

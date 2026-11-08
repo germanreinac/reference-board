@@ -3005,6 +3005,8 @@ panesEl.addEventListener('pointermove', (e) => {
   if (!drag) {
     // Show which handle the mouse is over.
     const pane = viewports.paneFromElement(e.target);
+    // Stir the dotted background a little (see viewports.stir).
+    if (pane?.type === 'board' && !presenting) viewports.stir(pane, e.clientX - pane.rect.x, e.clientY - pane.rect.y);
     let over = null;
     if (pane?.type === 'board' && toolbar.tool === 'select' && docOfPane(pane) === activeDoc) {
       const p = localPoint(pane, e);

@@ -643,9 +643,9 @@ body[data-mode="board"] #home { display: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1040px;
+  max-width: 2200px;
   margin: 0 auto;
-  padding: 18px 24px;
+  padding: 18px clamp(24px, 4vw, 64px);
 }
 .brand {
   display: flex;
@@ -666,10 +666,12 @@ body[data-mode="board"] #home { display: none; }
 .text-button:hover { background: var(--panel); }
 
 .home-main {
-  max-width: 1040px;
+  /* Use the width of wide screens: more boards per row, not a narrow column. */
+  max-width: 2200px;
   margin: 0 auto;
-  padding: 24px 24px 64px;
+  padding: 24px clamp(24px, 4vw, 64px) 64px;
 }
+.home-main .home-note, .home-main .drive-progress { max-width: 760px; }
 .home-main h1 {
   margin: 0 0 20px;
   color: var(--text-strong);
@@ -679,8 +681,8 @@ body[data-mode="board"] #home { display: none; }
 
 .board-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
 }
 
 .board-card {
