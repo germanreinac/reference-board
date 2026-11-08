@@ -13,6 +13,9 @@
     { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "shortcuts": [
+    { "name": "Save photos to a board", "short_name": "Save photos", "url": "./#/add", "icons": [{ "src": "icons/192.png", "sizes": "192x192" }] }
+  ],
   "file_handlers": [
     {
       "action": "./",

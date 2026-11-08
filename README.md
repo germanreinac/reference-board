@@ -248,6 +248,29 @@ A `.refboard` file is a normal zip file, so you can also unzip it to get the ima
 Some websites block other pages from loading their images. If dragging one in
 doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 
+## Google Drive and your phone
+
+**Connect Google Drive** (the cloud button on the home screen or in the top bar) keeps your boards
+in your own Google Drive, in a folder called **Art Direction**, with a folder for each board
+holding its images. Then they're on every computer where you open artdirection.io and connect
+the same Google account. Nothing goes through anyone else's server: the app talks to Google
+straight from your browser, and it can only see the files it makes, not the rest of your Drive.
+
+- It syncs when the app opens, every few minutes, when you come back to the tab, and shortly
+  after you change something. The cloud button shows ✓ when everything is up to date.
+- A board that's open stays as it is while you work; changes made on another computer arrive
+  the next time you open it. If a board changed in two places, the latest change wins.
+- Google asks you to confirm about once an hour. When the cloud button turns orange, click it.
+- Deleting a board here sends its Drive folder to Drive's bin (you can restore it for 30 days).
+- Fonts you uploaded stay on the computer you added them on.
+
+**Saving from your phone:** open **artdirection.io/#/add** (on iPhone: in Safari, then Share →
+**Add to Home Screen**). Connect Google Drive once. Then, whenever you see something you like
+(Instagram, Pinterest, anywhere), save it or take a screenshot, open Art Direction, **Choose
+photos**, pick a board and save. The photos appear on that board on your computer, in view,
+the next time you open it. (Phones don't let web apps appear in the Share menu, so this is
+the quickest way that works on iPhone.)
+
 ## Browser extension
 
 Send any image from any website to a board with one click, or capture part of a page,
@@ -290,7 +313,8 @@ Chrome may remind you that a developer-mode extension is on; that's expected.)
 - ✅ Shapes, arrows, frames, groups, align, copy and paste
 - ✅ Present mode
 - ✅ Snapping, tabs, a different board in each pane, backups, installing as an app
-- ⏳ Saving to a folder or Google Drive (your own storage), then a phone view
+- ✅ Google Drive sync and saving photos from the phone
+- ⏳ A phone view for browsing boards
 
 ## How the code is organised
 

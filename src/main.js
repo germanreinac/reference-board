@@ -11,6 +11,7 @@ import { Board } from './board.js';
 import { Camera } from './camera.js';
 import { openCompare, compareOpen } from './compare.js';
 import { motionOn, setMotion, averageColour } from './liquid.js';
+import * as drive from './drive.js';
 import { Layout } from './layout.js';
 import { Viewports } from './viewports.js';
 import { Home } from './home.js';
@@ -235,6 +236,7 @@ function contentChanged() {
   current.updated = Date.now();
   activeDoc.thumbStale = true;
   scheduleSave();
+  syncSoon();
 }
 
 // Only the view changed (pan, zoom, panes). Remembered, but doesn't change "last edited".
@@ -1269,6 +1271,12 @@ async function doRoute() {
     location.replace(`#/board/${await inboxId()}`);
     return doRoute();
   }
+  if (location.hash.startsWith('#/add')) {
+    await leaveBoard();
+    setMode('add');
+    showAddPage();
+    return;
+  }
   const id = location.hash.match(/^#\/board\/([\w-]+)/)?.[1];
   if (id) {
     if (mainDoc?.meta.id !== id) {
@@ -1293,6 +1301,8 @@ async function openBoardNow(id) {
   openBoard(id);
   await route();
 announceBoards();
+updateDriveButton();
+syncNow();
 }
 
 // "Untitled board", "Untitled board 2", ...
@@ -1334,6 +1344,7 @@ async function renameBoard(id, name) {
 
 async function deleteBoard(id, name) {
   if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  drive.removeBoard(await store.getBoard(id));
   await store.deleteBoard(id);
   tabIds = tabIds.filter((t) => t !== id);
   saveTabs();
@@ -1425,6 +1436,175 @@ async function exportBoard(id) {
   } catch (err) {
     toast(err.message || "Couldn't save the board.");
   }
+}
+
+// ---------- Google Drive ----------
+//
+// Boards sync with your own Google Drive (see src/drive.js): when the app opens, every
+// 3 minutes, when you come back to the tab, and shortly after you change something.
+
+const driveButton = document.getElementById('drive-button');
+let driveState = drive.isConnected() ? 'idle' : 'off';
+let lastSynced = 0;
+const driveHooks = {
+  beforeSync: () => saveNow(),
+  isOpen: (id) => docs.has(id),
+  queueForBoard: (id, blob, name, src) => receiveBlob(id, blob, name, src),
+  boardsChanged: () => { if (mode === 'home') home.refresh(); renderTabs(); announceBoards(); },
+  onStatus: (state, detail) => {
+    driveState = state;
+    if (state === 'synced') lastSynced = Date.now();
+    if (state === 'error') console.warn('Drive:', detail);
+    updateDriveButton();
+  },
+};
+// The open boards keep their Drive details in memory too, so saving doesn't undo them.
+window.addEventListener('drive-updated', (e) => {
+  const d = docs.get(e.detail.boardId);
+  if (d) d.meta.drive = e.detail.drive;
+});
+
+function syncNow() {
+  if (!drive.isConnected() || mode === 'add') return Promise.resolve();
+  return drive.sync(driveHooks);
+}
+let syncTimer;
+function syncSoon() {
+  if (!drive.isConnected()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 15000);
+}
+setInterval(syncNow, 180000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
+
+async function connectDrive() {
+  try {
+    await drive.connect();
+    if (mode === 'add') { toast('Connected to Google Drive ✓', 2000); return; }
+    toast('Connected to Google Drive. Your boards are being copied to an "Art Direction" folder…', 3500);
+    await syncNow();
+    if (driveState === 'synced') toast('Your boards are in Google Drive ✓', 2500);
+  } catch (err) {
+    toast(err.message || "Couldn't connect to Google Drive.", 4000);
+  }
+  updateDriveButton();
+}
+
+function updateDriveButton() {
+  for (const el of document.querySelectorAll('.drive-status')) {
+    el.dataset.state = drive.isConnected() ? (drive.needsReconnect() && driveState !== 'syncing' ? 'reconnect' : driveState) : 'off';
+    const mins = lastSynced ? Math.round((Date.now() - lastSynced) / 60000) : null;
+    el.title = {
+      off: 'Google Drive: not connected. Click to keep your boards in your own Drive',
+      syncing: 'Google Drive: syncing…',
+      synced: `Google Drive: synced${mins === null ? '' : mins < 1 ? ' just now' : ` ${mins} min ago`}`,
+      idle: 'Google Drive: connected',
+      reconnect: 'Google Drive: click to reconnect (Google asks again about every hour)',
+      error: "Google Drive: couldn't sync. Click for options",
+    }[el.dataset.state] || 'Google Drive';
+  }
+}
+
+function driveMenu(x, y) {
+  if (!drive.isConnected()) {
+    showMenu(x, y, [
+      { label: 'Connect Google Drive…', action: connectDrive },
+      { label: 'Your boards are copied to a folder in your own Drive, so they follow you to other computers and your phone. The app can only see the files it makes.', disabled: true },
+    ]);
+    return;
+  }
+  showMenu(x, y, [
+    ...(drive.needsReconnect() || driveState === 'reconnect' ? [{ label: 'Reconnect Google Drive', action: connectDrive }] : []),
+    { label: 'Sync now', action: async () => { await syncNow(); toast(driveState === 'synced' ? 'Synced with Google Drive ✓' : "Couldn't sync right now.", 2000); } },
+    { label: 'Open the folder in Google Drive', action: () => window.open(drive.driveFolderUrl(), '_blank', 'noopener') },
+    { label: 'Save photos from your phone…', action: () => { location.hash = '#/add'; } },
+    '-',
+    { label: 'Disconnect', action: () => { if (confirm('Disconnect Google Drive? Your boards stay here and in Drive; they just stop syncing.')) { drive.disconnect(); driveState = 'off'; updateDriveButton(); } } },
+  ]);
+}
+for (const el of document.querySelectorAll('.drive-status')) {
+  el.addEventListener('click', (e) => {
+    if (drive.isConnected() && (drive.needsReconnect() || driveState === 'reconnect')) { connectDrive(); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    driveMenu(Math.max(8, r.right - 260), r.bottom + 4);
+  });
+}
+setInterval(updateDriveButton, 30000);
+
+// ---------- The phone page: save photos to a board ----------
+//
+// artdirection.io/#/add — made for the phone (add it to the home screen). Pick photos
+// (screenshots, saved images), pick a board, done: they go to the board's Drive folder
+// and appear on the board on your computer. Without Drive, it saves to this browser's boards.
+
+let addFiles = [];
+let addBoard = null;
+async function showAddPage() {
+  const page = document.getElementById('add-page');
+  const list = page.querySelector('.add-boards');
+  const status = page.querySelector('.add-status');
+  page.querySelector('.add-connect').hidden = drive.isConnected() && !drive.needsReconnect();
+  status.textContent = '';
+  // Boards: from Drive when connected, plus the ones in this browser.
+  let boards = [];
+  if (drive.isConnected()) {
+    boards = drive.knownBoards();
+    drive.listDriveBoards().then((b) => { if (b.length) drawAddBoards(b); }).catch(() => {});
+  }
+  const local = (await store.listBoards()).sort((a, b) => b.updated - a.updated).map((b) => ({ id: b.id, name: b.name, local: true }));
+  for (const b of local) if (!boards.some((x) => x.id === b.id)) boards.push(b);
+  drawAddBoards(boards);
+  updateAddButton();
+}
+function drawAddBoards(boards) {
+  const list = document.querySelector('#add-page .add-boards');
+  list.replaceChildren(...boards.map((b) => {
+    const el = document.createElement('button');
+    el.className = 'add-board';
+    el.textContent = b.name;
+    el.classList.toggle('on', addBoard?.id === b.id);
+    el.addEventListener('click', () => { addBoard = b; drawAddBoards(boards); updateAddButton(); });
+    return el;
+  }));
+  if (!boards.length) list.innerHTML = '<p class="add-empty">No boards yet. Make one on your computer first (and connect Google Drive there).</p>';
+}
+function updateAddButton() {
+  const send = document.querySelector('#add-page .add-send');
+  send.disabled = !addFiles.length || !addBoard;
+  send.textContent = !addFiles.length ? 'Choose photos first' : !addBoard ? 'Pick a board' : `Save ${addFiles.length} to ${addBoard.name}`;
+  document.querySelector('#add-page .add-count').textContent = addFiles.length ? `${addFiles.length} chosen` : '';
+  const thumbs = document.querySelector('#add-page .add-thumbs');
+  for (const img of thumbs.querySelectorAll('img')) URL.revokeObjectURL(img.src);
+  thumbs.replaceChildren(...addFiles.slice(0, 12).map((f) => Object.assign(document.createElement('img'), { src: URL.createObjectURL(f), alt: '' })));
+}
+{
+  const page = document.getElementById('add-page');
+  const input = page.querySelector('.add-input');
+  page.querySelector('.add-pick').addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { addFiles = [...input.files].filter((f) => f.type.startsWith('image/')); updateAddButton(); });
+  page.querySelector('.add-connect').addEventListener('click', async () => { await connectDrive(); showAddPage(); });
+  page.querySelector('.add-send').addEventListener('click', async () => {
+    const status = page.querySelector('.add-status');
+    const send = page.querySelector('.add-send');
+    send.disabled = true;
+    let done = 0;
+    try {
+      for (const f of addFiles) {
+        status.textContent = `Saving ${done + 1} of ${addFiles.length}…`;
+        const viaDrive = drive.isConnected() && !addBoard.local;
+        if (viaDrive) await drive.sendPhoto(addBoard.id, f);
+        else await queueForBoard(addBoard.id, f, f.name.replace(/\.[a-z0-9]+$/i, ''), '');
+        done++;
+      }
+      status.textContent = `Saved ${done} to ${addBoard.name} ✓${drive.isConnected() && !addBoard.local ? ' They\'ll appear on the board on your computer.' : ''}`;
+      addFiles = [];
+      input.value = '';
+      updateAddButton();
+    } catch (err) {
+      status.textContent = `${err.message || "Couldn't save."}${done ? ` (${done} saved)` : ''}`;
+      send.disabled = false;
+    }
+  });
 }
 
 // ---------- Backing up every board ----------
@@ -1854,21 +2034,24 @@ async function receive(item) {
     if (mode === 'board' && current) boardId = current.id;
     else boardId = await inboxId();
   }
-  const name = item.name || 'image';
-  const doc = docs.get(boardId);
-  if (doc) {
-    // It's on screen: add it right away, where you can see it.
-    activate(doc);
-    await addBlobToBoard(blob, name, item.sourceUrl || '');
-  } else {
-    // Not open: it waits on that board and is placed next time you open it.
-    await queueForBoard(boardId, blob, name, item.sourceUrl || '');
-    if (mode === 'home') home.refresh();
-    renderTabs();
-  }
+  await receiveBlob(boardId, blob, item.name || 'image', item.sourceUrl || '');
   const record = await store.getBoard(boardId);
   toast(`Saved to ${record?.name || 'the board'}`, 1600);
   announceBoards();
+}
+
+// Put a picture on a board: right away if it's on screen, otherwise it waits on the
+// board and is placed the next time it's opened.
+async function receiveBlob(boardId, blob, name, sourceUrl) {
+  const doc = docs.get(boardId);
+  if (doc) {
+    activate(doc);
+    await addBlobToBoard(blob, name, sourceUrl);
+  } else {
+    await queueForBoard(boardId, blob, name, sourceUrl);
+    if (mode === 'home') home.refresh();
+    renderTabs();
+  }
 }
 
 // ---------- Images waiting on a board that isn't open ----------
@@ -2839,6 +3022,7 @@ function openMenu(x, y, pane) {
   const settingsMenu = [
     { label: currentTheme() === 'light' ? 'Dark mode' : 'Light mode', action: toggleTheme },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
+    { label: drive.isConnected() ? 'Google Drive: connected ✓' : 'Connect Google Drive…', action: () => (drive.isConnected() ? driveMenu(x, y) : connectDrive()) },
     { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
     '-',
     ...(isInstalled() ? [] : [{ label: 'Install as an app…', action: installApp }]),

@@ -1554,3 +1554,75 @@ body[data-motion="on"] #toast:not(.show) { transform: translate(-50%, 14px) scal
 /* Submenus: the › row stays highlighted while its submenu is open */
 .menu-item.has-sub kbd { opacity: 0.5; font-size: 14px; line-height: 1; }
 .menu-item.open:not(:disabled) { background: rgba(128, 128, 128, 0.18); }
+
+/* ---------- Google Drive status (home screen and top bar) ---------- */
+
+.drive-status { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#drive-button { height: 26px; padding: 0 7px; border: 0; border-radius: 5px; background: none; color: inherit; }
+#drive-button:hover { background: rgba(128, 128, 128, 0.12); color: var(--text-strong); }
+.drive-status svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.drive-status .tick { opacity: 0; }
+.drive-status[data-state="off"] svg { opacity: 0.55; }
+.drive-status[data-state="synced"] .tick, .drive-status[data-state="idle"] .tick { opacity: 1; }
+.drive-status[data-state="synced"] { color: #3fb37f; }
+.drive-status[data-state="syncing"] svg { animation: drive-pulse 1s ease-in-out infinite; color: var(--accent); }
+.drive-status[data-state="reconnect"], .drive-status[data-state="error"] { color: #e0a040; }
+@keyframes drive-pulse { 50% { opacity: 0.35; } }
+.add-link { display: none; text-decoration: none; }
+@media (max-width: 700px) { .add-link { display: inline-flex; align-items: center; } }
+
+/* ---------- The phone page (#/add) ---------- */
+
+#add-page { display: none; }
+body[data-mode="add"] #home,
+body[data-mode="add"] #stage,
+body[data-mode="add"] #panes,
+body[data-mode="add"] #board-bar,
+body[data-mode="add"] #empty-hint,
+body[data-mode="add"] #toolbar,
+body[data-mode="add"] #selection-bar,
+body[data-mode="add"] #brush-cursor { display: none !important; }
+body[data-mode="add"] { overflow: auto; background: var(--bg); }
+body[data-mode="add"] #add-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  max-width: 520px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  font-size: 15px;
+}
+.add-head { display: flex; justify-content: space-between; align-items: center; opacity: 0.7; font-size: 13px; }
+.add-back { color: var(--accent); text-decoration: none; }
+#add-page h1 { margin: 6px 0 4px; font-size: 22px; color: var(--text-strong); }
+#add-page h2 { margin: 8px 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
+#add-page button { font: inherit; cursor: pointer; }
+.add-pick, .add-send, .add-connect {
+  min-height: 52px;
+  border: 0;
+  border-radius: var(--radius-l, 16px);
+  font-weight: 600 !important;
+}
+.add-pick { background: var(--card); color: var(--text-strong); border: 1px dashed var(--border-strong) !important; }
+.add-connect { background: #fff; color: #1f1f22; }
+.add-connect[hidden] { display: none; }
+.add-send { background: var(--accent); color: #fff; }
+.add-send:disabled { opacity: 0.45; cursor: default; }
+.add-picked { display: flex; flex-direction: column; gap: 8px; }
+.add-count { font-size: 13px; opacity: 0.7; }
+.add-count:empty { display: none; }
+.add-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
+.add-thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.add-boards { display: flex; flex-wrap: wrap; gap: 8px; }
+.add-board {
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text-strong);
+}
+.add-board.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.add-status { min-height: 1.4em; margin: 0; color: var(--text-strong); }
+.add-help, .add-empty { margin: 8px 0 0; font-size: 13px; line-height: 1.5; opacity: 0.65; }
