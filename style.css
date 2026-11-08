@@ -637,11 +637,20 @@ body[data-mode="board"] #home { display: none; }
 }
 .brand {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   color: var(--text-strong);
-  font-weight: 500;
 }
+.wordmark {
+  font-family: "Space Grotesk", Inter, system-ui, sans-serif;
+  font-size: clamp(34px, 4.2vw, 64px);
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.wordmark span { color: var(--accent); }
+.brand-sub { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--text); }
+.home-header { align-items: flex-start; }
 
 .text-button {
   padding: 5px 10px;

@@ -183,7 +183,7 @@ const nameInput = document.getElementById('board-name');
 function updateTitle() {
   const main = mainDoc?.meta;
   if (document.activeElement !== nameInput) nameInput.value = main?.name || '';
-  document.title = main ? `${main.name} – Reference Board` : 'Reference Board';
+  document.title = main ? `${main.name} – artdirection.io` : 'artdirection.io · Reference Board';
   renderTabs();
 }
 

@@ -90,37 +90,56 @@ export function push(axis, x, y, t, now) {
   return d;
 }
 
-// The outline of a pane as an SVG path: a rounded rectangle whose sides follow the
-// liquid. `t` (seconds) and `now` (ms) say where the waves are; motion off = still waves.
-export function paneOutline({ x, y, w, h }, t = 0, now = 0) {
+// The outline of a pane: a rounded rectangle whose sides follow the liquid, as a flat list
+// of points [x, y, x, y, …]. Used both to draw the gaps (SVG) and to cut each pane's
+// picture to the same shape, so the edge itself moves. `t` (seconds) and `now` (ms) say
+// where the waves are; with motion off the waves stand still.
+export function paneOutlinePoints({ x, y, w, h }, t = 0, now = 0) {
   const R = Math.min(CORNER, w / 2, h / 2);
   const k = R * 0.2;
   const pts = [];
-  // A side from (ax, ay) to (bx, by). Upright sides move along x, flat sides along y.
   const side = (ax, ay, bx, by, axis) => {
     const len = Math.hypot(bx - ax, by - ay);
     const n = Math.max(2, Math.min(40, Math.round(len / 22)));
     for (let s = 1; s <= n; s++) {
       const u = s / n;
       const px = ax + (bx - ax) * u, py = ay + (by - ay) * u;
-      // Fade the waves out over the last bit before each corner, so corners stay put.
-      const edgeDist = Math.min(u, 1 - u) * len;
-      const fade = Math.min(1, edgeDist / 40);
+      const fade = Math.min(1, (Math.min(u, 1 - u) * len) / 40);   // corners stay put
       const d = push(axis, px, py, t, now) * fade;
-      pts.push(axis === 'x' ? `L${(px + d).toFixed(1)} ${py.toFixed(1)}` : `L${px.toFixed(1)} ${(py + d).toFixed(1)}`);
+      if (axis === 'x') pts.push(px + d, py); else pts.push(px, py + d);
     }
   };
-  pts.push(`M${x + R} ${y}`);
-  side(x + R, y, x + w - R, y, 'y');                                       // top
-  pts.push(`C${x + w - k} ${y} ${x + w} ${y + k} ${x + w} ${y + R}`);
-  side(x + w, y + R, x + w, y + h - R, 'x');                               // right
-  pts.push(`C${x + w} ${y + h - k} ${x + w - k} ${y + h} ${x + w - R} ${y + h}`);
-  side(x + w - R, y + h, x + R, y + h, 'y');                               // bottom
-  pts.push(`C${x + k} ${y + h} ${x} ${y + h - k} ${x} ${y + h - R}`);
-  side(x, y + h - R, x, y + R, 'x');                                       // left
-  pts.push(`C${x} ${y + k} ${x + k} ${y} ${x + R} ${y}Z`);
-  return pts.join('');
+  // A smooth corner (a cubic curve), sampled.
+  const corner = (x0, y0, c1x, c1y, c2x, c2y, x1, y1) => {
+    for (let s = 1; s <= 6; s++) {
+      const u = s / 6, v = 1 - u;
+      pts.push(v * v * v * x0 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * x1,
+        v * v * v * y0 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * y1);
+    }
+  };
+  pts.push(x + R, y);
+  side(x + R, y, x + w - R, y, 'y');
+  corner(x + w - R, y, x + w - k, y, x + w, y + k, x + w, y + R);
+  side(x + w, y + R, x + w, y + h - R, 'x');
+  corner(x + w, y + h - R, x + w, y + h - k, x + w - k, y + h, x + w - R, y + h);
+  side(x + w - R, y + h, x + R, y + h, 'y');
+  corner(x + R, y + h, x + k, y + h, x, y + h - k, x, y + h - R);
+  side(x, y + h - R, x, y + R, 'x');
+  corner(x, y + R, x, y + k, x + k, y, x + R, y);
+  return pts;
 }
+
+// The same outline as an SVG path.
+export function paneOutline(rect, t = 0, now = 0) {
+  const p = paneOutlinePoints(rect, t, now);
+  let d = `M${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
+  for (let i = 2; i < p.length; i += 2) d += `L${p[i].toFixed(1)} ${p[i + 1].toFixed(1)}`;
+  return `${d}Z`;
+}
+
+// How far past its box a pane's picture is drawn, so a wave can push the edge outward
+// and still show the board (not the end of the picture).
+export const BLEED = 18;
 
 // The average colour of a picture, for the splash when it lands.
 export function averageColour(bitmap) {

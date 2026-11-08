@@ -14,7 +14,7 @@
 import { RenderTexture, Sprite, Matrix, TilingSprite, Texture, Graphics } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
-import { paneOutline, ripple, rippling, spring, motionOn } from './liquid.js';
+import { paneOutline, paneOutlinePoints, BLEED, ripple, rippling, spring, motionOn } from './liquid.js';
 
 const ICONS = {
   'split-row': '<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>',
@@ -92,6 +92,7 @@ export class Viewports {
         view.editor?.destroy();
         view.el.remove();
         view.sprite.destroy();
+        view.mask.destroy();
         view.texture.destroy(true);
         this.views.delete(pane);
       }
@@ -138,8 +139,11 @@ export class Viewports {
 
     const texture = RenderTexture.create({ width: 1, height: 1, resolution: this.app.renderer.resolution });
     const sprite = new Sprite(texture);
-    this.app.stage.addChild(sprite);
-    return { el, zoomEl, tools, host, label, texture, sprite, editor: null, editorType: 'board' };
+    // The pane's picture is cut to its liquid outline, so the edge itself moves with the waves.
+    const mask = new Graphics();
+    this.app.stage.addChild(sprite, mask);
+    sprite.mask = mask;
+    return { el, zoomEl, tools, host, label, texture, sprite, mask, editor: null, editorType: 'board' };
   }
 
   // Make sure a pane shows the right thing: the board, or a tool.
@@ -278,8 +282,10 @@ export class Viewports {
       }
       view.tools.querySelector('[data-action="maximize"]').innerHTML = this.layout.maximized ? ICONS.restore : ICONS.maximize;
       // Match the off-screen picture to the pane's size.
-      const tw = Math.max(1, Math.round(r.w));
-      const th = Math.max(1, Math.round(r.h));
+      // Drawn BLEED pixels past the pane's box on every side (under the gaps), so when a
+      // wave pushes the edge outward there's board to show, not the end of the picture.
+      const tw = Math.max(1, Math.round(r.w + BLEED * 2));
+      const th = Math.max(1, Math.round(r.h + BLEED * 2));
       if (view.texture.width !== tw || view.texture.height !== th) {
         // Make a new picture at the new size. (Resizing the old one in place leaves
         // PixiJS drawing at the old size, which squashes the view.)
@@ -288,7 +294,7 @@ export class Viewports {
         view.sprite.texture = view.texture;
         old.destroy(true);
       }
-      view.sprite.position.set(r.x, r.y);
+      view.sprite.position.set(r.x - BLEED, r.y - BLEED);
     }
 
     for (const { split, el } of this.dividers) {
@@ -326,8 +332,20 @@ export class Viewports {
     const w = window.innerWidth, h = window.innerHeight;
     const t = motionOn() ? now / 1000 : 0;
     const parts = [`M-40 -40H${w + 40}V${h + 40}H-40Z`];
-    for (const pane of this.layout.visiblePanes()) if (pane.rect) parts.push(paneOutline(pane.rect, t, now));
+    for (const pane of this.layout.visiblePanes()) {
+      if (!pane.rect) continue;
+      const pts = paneOutlinePoints(pane.rect, t, now);
+      let d = `M${pts[0].toFixed(1)} ${pts[1].toFixed(1)}`;
+      for (let i = 2; i < pts.length; i += 2) d += `L${pts[i].toFixed(1)} ${pts[i + 1].toFixed(1)}`;
+      parts.push(`${d}Z`);
+      const view = this.views.get(pane);
+      if (!view) continue;
+      // Presenting: plain, full-size slides (no liquid edges).
+      if (document.body.classList.contains('presenting')) view.mask.clear().rect(pane.rect.x, pane.rect.y, pane.rect.w, pane.rect.h).fill(0xffffff);
+      else view.mask.clear().poly(pts).fill(0xffffff);
+    }
     this.edgePath.setAttribute('d', parts.join(''));
+    this.app.render();   // put the panes back on screen with their new edges (cheap: no board redraw)
     const drops = this.junctions.filter((j) => j.el.isConnected).map((j, i) => {
       const r = (j.el.classList.contains('dragging') ? 13 : 9) + Math.sin(t * 1.7 + i) * 1.2;
       return `M${j.x - r} ${j.y}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0Z`;
@@ -406,13 +424,13 @@ export class Viewports {
     const level = Math.round(-Math.log2(cam.zoom));
     const spacing = 24 * 2 ** level * cam.zoom;    // on screen, in pixels
     const d = this.dots;
-    d.width = pane.rect.w;
-    d.height = pane.rect.h;
+    d.width = pane.rect.w + BLEED * 2;
+    d.height = pane.rect.h + BLEED * 2;
     d.tint = this.dotColour;
     d.alpha = this.hideDots ? 0 : 1;   // Present mode shows a plain background
     d.tileScale.set(spacing / DOT_CELL);
     // Keep the dots fixed to the board as you pan.
-    d.tilePosition.set(cam.x % spacing, cam.y % spacing);
+    d.tilePosition.set((cam.x + BLEED) % spacing, (cam.y + BLEED) % spacing);
     this.app.renderer.render({ container: d, target, clear: true, clearColor: this.background });
     if (this.stirState.pane === pane && this.stirState.trail?.length && !this.hideDots) this._drawStir(pane, target, spacing);
   }
@@ -502,6 +520,7 @@ export class Viewports {
         g.circle(px + dx, py + dy, r * (1 + 0.45 * near)).fill({ color: this.dotColour, alpha: 1 - 0.22 * near });
       }
     }
+    g.position.set(BLEED, BLEED);   // the picture starts BLEED before the pane's box
     this.app.renderer.render({ container: g, target, clear: false });
   }
 
@@ -513,7 +532,7 @@ export class Viewports {
     const board = this.boardOf(pane);
     board.drawOverlay(cam.zoom);
     this.drawDots(pane, view.texture);
-    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
+    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x + BLEED, cam.y + BLEED);
     this.app.renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
     this.app.render();
   }
@@ -528,7 +547,7 @@ export class Viewports {
       const board = this.boardOf(pane);
       board.drawOverlay(cam.zoom);
       this.drawDots(pane, view.texture);
-      this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
+      this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x + BLEED, cam.y + BLEED);
       renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
       view.zoomEl.textContent = `${Math.round(cam.zoom * 100)}%`;
     }
