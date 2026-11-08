@@ -1970,7 +1970,7 @@ const HELP = [
     ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'artdirection.io/#/add'],
   ]],
   ['Tools', [
-    ['Select and move', 'V'], ['Hand', 'H'], ['Pen', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
+    ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
   ]],
   ['Selection', [
     ['Select several', 'Shift-click, or Shift-drag a box'], ['Select all', 'Ctrl/⌘ + A'], ['Duplicate / copy', 'Ctrl/⌘ + D / C'],
@@ -2971,21 +2971,52 @@ function updateCursor() {
 }
 
 // Remove the strokes under the eraser.
+// The eraser rubs out only the part of a stroke it touches: the rest of the stroke stays,
+// split in two if the eraser went through its middle.
 function eraseAt(pane, e) {
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const radius = toolbar.state.eraserSize / 2 / pane.camera.zoom;
   for (const s of board.strokesAt(w.x, w.y, radius)) {
+    const reach = radius + s.size * 0.35;
+    const runs = [];
+    let run = [];
+    for (let i = 0; i < s.points.length; i += 3) {
+      const gone = Math.hypot(s.points[i] - w.x, s.points[i + 1] - w.y) <= reach;
+      if (gone) { if (run.length) runs.push(run); run = []; }
+      else run.push(s.points[i], s.points[i + 1], s.points[i + 2]);
+    }
+    if (run.length) runs.push(run);
+    const keptAll = runs.length === 1 && runs[0].length === s.points.length;
+    if (keptAll) continue;   // the eraser passed between its points: nothing to rub out
     drag.removed.push(board.strokeJSON(s));
     board.removeStroke(s);
+    for (const pts of runs) {
+      if (pts.length < 6) continue;   // a speck: let it go
+      const piece = board.addStroke({ points: pts, color: s.color, size: s.size, simulatePressure: s.simulatePressure });
+      drag.added.push(piece.id);
+    }
   }
 }
 
+// One point of a stroke being drawn. Points closer together than about half a pixel on
+// screen are skipped (they only add jitter). Shift draws a straight line from the start.
 function addPoint(stroke, pane, e) {
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
-  const pressure = e.pointerType === 'pen' ? Math.max(0.05, e.pressure) : 0.5;
-  stroke.points.push(w.x, w.y, pressure);
+  const pressure = e.pointerType === 'pen' ? 0.15 + 0.85 * Math.max(0.05, e.pressure) : 0.5;
+  const pts = stroke.points;
+  if (e.shiftKey && pts.length >= 3) {
+    // A straight line: just the first point and this one (with a few in between, so the
+    // line keeps an even width).
+    const [x0, y0, p0] = pts;
+    pts.length = 0;
+    for (let k = 0; k <= 8; k++) pts.push(x0 + (w.x - x0) * k / 8, y0 + (w.y - y0) * k / 8, p0 + (pressure - p0) * k / 8);
+    return;
+  }
+  const n = pts.length;
+  if (n >= 3 && Math.hypot(pts[n - 3] - w.x, pts[n - 2] - w.y) < 0.6 / pane.camera.zoom) return;
+  pts.push(w.x, w.y, pressure);
 }
 
 panesEl.addEventListener('pointerdown', (e) => {
@@ -3012,7 +3043,7 @@ panesEl.addEventListener('pointerdown', (e) => {
     drag = { kind: 'pan', pane };
   } else if (isPenEraser(e) || (e.button === 0 && tool === 'eraser')) {
     board.selected = null;
-    drag = { kind: 'erase', pane, removed: [] };
+    drag = { kind: 'erase', pane, removed: [], added: [] };
     eraseAt(pane, e);
   } else if (e.button === 0 && tool === 'pen') {
     board.selected = null;
@@ -3172,10 +3203,19 @@ function endDrag() {
     });
     contentChanged();
   } else if (d.kind === 'erase' && d.removed.length) {
-    const removed = d.removed;
+    // Undo puts back the strokes as they were before; redo leaves the pieces that are left.
+    const made = new Set(d.added);
+    const originals = d.removed.filter((s) => !made.has(s.id));
+    const pieces = d.added.map((id) => board.find('stroke', id)).filter(Boolean).map((s) => board.strokeJSON(s));
     history.push({
-      undo: () => removed.forEach((s) => board.addStroke(s)),
-      redo: () => removed.forEach((s) => { const x = board.find('stroke', s.id); if (x) board.removeStroke(x); }),
+      undo: () => {
+        pieces.forEach((s) => { const x = board.find('stroke', s.id); if (x) board.removeStroke(x); });
+        originals.forEach((s) => board.addStroke(s));
+      },
+      redo: () => {
+        originals.forEach((s) => { const x = board.find('stroke', s.id); if (x) board.removeStroke(x); });
+        pieces.forEach((s) => board.addStroke(s));
+      },
     });
     contentChanged();
   } else if (d.kind === 'pan') {

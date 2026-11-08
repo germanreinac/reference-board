@@ -27,7 +27,11 @@ function takeId(id) {
 
 // How pen strokes are shaped. Pressure changes the width; with a mouse the
 // speed of the stroke stands in for pressure.
-const STROKE_SHAPE = { thinning: 0.6, smoothing: 0.5, streamline: 0.45 };
+// How strokes are shaped (perfect-freehand settings). A tablet pen: width follows pressure,
+// gently. A mouse (or a finger): an even line, with no fake pressure from speed, so fast and
+// slow strokes look the same. Light smoothing that doesn't trail behind the cursor.
+const PEN_SHAPE = { thinning: 0.45, smoothing: 0.62, streamline: 0.3, easing: (t) => Math.sin((t * Math.PI) / 2), simulatePressure: false };
+const MOUSE_SHAPE = { thinning: 0, smoothing: 0.62, streamline: 0.35, simulatePressure: false };
 
 // Pick black or white text so a note is readable on its colour.
 function textColourFor(hex) {
@@ -898,7 +902,8 @@ export class Board {
   redrawStroke(stroke, finished = true) {
     const pts = [];
     for (let i = 0; i < stroke.points.length; i += 3) pts.push([stroke.points[i], stroke.points[i + 1], stroke.points[i + 2]]);
-    const outline = getStroke(pts, { ...STROKE_SHAPE, size: stroke.size, simulatePressure: stroke.simulatePressure, last: finished });
+    // (simulatePressure marks strokes drawn without pressure: a mouse or a finger.)
+    const outline = getStroke(pts, { ...(stroke.simulatePressure ? MOUSE_SHAPE : PEN_SHAPE), size: stroke.size, last: finished });
     const g = stroke.graphics;
     g.clear();
     if (outline.length < 3) return;

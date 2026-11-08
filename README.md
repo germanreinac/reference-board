@@ -144,8 +144,8 @@ your mouse is over a search or mannequin pane, so it never covers their buttons.
 | --- | --- |
 | Select and move | `V` |
 | Hand (move around without touching images) | `H`. Space + drag and the middle mouse button also always pan |
-| Pen | `B` (or `P`). Pressure-sensitive with a tablet pen |
-| Eraser | `E`, or flip your tablet pen over. Removes whole strokes |
+| Pen | `B` (or `P`). Pressure-sensitive with a tablet pen; an even line with a mouse. Hold `Shift` for a straight line |
+| Eraser | `E`, or flip your tablet pen over. Rubs out only the part of a stroke it touches |
 | Text | `T`, then click and type. Start with `# `, `## ` or `### ` for a heading, and lines with `- ` become bullets. Click away to finish. The **box** button in the bar puts the text on a coloured block or an outline |
 | Shape | `S`, then drag. Click the shape button again to choose rectangle, ellipse, line or arrow. Shift keeps squares, circles and 45° lines. The bar sets the colour and whether it's filled |
 | Frame | The frame button in the toolbar (or `A`), then drag a box (or click for a 16:9 one). A name longer than the frame carries on round it (top, right, bottom, left); typing stops after one lap (make the frame bigger for more). Double-click anywhere on the name to edit it there. With a frame selected, the bar sets the name's level, font, bold, italic and colour. **Put a frame around** in the bar frames what's selected. Moving a frame moves what's inside it. Double-click its name to rename it |
