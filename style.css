@@ -1738,3 +1738,7 @@ body[data-motion="on"] .divider.dragging::after { opacity: 0; }
 
 /* Typing a frame's title: the box is invisible, the title and its band on the board show it */
 .frame-rename.ghost { opacity: 0 !important; animation: none !important; width: 40px !important; pointer-events: none; }
+
+/* The divider highlight is drawn along the wavy gap (see .divider-glow), never as a straight bar */
+.divider::after { display: none !important; }
+.pane-edges .divider-glow { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }

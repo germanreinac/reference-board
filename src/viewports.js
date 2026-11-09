@@ -14,7 +14,7 @@
 import { RenderTexture, Sprite, Matrix, TilingSprite, Texture, Graphics } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
-import { paneOutline, paneOutlinePoints, BLEED, ripple, rippling, spring, motionOn } from './liquid.js';
+import { paneOutline, paneOutlinePoints, BLEED, ripple, rippling, spring, motionOn, push } from './liquid.js';
 
 const ICONS = {
   'split-row': '<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>',
@@ -68,7 +68,11 @@ export class Viewports {
     this.edgePath.setAttribute('fill-rule', 'evenodd');
     // A drop of liquid where gaps cross, like mercury pooling.
     this.dropPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    this.edges.append(this.edgePath, this.dropPath);
+    // The highlight on a divider you point at or drag: it follows the wavy gap.
+    this.hoverPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.hoverPath.classList.add('divider-glow');
+    this.edges.append(this.edgePath, this.dropPath, this.hoverPath);
+    this.hoverSplit = null;
     this.springs = 0;    // springs moving dividers right now
     this.junctions = []; // handles where dividers meet: drag one to move them all
     // Stirring the dots: the mouse leaves a gentle wake in the dotted background.
@@ -173,6 +177,8 @@ export class Viewports {
   _createDivider(split) {
     const el = document.createElement('div');
     el.className = `divider ${split.dir}`;
+    el.addEventListener('pointerenter', () => { this.hoverSplit = split; this.drawEdges(); });
+    el.addEventListener('pointerleave', () => { if (!el.classList.contains('dragging')) { this.hoverSplit = null; this.drawEdges(); } });
     el.addEventListener('pointerdown', (e) => this._dragSplits(e, el, [split]));
     // Double-click a divider to make both sides equal again.
     el.addEventListener('dblclick', () => {
@@ -203,6 +209,7 @@ export class Viewports {
     };
     const up = (ev) => {
       el.classList.remove('dragging');
+      if (!el.matches(':hover')) { this.hoverSplit = null; this.drawEdges(); }
       ripple(ev.clientX, ev.clientY, 4);
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
@@ -345,6 +352,22 @@ export class Viewports {
       else view.mask.clear().poly(pts).fill(0xffffff);
     }
     this.edgePath.setAttribute('d', parts.join(''));
+    // The divider highlight: the middle of the gap, bending with the same waves.
+    let glow = '';
+    const sp = this.hoverSplit;
+    if (sp && !this.layout.maximized && this.layout.splits().includes(sp) && sp.a.rect && sp.rect) {
+      const a = sp.a.rect, r = sp.rect;
+      const pts = [];
+      if (sp.dir === 'row') {
+        const x = a.x + a.w + GAP / 2;
+        for (let y = r.y + 10; y <= r.y + r.h - 10; y += 14) pts.push([x + push('x', x, y, t, now), y]);
+      } else {
+        const y = a.y + a.h + GAP / 2;
+        for (let x = r.x + 10; x <= r.x + r.w - 10; x += 14) pts.push([x, y + push('y', x, y, t, now)]);
+      }
+      if (pts.length > 1) glow = `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
+    }
+    this.hoverPath.setAttribute('d', glow);
     this.app.render();   // put the panes back on screen with their new edges (cheap: no board redraw)
     const drops = this.junctions.filter((j) => j.el.isConnected).map((j, i) => {
       const r = (j.el.classList.contains('dragging') ? 13 : 9) + Math.sin(t * 1.7 + i) * 1.2;
