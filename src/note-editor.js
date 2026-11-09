@@ -56,7 +56,7 @@ export class NoteEditor {
       transform: note.sprite.rotation ? `rotate(${note.sprite.rotation}rad)` : '',
       transformOrigin: `${(note.width * k) / 2}px ${(note.height * k) / 2}px`,
       // The box grows with the text, up to the width the text wraps at.
-      maxWidth: `${(text ? note.base * 34 : note.fontSize * 16) * k + pad * 2}px`,
+      maxWidth: `${(note.wrap ? note.fontSize * note.wrap : text ? note.base * 34 : note.fontSize * 16) * k + pad * 2}px`,
       minWidth: `${Math.max(note.width * k, note.fontSize * 2 * k)}px`,
       fontFamily: st.fontFamily, fontWeight: st.fontWeight, fontStyle: st.fontStyle, textAlign: note.align || 'left',
       letterSpacing: `${(st.letterSpacing || 0) * k}px`,

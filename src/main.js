@@ -2647,7 +2647,7 @@ function dragTo(d, w, e) {
   } else if (d.kind === 'create') {
     d.moved = true;
     const it = d.item;
-    if (it.kind === 'frame' || it.shape === 'rect' || it.shape === 'ellipse') {
+    if (it.kind === 'frame' || it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star') {
       let wx = w.x - d.start.x, wy = w.y - d.start.y;
       if (e.shiftKey && it.kind === 'shape') { const m = Math.max(Math.abs(wx), Math.abs(wy)); wx = Math.sign(wx || 1) * m; wy = Math.sign(wy || 1) * m; }
       it.sprite.position.set(d.start.x + wx / 2, d.start.y + wy / 2);
@@ -2880,13 +2880,13 @@ function updateTextControls(sel) {
   }
   // Shapes only get a colour and a fill; text gets everything else.
   for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], [data-text="align"], [data-text="box"]')) el.hidden = !isText;
-  textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse'));
+  textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse' || x.shape === 'star'));
   if (isShape) {
     const key = shapes.map((x) => `${x.id}:${x.color}:${x.fill}`).join(',');
     if (key === lastControls) return;
     lastControls = key;
     textControls.querySelector('[data-text="fill"]').classList.toggle('on', shapes.every((x) => x.fill));
-    textControls.querySelector('.sel-colour').style.setProperty('--c', shapes[0].color);
+    textControls.querySelector('.sel-colour').style.setProperty('--c', shapes[0].color === 'ink' ? themeColours().text : shapes[0].color);
     return;
   }
   const n = notes[0];
@@ -3170,11 +3170,11 @@ function endDrag() {
 
   if (d.kind === 'create') {
     const it = d.item;
-    if (!d.moved || (it.kind !== 'shape' || it.shape === 'rect' || it.shape === 'ellipse' ? Math.max(it.w, it.h) : Math.hypot(it.dx, it.dy)) * d.pane.camera.zoom < 6) {
+    if (!d.moved || (it.kind !== 'shape' || it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star' ? Math.max(it.w, it.h) : Math.hypot(it.dx, it.dy)) * d.pane.camera.zoom < 6) {
       // Just a click: a shape or frame of a standard size.
       const z = d.pane.camera.zoom;
       if (it.kind === 'frame') { it.w = 960 / z; it.h = 540 / z; board.drawFrame(it); }
-      else if (it.shape === 'rect' || it.shape === 'ellipse') { it.w = 180 / z; it.h = 120 / z; board.drawShape(it); }
+      else if (it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star') { it.w = 180 / z; it.h = 120 / z; board.drawShape(it); }
       else { it.dx = 180 / z; it.dy = 0; board.drawShape(it); }
       it.sprite.position.set(d.start.x, d.start.y);
     }

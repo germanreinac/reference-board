@@ -5,7 +5,7 @@
 // Layers, from back to front: images, pen strokes, notes, selection outline.
 
 import { Container, Sprite, Texture, ImageSource, Graphics, Text, Rectangle, ColorMatrixFilter, CanvasTextMetrics } from '../vendor/pixi.min.mjs';
-import { getStroke } from '../vendor/perfect-freehand.mjs';
+import { getStroke, getStrokePoints } from '../vendor/perfect-freehand.mjs';
 import { fontStack } from './fonts.js';
 
 // Text levels: size as a multiple of Body text, and default weight.
@@ -104,7 +104,7 @@ export class Board {
 
   // ---------- Shapes ----------
   //
-  // shape: 'rect', 'ellipse', 'line' or 'arrow'. Rectangles and ellipses are w x h;
+  // shape: 'rect', 'ellipse', 'star', 'line' or 'arrow'. Rectangles, ellipses and stars are w x h;
   // lines and arrows go from -(dx, dy)/2 to +(dx, dy)/2 around their centre.
 
   addShape({ id, shape = 'rect', x, y, w = 160, h = 110, dx = 160, dy = 0, color = '#f5f5f5', fill = false, strokeWidth = 3,
@@ -125,12 +125,13 @@ export class Board {
     const g = item.sprite;
     const sw = item.strokeWidth;
     g.clear();
-    const stroke = { width: sw, color: item.color, cap: 'round', join: 'round' };
-    if (item.shape === 'rect' || item.shape === 'ellipse') {
+    const stroke = { width: sw, color: this.paint(item.color), cap: 'round', join: 'round' };
+    if (item.shape === 'rect' || item.shape === 'ellipse' || item.shape === 'star') {
       const { w, h } = item;
       if (item.shape === 'rect') g.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h, 60) * 0.12);
+      else if (item.shape === 'star') g.poly(starPoints(w, h));
       else g.ellipse(0, 0, w / 2, h / 2);
-      if (item.fill) g.fill({ color: item.color, alpha: 0.22 });
+      if (item.fill) g.fill({ color: this.paint(item.color), alpha: 0.22 });
       g.stroke(stroke);
       item.width = w + sw;
       item.height = h + sw;
@@ -409,9 +410,17 @@ export class Board {
     return null;
   }
 
+  // The colour 'ink' follows the theme: dark on a light board, light on a dark one.
+  // (Drawings and arrows brought in from other apps use it, so they stay visible.)
+  paint(colour) {
+    return colour === 'ink' ? this.ink : colour;
+  }
+
   setInk(colour) {
     this.ink = colour;
     for (const f of this.frames) this.drawFrame(f);
+    for (const s of this.strokes) if (s.color === 'ink') this.redrawStroke(s);
+    for (const x of this.shapes) if (x.color === 'ink') this.drawShape(x);
     for (const i of this.items) if (i.captionText) i.captionText.style.fill = colour;
   }
 
@@ -902,19 +911,35 @@ export class Board {
   redrawStroke(stroke, finished = true) {
     const pts = [];
     for (let i = 0; i < stroke.points.length; i += 3) pts.push([stroke.points[i], stroke.points[i + 1], stroke.points[i + 2]]);
-    // (simulatePressure marks strokes drawn without pressure: a mouse or a finger.)
-    const outline = getStroke(pts, { ...(stroke.simulatePressure ? MOUSE_SHAPE : PEN_SHAPE), size: stroke.size, last: finished });
     const g = stroke.graphics;
     g.clear();
-    if (outline.length < 3) return;
-    g.poly(outline.flat()).fill(stroke.color);
+    const colour = this.paint(stroke.color);
+    let outline;
+    if (stroke.simulatePressure) {
+      // Drawn without pressure (a mouse or a finger), so the width never changes: draw the
+      // smoothed path as a round-ended line. (Filling an outline goes wrong where a line
+      // doubles back on itself.)
+      outline = getStrokePoints(pts, { ...MOUSE_SHAPE, size: stroke.size, last: finished }).map((p) => p.point);
+      if (!outline.length) return;
+      if (outline.length === 1) g.circle(outline[0][0], outline[0][1], stroke.size / 2).fill(colour);
+      else {
+        g.moveTo(outline[0][0], outline[0][1]);
+        for (let i = 1; i < outline.length; i++) g.lineTo(outline[i][0], outline[i][1]);
+        g.stroke({ width: stroke.size, color: colour, cap: 'round', join: 'round' });
+      }
+    } else {
+      outline = getStroke(pts, { ...PEN_SHAPE, size: stroke.size, last: finished });
+      if (outline.length < 3) return;
+      g.poly(outline.flat()).fill(colour);
+    }
     // Remember a box around the stroke, for the eraser.
+    const r = stroke.simulatePressure ? stroke.size / 2 : 0;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [x, y] of outline) {
       minX = Math.min(minX, x); minY = Math.min(minY, y);
       maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
     }
-    stroke.box = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    stroke.box = { x: minX - r, y: minY - r, width: maxX - minX + r * 2, height: maxY - minY + r * 2 };
   }
 
   removeStroke(stroke) {
@@ -953,7 +978,7 @@ export class Board {
   // alignment. `base` is the size Body text would have; each level is a multiple of it.
 
   addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index, locked = false,
-    style = 'sticky', font = 'Inter', level = 'body', base, weight, italic = false, align = 'left', scale = 1, rotation = 0, group = null, box = 'none' }) {
+    style = 'sticky', font = 'Inter', level = 'body', base, weight, italic = false, align = 'left', scale = 1, rotation = 0, group = null, box = 'none', wrap = null }) {
     const container = new Container();
     const bg = new Graphics();
     const label = new Text({ text: '', style: { wordWrap: true, breakWords: true } });
@@ -963,7 +988,7 @@ export class Board {
     container.rotation = rotation;
     if (!LEVELS[level]) level = 'body';
     const note = {
-      kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, locked: !!locked, group, box,
+      kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, locked: !!locked, group, box, wrap,
       style: style === 'text' ? 'text' : 'sticky', font, level, italic: !!italic, align,
       base: base || (style === 'text' ? fontSize / LEVELS[level].size : fontSize),
       weight: weight || (style === 'text' ? LEVELS[level].weight : 400),
@@ -997,7 +1022,9 @@ export class Board {
     st.fontStyle = note.italic ? 'italic' : 'normal';
     st.lineHeight = fs * (text ? 1.2 : 1.3);
     st.align = note.align || 'left';
-    st.wordWrapWidth = text ? note.base * 34 : fs * 16;
+    // How wide a line of text can get, in letter sizes. (A note brought in from another
+    // app can have its own width, to keep its shape.)
+    st.wordWrapWidth = fs * (note.wrap || (text ? (note.base / fs) * 34 : 16));
     st.fill = text ? note.color : textColourFor(note.color);
     st.letterSpacing = text && note.level === 'title' ? -fs * 0.02 : 0;
     note.label.text = note.text || ' ';
@@ -1036,6 +1063,7 @@ export class Board {
       ...(n.weight && n.weight !== (n.style === 'text' ? LEVELS[n.level].weight : 400) ? { weight: n.weight } : {}),
       ...(n.italic ? { italic: true } : {}),
       ...(n.box && n.box !== 'none' ? { box: n.box } : {}),
+      ...(n.wrap ? { wrap: n.wrap } : {}),
       ...(n.align && n.align !== 'left' ? { align: n.align } : {}),
       ...(s.scale.x !== 1 ? { scale: s.scale.x } : {}),
       ...(s.rotation ? { rotation: s.rotation } : {}),
@@ -1305,6 +1333,18 @@ export class Board {
       frames: this.frames.map((f) => this.frameJSON(f)),
     };
   }
+}
+
+// A five-pointed star filling a w x h box, as a flat list of points.
+function starPoints(w, h) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 ? 0.4 : 1;
+    // Lower the star a little so its points, not its middle, fill the box.
+    pts.push((Math.cos(a) * r * w) / 2 / 0.951, ((Math.sin(a) * r + 0.095) * h) / 2 / 0.905);
+  }
+  return pts;
 }
 
 function distanceToSegment(px, py, ax, ay, bx, by) {

@@ -6,7 +6,7 @@ export const COLOURS = ['#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '
 
 export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note', KeyS: 'shape', KeyA: 'frame' };
 
-export const SHAPES = ['rect', 'ellipse', 'line', 'arrow'];
+export const SHAPES = ['rect', 'ellipse', 'star', 'line', 'arrow'];
 
 const ICONS = {
   select: '<svg viewBox="0 0 16 16"><path d="M3.5 2.5l9 5-4 1.2-1.8 3.8z"/></svg>',
@@ -14,6 +14,7 @@ const ICONS = {
   text: '<svg viewBox="0 0 16 16"><path d="M3 4V2.8h10V4M8 2.8v10.4M6 13.2h4"/></svg>',
   rect: '<svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/></svg>',
   ellipse: '<svg viewBox="0 0 16 16"><ellipse cx="8" cy="8" rx="5.5" ry="4.5"/></svg>',
+  star: '<svg viewBox="0 0 16 16"><path d="M8 2.2l1.75 3.7 4 .5-2.95 2.75.75 4-3.55-1.95-3.55 1.95.75-4L2.25 6.4l4-.5z"/></svg>',
   line: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3"/></svg>',
   arrow: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3M7.5 3H13v5.5"/></svg>',
   frame: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M2.5 2.4h5.5"/></svg>',
@@ -33,7 +34,7 @@ const TITLES = {
   eraser: 'Eraser (E), or flip your tablet pen over',
   text: 'Text (T): click to write. Start a line with # , ## or ### for headings',
   note: 'Sticky note (N): click to add a note',
-  shape: 'Shape (S): drag to draw. Click again to choose rectangle, ellipse, line or arrow',
+  shape: 'Shape (S): drag to draw. Click again to choose rectangle, ellipse, star, line or arrow',
   frame: 'Frame (A): drag to mark an area. Frames are the slides of Present mode',
 };
 
@@ -62,7 +63,7 @@ export class Toolbar {
     this.shapePicker.className = 'shape-picker';
     this.shapePicker.hidden = true;
     for (const shape of SHAPES) {
-      const b = this.button(ICONS[shape], { rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', arrow: 'Arrow' }[shape], () => {
+      const b = this.button(ICONS[shape], { rect: 'Rectangle', ellipse: 'Ellipse', star: 'Star', line: 'Line', arrow: 'Arrow' }[shape], () => {
         this.state.shape = shape;
         this.state.tool = 'shape';
         this.shapePicker.hidden = true;
