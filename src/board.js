@@ -170,7 +170,8 @@ export class Board {
 
   // A frame's title has text settings like any text: a level (Title, Heading 1…, sizes
   // relative to titleBase), a font, weight, italic and colour (null = the board's ink).
-  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, titleBase, level = 'body', font = 'Inter', weight, italic = false, color = null, locked = false, index }) {
+  // `fill` is the frame's background colour (null = see-through).
+  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, titleBase, level = 'body', font = 'Inter', weight, italic = false, color = null, fill = null, locked = false, index }) {
     const c = new Container();
     const bg = new Graphics();
     const base = titleBase ?? titleSize;
@@ -179,7 +180,7 @@ export class Board {
     c.position.set(x, y);
     const item = {
       kind: 'frame', id: takeId(id), sprite: c, bg, title, w, h, name, locked: !!locked, width: w, height: h,
-      titleBase: base, level: LEVELS[level] ? level : 'body', font, weight: weight ?? (LEVELS[level]?.weight >= 600 ? LEVELS[level].weight : 600), italic: !!italic, color,
+      titleBase: base, level: LEVELS[level] ? level : 'body', font, weight: weight ?? (LEVELS[level]?.weight >= 600 ? LEVELS[level].weight : 600), italic: !!italic, color, fill,
       titleSize: base * (LEVELS[level]?.size ?? 1),
     };
     this.drawFrame(item);
@@ -193,9 +194,10 @@ export class Board {
     f.width = f.w;
     f.height = f.h;
     f.bg.clear();
+    // See-through with a faint outline, or filled with a solid colour (f.fill).
     f.bg.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, Math.min(f.w, f.h) * 0.012)
-      .fill({ color: this.ink, alpha: 0.035 })
-      .stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: 0.22 });
+      .fill(f.fill ? { color: f.fill, alpha: 1 } : { color: this.ink, alpha: 0.035 })
+      .stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: f.fill ? 0.1 : 0.22 });
     f.titleSize = f.titleBase * (LEVELS[f.level]?.size ?? 1);
     f.title.text = f.name || 'Frame';
     Object.assign(f.title.style, { fontFamily: fontStack(f.font || 'Inter'), fontWeight: String(f.weight || 600), fontStyle: f.italic ? 'italic' : 'normal', fontSize: f.titleSize, fill: f.color || this.ink });
@@ -428,6 +430,7 @@ export class Board {
     return {
       id: f.id, x: f.sprite.x, y: f.sprite.y, w: f.w, h: f.h, name: f.name, titleSize: f.titleSize, titleBase: f.titleBase,
       level: f.level, font: f.font, weight: f.weight, ...(f.italic ? { italic: true } : {}), ...(f.color ? { color: f.color } : {}),
+      ...(f.fill ? { fill: f.fill } : {}),
       ...(f.locked ? { locked: true } : {}),
     };
   }

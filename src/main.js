@@ -25,7 +25,7 @@ import { RESULT_DRAG_TYPE } from './search-pane.js';
 import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
-import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, nextTheme, pastelName } from './theme.js';
+import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, nextTheme, pastelName, applyLook, currentLook, defaultLook } from './theme.js';
 import { VERSION } from './version.js';
 import { LEVELS } from './board.js';
 import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
@@ -104,6 +104,8 @@ function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
   hideMenu();
+  // The home screen is always dark; each board has its own look (set when it opens).
+  if (m !== 'board') applyLook({ theme: 'dark' });
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -400,7 +402,7 @@ function removeThing(kind, id) {
 // and greyscale change. Saved before and after an edit, for undo.
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
-const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'titleBase'];
+const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'titleBase'];
 const IMAGE_PROPS = ['caption', 'star'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
@@ -1317,6 +1319,7 @@ async function openBoardById(id) {
     return;
   }
   const { board: data, ...meta } = record;
+  applyLook(meta.look || defaultLook());
   const doc = makeDoc(meta);
   docs.set(id, doc);
   mainDoc = doc;
@@ -1423,6 +1426,9 @@ async function doRoute() {
   if (id) {
     if (mainDoc?.meta.id !== id) {
       await leaveBoard();
+      // Show the board's own look straight away (no flash of another one).
+      const rec = await store.getBoard(id);
+      if (rec) applyLook(rec.look || defaultLook());
       setMode('board');
       await openBoardById(id);
     }
@@ -1454,20 +1460,20 @@ async function freeName(base) {
   for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
 }
 
-async function createBoard({ name, data = null } = {}) {
+async function createBoard({ name, data = null, group = '' } = {}) {
   announceBoards();
   const now = Date.now();
   const id = newBoardId();
   await store.putBoard({
     id, name: await freeName(name || 'Untitled board'), created: now, updated: now, handle: null,
-    board: data || { items: [], layout: null },
+    board: data || { items: [], layout: null }, look: defaultLook(), ...(group ? { group } : {}),
   });
   askToKeepStorage();
   return id;
 }
 
-async function newBoard() {
-  openBoard(await createBoard());
+async function newBoard({ group = '' } = {}) {
+  openBoard(await createBoard({ group }));
 }
 
 async function renameBoard(id, name) {
@@ -1475,23 +1481,45 @@ async function renameBoard(id, name) {
   const doc = docs.get(id);
   if (doc) {
     doc.meta.name = name;
+    doc.meta.changed = Date.now();
     updateTitle();
     viewports.position();
     await saveNow();
     return;
   }
   const record = await store.getBoard(id);
-  if (record) await store.putBoard({ ...record, name });
+  if (record) await store.putBoard({ ...record, name, changed: Date.now() });
+  syncSoon();
 }
 
-async function deleteBoard(id, name) {
-  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
-  drive.removeBoard(await store.getBoard(id));
-  await store.deleteBoard(id);
-  tabIds = tabIds.filter((t) => t !== id);
+// Delete boards (one or several, after asking once). Returns true if they were deleted.
+async function deleteBoards(ids) {
+  const records = (await Promise.all(ids.map((id) => store.getBoard(id)))).filter(Boolean);
+  if (!records.length) return false;
+  const what = records.length === 1 ? `"${records[0].name}"` : `these ${records.length} boards`;
+  if (!confirm(`Delete ${what}? This can't be undone.`)) return false;
+  for (const rec of records) {
+    drive.removeBoard(rec);
+    await store.deleteBoard(rec.id);
+  }
+  const gone = new Set(records.map((r) => r.id));
+  tabIds = tabIds.filter((t) => !gone.has(t));
   saveTabs();
   announceBoards();
   await home.refresh();
+  return true;
+}
+
+// Put boards in a project ('' = no project).
+async function setBoardsGroup(ids, group) {
+  const now = Date.now();
+  for (const id of ids) {
+    const rec = await store.getBoard(id);
+    if (!rec || (rec.group || '') === group) continue;
+    await store.putBoard({ ...rec, group, changed: now });
+  }
+  await home.refresh();
+  syncSoon();
 }
 
 // ---------- Board files ----------
@@ -1508,7 +1536,8 @@ async function importBoardFile(file, handle = null) {
     return blob ? store.saveImage(id, item.id, blob) : null;
   }));
   const now = Date.now();
-  await store.putBoard({ id, name: await freeName(file.name.replace(/\.refboard$/i, '')), created: now, updated: now, handle, board: data });
+  const { look, ...rest } = data;
+  await store.putBoard({ id, name: await freeName(file.name.replace(/\.refboard$/i, '')), created: now, updated: now, handle, board: rest, ...(look ? { look } : {}) });
   askToKeepStorage();
   toast(`Added ${file.name}`, 1500);
   return id;
@@ -1550,7 +1579,7 @@ async function saveToFile({ saveAs = false } = {}) {
     const handle = await writeBoardFile({
       name: current.name,
       handle: saveAs ? null : current.handle,
-      getData: () => describeBoard(board, activeDoc === mainDoc ? layout() : { toJSON: () => activeDoc.layoutJSON }),
+      getData: () => ({ ...describeBoard(board, activeDoc === mainDoc ? layout() : { toJSON: () => activeDoc.layoutJSON }), ...(current?.look ? { look: current.look } : {}) }),
       getBlob: (item) => blobs.get(item.id),
     });
     if (handle && current) {
@@ -1572,7 +1601,7 @@ async function exportBoard(id) {
     await writeBoardFile({
       name: record.name,
       handle: null,
-      getData: () => record.board,
+      getData: () => ({ ...record.board, ...(record.look ? { look: record.look } : {}) }),
       getBlob: (item) => store.loadImage(id, item.id),
     });
   } catch (err) {
@@ -1851,7 +1880,8 @@ const home = new Home(document.getElementById('home'), {
   importFile: openFile,
   rename: renameBoard,
   exportFile: exportBoard,
-  remove: deleteBoard,
+  remove: deleteBoards,
+  setGroup: setBoardsGroup,
 });
 
 // ---------- Tabs: the boards you have open ----------
@@ -1939,20 +1969,27 @@ document.getElementById('tab-add').addEventListener('click', async (e) => {
 
 document.getElementById('home-button').addEventListener('click', goHome);
 // One button for the look: dark → light → colour → dark… (see src/theme.js).
+// The look belongs to the board that's open (its preview on the home screen matches).
 function cycleTheme() {
   toggleTheme();
   if (currentTheme() === 'pastel') toast(`Colour mode: ${pastelName()}`, 1400);
   updateThemeButtons();
+  if (mainDoc) {
+    mainDoc.meta.look = currentLook();
+    mainDoc.meta.updated = Date.now();
+    if (!mainDoc.board.isEmpty()) mainDoc.thumbStale = true;
+    scheduleSave();
+    syncSoon();
+  }
 }
 function updateThemeButtons() {
   const next = nextTheme();
-  for (const id of ['theme-button', 'bar-theme-button']) {
+  for (const id of ['bar-theme-button']) {
     const b = document.getElementById(id);
     b.dataset.next = next;
     b.title = `Switch to ${next === 'colour' ? 'colour mode (a random soft palette)' : `${next} mode`}`;
   }
 }
-document.getElementById('theme-button').addEventListener('click', cycleTheme);
 document.getElementById('bar-theme-button').addEventListener('click', cycleTheme);
 updateThemeButtons();
 
@@ -2339,8 +2376,11 @@ async function captureScreen() {
 // ---------- Drag and drop ----------
 
 let dragDepth = 0;
+// Boards dragged between projects on the home screen are handled there (src/home.js).
+const boardDrag = (e) => e.dataTransfer?.types?.includes('application/x-refboard-boards');
 window.addEventListener('dragenter', (e) => {
   e.preventDefault();
+  if (boardDrag(e)) return;
   dragDepth++;
   document.body.classList.add('drag-over');
 });
@@ -2355,6 +2395,7 @@ window.addEventListener('drop', async (e) => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('drag-over');
+  if (boardDrag(e)) return;
 
   try {
     // A result dragged from the search pane.
@@ -2735,12 +2776,34 @@ textControls.innerHTML = `
   <button data-text="box" title="Background: none, soft box or outline (keeps text readable over images)"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="2"/><path d="M5 10l3-5 3 5M6 8.5h4"/></svg></button>
   <button data-text="fill" title="Fill the shape"><svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" fill="currentColor" fill-opacity="0.35"/></svg></button>
   <button data-text="colour" class="sel-colour" title="Colour"></button>
-  <div class="sel-palette" hidden></div>`;
+  <div class="sel-palette" hidden></div>
+  <div class="sel-palette fill-palette" hidden></div>`;
 selectionBar.prepend(textControls);
 const levelSelect = textControls.querySelector('.sel-level');
 for (const [id, l] of Object.entries(LEVELS)) levelSelect.add(new Option(l.label, id));
 const fontSelect = textControls.querySelector('.sel-font');
-const palette = textControls.querySelector('.sel-palette');
+const palette = textControls.querySelector('.sel-palette:not(.fill-palette)');
+// A frame's background: see-through, or a solid colour (soft ones first).
+const fillPalette = textControls.querySelector('.fill-palette');
+const FRAME_FILLS = ['#ffffff', '#efece4', '#2b2b30', '#141416', '#ffd6d6', '#ffe6c2', '#fff4b8', '#d3f2de', '#d5e8ff', '#e6dbff', '#ff5a5a', '#4da3ff'];
+{
+  const none = document.createElement('button');
+  none.className = 'swatch none';
+  none.title = 'No fill (see-through)';
+  none.addEventListener('click', () => { setTextProps({ fill: null }); fillPalette.hidden = true; });
+  fillPalette.appendChild(none);
+  for (const c of FRAME_FILLS) {
+    const b = document.createElement('button');
+    b.className = 'swatch';
+    b.style.setProperty('--c', c);
+    b.addEventListener('click', () => { setTextProps({ fill: c }); fillPalette.hidden = true; });
+    fillPalette.appendChild(b);
+  }
+  const any = Object.assign(document.createElement('input'), { type: 'color', title: 'Any colour' });
+  any.className = 'swatch custom-input';
+  any.addEventListener('input', () => setTextProps({ fill: any.value }));
+  fillPalette.appendChild(any);
+}
 for (const c of COLOURS) {
   const b = document.createElement('button');
   b.className = 'swatch';
@@ -2784,7 +2847,7 @@ function setTextProps(props) {
     // Frame titles: level, font, bold, italic and colour, like text.
     editSelection((f) => {
       if (props.level) { f.level = props.level; f.weight = Math.max(600, LEVELS[props.level].weight); }
-      for (const k of ['font', 'italic', 'color', 'weight']) if (k in props) f[k] = props[k];
+      for (const k of ['font', 'italic', 'color', 'weight', 'fill']) if (k in props) f[k] = props[k];
       board.drawFrame(f);
     }, frames);
     if (props.font || props.weight || 'italic' in props) {
@@ -2841,13 +2904,15 @@ textControls.querySelector('[data-text="align"]').addEventListener('click', () =
   const now = selectedNotes()[0]?.align || 'left';
   setTextProps({ align: order[(order.indexOf(now) + 1) % 3] });
 });
-textControls.querySelector('[data-text="colour"]').addEventListener('click', () => { palette.hidden = !palette.hidden; });
+textControls.querySelector('[data-text="colour"]').addEventListener('click', () => { palette.hidden = !palette.hidden; fillPalette.hidden = true; });
 textControls.querySelector('[data-text="box"]').addEventListener('click', () => {
   const order = ['none', 'fill', 'outline'];
   const now = selectedNotes()[0]?.box || 'none';
   setTextProps({ box: order[(order.indexOf(now) + 1) % 3] });
 });
 textControls.querySelector('[data-text="fill"]').addEventListener('click', () => {
+  // Frames: pick a background colour. Shapes: fill on or off.
+  if (selectedFrames().length && !selectedShapes().length) { fillPalette.hidden = !fillPalette.hidden; palette.hidden = true; return; }
   setTextProps({ fill: !selectedShapes().every((x) => x.fill) });
 });
 selectionBar.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -2862,13 +2927,16 @@ function updateTextControls(sel) {
   const isShape = shapes.length > 0 && shapes.length === sel.length;
   const isFrame = frames.length > 0 && frames.length === sel.length;
   textControls.hidden = !isText && !isShape && !isFrame;
-  if (textControls.hidden) { palette.hidden = true; return; }
+  if (textControls.hidden) { palette.hidden = true; fillPalette.hidden = true; return; }
+  const fillButton = textControls.querySelector('[data-text="fill"]');
+  fillButton.title = isFrame ? 'Background colour' : 'Fill the shape';
   if (isFrame) {
     // A frame's title: level, font, bold, italic, colour (no alignment or box).
     for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"]')) el.hidden = false;
-    for (const el of textControls.querySelectorAll('[data-text="align"], [data-text="box"], [data-text="fill"]')) el.hidden = true;
+    for (const el of textControls.querySelectorAll('[data-text="align"], [data-text="box"]')) el.hidden = true;
+    fillButton.hidden = false;
     const f = frames[0];
-    const key = frames.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.color}`).join(',') + customFonts().join(',');
+    const key = frames.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.color}:${x.fill}`).join(',') + customFonts().join(',');
     if (key === lastControls) return;
     lastControls = key;
     levelSelect.value = f.level || 'body';
@@ -2876,8 +2944,12 @@ function updateTextControls(sel) {
     textControls.querySelector('[data-text="bold"]').classList.toggle('on', frames.every((x) => x.weight >= 600));
     textControls.querySelector('[data-text="italic"]').classList.toggle('on', frames.every((x) => x.italic));
     textControls.querySelector('.sel-colour').style.setProperty('--c', f.color || `#${board.ink.toString(16).padStart(6, '0')}`);
+    fillButton.classList.toggle('on', frames.some((x) => x.fill));
+    fillButton.style.setProperty('--fill', f.fill || 'transparent');
     return;
   }
+  fillButton.style.removeProperty('--fill');
+  fillPalette.hidden = true;
   // Shapes only get a colour and a fill; text gets everything else.
   for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], [data-text="align"], [data-text="box"]')) el.hidden = !isText;
   textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse' || x.shape === 'star'));

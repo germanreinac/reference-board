@@ -20,6 +20,10 @@
 
 import { store } from './storage.js';
 
+// When a board last changed in any way: its content (updated), or its name, project or
+// look (changed).
+const touched = (rec) => Math.max(rec?.updated || 0, rec?.changed || 0);
+
 export const CLIENT_ID = '856304417844-lb59l8pm1h56pecdps2rhdfd0mbtkimo.apps.googleusercontent.com';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3';
@@ -225,7 +229,7 @@ async function doSync(hooks) {
       const local = await store.getBoard(boardId);
       const remoteTime = Date.parse(data.modifiedTime);
       if (local?.drive?.remoteTime >= remoteTime) continue;              // nothing new up there
-      if (local && local.updated > (local.drive?.syncedAt || 0) && local.updated > remoteTime) continue;  // ours is newer: sent up below
+      if (local && touched(local) > (local.drive?.syncedAt || 0) && touched(local) > remoteTime) continue;  // ours is newer: sent up below
       toGet.push({ boardId, folder, data, local, remoteTime });
     }
     toGet.sort((a, b) => (Number(a.data.size) || 0) - (Number(b.data.size) || 0));
@@ -250,6 +254,7 @@ async function doSync(hooks) {
         await store.putBoard({
           ...(local || { id: boardId, created: parsed.created || Date.now(), handle: null }),
           name: parsed.name || folder.name, updated: parsed.updated || remoteTime, board,
+          group: parsed.group || '', look: parsed.look || local?.look, changed: parsed.changed || 0,
           drive: { folderId: folder.id, dataId: data.id, images, remoteTime, syncedAt: Date.now() },
         });
         changed = true;
@@ -266,7 +271,7 @@ async function doSync(hooks) {
     // 2. Boards changed here: send them up.
     for (const rec of await store.listBoards()) {
       const d = rec.drive || {};
-      if (d.syncedAt && rec.updated <= d.syncedAt && remote.has(rec.id)) continue;
+      if (d.syncedAt && touched(rec) <= d.syncedAt && remote.has(rec.id)) continue;
       const fresh = await store.getBoard(rec.id);   // the latest, in case it was just saved
       await pushBoard(fresh, root, remote.get(rec.id), dataOf);
       changed = true;
@@ -316,7 +321,7 @@ async function pushBoard(rec, root, folder, dataOf) {
     if (!keep.has(String(itemId))) { await trash(fileId).catch(() => {}); delete d.images[itemId]; }
   }
   const { incoming, ...board } = rec.board || {};
-  const payload = new Blob([JSON.stringify({ name: rec.name, created: rec.created, updated: rec.updated, board, driveImages: d.images })], { type: 'application/json' });
+  const payload = new Blob([JSON.stringify({ name: rec.name, created: rec.created, updated: rec.updated, changed: rec.changed || 0, group: rec.group || '', look: rec.look, board, driveImages: d.images })], { type: 'application/json' });
   const dataId = d.dataId || dataOf.get(folder.id)?.id;
   const res = dataId ? await replace(dataId, payload) : await upload(payload, { name: 'board.json', parents: [folder.id], appProperties: { refboard: 'data' } });
   d.dataId = res.id;

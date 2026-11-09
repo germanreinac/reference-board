@@ -1,6 +1,9 @@
 // Dark mode, light mode, and colour mode: a soft, desaturated palette (mint, pink or
-// apricot, picked at random) for when you want something colourful but calm. The choice is
-// remembered in this browser.
+// apricot, picked at random) for when you want something colourful but calm.
+//
+// Each board keeps its own look (record.look = { theme, pastel }), set from inside the
+// board. The home screen is always dark. The last look you picked is remembered in this
+// browser and given to new boards.
 //
 // The page's own colours live in style.css (body[data-theme]); colour mode sets them on
 // the page directly. The drawn parts (the board's background and dots, the lines between
@@ -97,6 +100,32 @@ export function randomColours() {
   pastel = next;
   setTheme('pastel');
   return pastelName();
+}
+
+// A board's look, and the look new boards start with (the last one picked).
+export const currentLook = () => ({ theme: currentTheme(), pastel });
+export function defaultLook() {
+  try {
+    return { theme: localStorage.getItem(STORAGE) || 'dark', pastel: Number(localStorage.getItem(PASTEL_STORAGE)) || 0 };
+  } catch {
+    return { theme: 'dark', pastel: 0 };
+  }
+}
+
+// Show a look (a board's, or the home screen's) without remembering it as the last pick.
+export function applyLook(look = defaultLook()) {
+  const name = look.theme === 'light' || look.theme === 'pastel' ? look.theme : 'dark';
+  const p = Number(look.pastel) || 0;
+  if (name === currentTheme() && p === pastel && document.body.dataset.theme) return;
+  pastel = p;
+  apply(name);
+  window.dispatchEvent(new CustomEvent('themechange', { detail: themeColours() }));
+}
+
+// The background colour of a board with this look (for its preview on the home screen).
+export function lookBackground(look) {
+  if (look?.theme === 'pastel') return pastelColours(Number(look.pastel) || 0).drawn.board;
+  return THEMES[look?.theme === 'light' ? 'light' : 'dark'].board;
 }
 
 // Call once at start-up.
