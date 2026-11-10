@@ -74,6 +74,7 @@ export class Board {
     this.shapes = [];      // shapes, back to front
     this.frames = [];      // frames, in the order they're presented
     this.ink = 0xffffff;   // the colour frame outlines and titles are drawn in (changes with the theme)
+    this.palettes = [];    // colour sets kept with the board: [{ id, name, colours: ['#rrggbb'…] }]
     this.selection = [];   // the images and notes that are selected
     this.marquee = null;   // the selection box being dragged: { x0, y0, x1, y1 } in board units
   }
@@ -1157,6 +1158,7 @@ export class Board {
   // Remove everything (used when leaving a board).
   clear() {
     this.clearFx();
+    this.palettes = [];
     for (const item of [...this.items]) this.remove(item);
     for (const note of [...this.notes]) this.remove(note);
     for (const shape of [...this.shapes]) this.remove(shape);
@@ -1368,6 +1370,7 @@ export class Board {
       notes: this.notes.map((n) => this.noteJSON(n)),
       shapes: this.shapes.map((x) => this.shapeJSON(x)),
       frames: this.frames.map((f) => this.frameJSON(f)),
+      palettes: this.palettes,
     };
   }
 }

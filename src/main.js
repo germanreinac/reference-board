@@ -21,6 +21,7 @@ import { History } from './history.js';
 import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
 import { openSketch, sketchOpen, refreshSketch } from './sketch.js';
 import { makePdf } from './pdf.js';
+import { PalettePanel, lightness } from './palettes.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -113,7 +114,7 @@ function setMode(m) {
   document.body.dataset.mode = m;
   hideMenu();
   // The home screen is always dark; each board has its own look (set when it opens).
-  if (m !== 'board') applyLook({ theme: 'dark' });
+  if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -238,6 +239,7 @@ function activate(doc) {
   board = doc.board;
   history = doc.history;
   current = doc.meta;
+  palettePanel.render();   // the palettes of the board you're working on
   updateHistoryButtons();
   updateStarButton();
   viewports.position();
@@ -966,9 +968,69 @@ async function extractColours() {
   store.saveImage(current.id, added.id, blob).catch(() => {});
   const data = { ...board.imageJSON(added), blob };
   history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+  // Also kept as a palette, to edit and reuse (Palettes, in the board menu).
+  board.palettes.push({ id: `p${Date.now().toString(36)}`, name: `Colours of ${item.name || 'image'}`, colours: colours.map((c) => c.hex) });
+  palettePanel.render();
   contentChanged();
   requestRender();
+  toast('Colours added, and saved in Palettes (board menu) to edit and reuse.', 2600);
 }
+
+// ---------- Palettes ----------
+// Colour sets kept with the board (src/palettes.js).
+
+const palettePanel = new PalettePanel({
+  list: () => board.palettes,
+  changed: () => { contentChanged(); },
+  useColour: (hex) => toolbar.setColour(hex),
+  toast,
+  fromSelection: async () => {
+    const it = board.selected;
+    if (it?.kind !== 'image' || !it.blob) return null;
+    const colours = await imageColours(it, 6);
+    const p = { id: `p${Date.now().toString(36)}`, name: `Colours of ${it.name || 'image'}`, colours: colours.map((c) => c.hex) };
+    board.palettes.push(p);
+    contentChanged();
+    return p;
+  },
+  putOnBoard: async (pal) => {
+    if (!current || !pal.colours.length) return;
+    // A card: the colours with their codes, and their values underneath.
+    const SW = 260, H = 300, VH = 70, n = pal.colours.length;
+    const c = new OffscreenCanvas(SW * n, H + VH + 70);
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#1b1b1d';
+    g.font = '600 34px Inter, system-ui, sans-serif';
+    g.fillText(pal.name, 20, 48);
+    pal.colours.forEach((hex, i) => {
+      g.fillStyle = hex;
+      g.fillRect(i * SW, 70, SW, H);
+      const L = lightness(hex);
+      const grey = Math.round(L * 255);
+      g.fillStyle = `rgb(${grey},${grey},${grey})`;
+      g.fillRect(i * SW, 70 + H, SW, VH);
+      g.fillStyle = L > 0.55 ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.92)';
+      g.font = '600 28px Inter, system-ui, sans-serif';
+      g.fillText(hex.toUpperCase(), i * SW + 18, 70 + H - 24);
+      g.font = '22px Inter, system-ui, sans-serif';
+      g.fillText(`value ${Math.round(L * 100)}`, i * SW + 18, 70 + H + VH - 22);
+    });
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    const pane = targetBoardPane();
+    const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+    const k = pane ? Math.min(1, pane.rect.w * 0.5 / c.width) / pane.camera.zoom : 1;
+    const spot = board.freeSpot(c.width * k, c.height * k, at.x, at.y);
+    const item = board.addImage(await createImageBitmap(blob), spot.x, spot.y, { name: pal.name, blob, scaleX: k, scaleY: k });
+    store.saveImage(current.id, item.id, blob).catch(() => {});
+    const data = { ...board.imageJSON(item), blob };
+    history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+    board.selection = [item];
+    contentChanged();
+    requestRender();
+  },
+});
 
 // ---------- Captions ----------
 //
@@ -2024,6 +2086,7 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     for (const n of data?.notes || []) board.addNote(n);
     for (const x of data?.shapes || []) board.addShape(x);
     for (const f of data?.frames || []) board.addFrame(f);
+    board.palettes = Array.isArray(data?.palettes) ? data.palettes : [];
     // Make sure the fonts the text uses are loaded, then lay the text out again.
     const used = [...new Set([...board.notes, ...board.frames].map((n) => `${n.font || 'Inter'}|${n.weight}|${!!n.italic}`))];
     Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
@@ -4130,6 +4193,7 @@ function openMenu(x, y, pane) {
     { label: 'New board', action: newBoard },
     { label: 'All boards', action: goHome },
     '-',
+    { label: 'Palettes', action: () => palettePanel.toggle() },
     { label: 'New storyboard…', action: () => { board.selection = []; storyboardDialog(); } },
     { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
     { label: 'Capture screen…', action: captureScreen },

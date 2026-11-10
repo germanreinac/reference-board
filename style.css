@@ -1905,3 +1905,37 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
 .cs-strip { overflow-x: auto; border-radius: 8px; }
 .cs-canvas { display: block; height: 150px; width: auto; max-width: none; cursor: pointer; border-radius: 8px; }
 .cs-hint { margin: 6px 0 0; font-size: 11px; opacity: 0.7; }
+
+/* Palettes panel (over the board, on the right) */
+.pal-panel {
+  position: fixed; right: 14px; top: 92px; z-index: 55; width: 320px; max-height: calc(100vh - 200px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35); color: var(--text); font-size: 12px;
+}
+.pal-head { display: flex; align-items: center; gap: 6px; padding: 10px 10px 8px 14px; border-bottom: 1px solid var(--panel-border); }
+.pal-head strong { color: var(--text-strong); font-size: 14px; }
+.pal-head span { flex: 1; }
+.pal-panel button { padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-strong); font: inherit; cursor: pointer; }
+.pal-panel button:hover { background: var(--panel-2); }
+.pal-list { overflow-y: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.pal-empty { margin: 6px 4px; line-height: 1.5; }
+.pal-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 10px; }
+.pal-card-head { display: flex; align-items: center; gap: 4px; }
+.pal-card-head input { flex: 1; min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-strong); font: inherit; font-weight: 600; }
+.pal-card-head input:hover, .pal-card-head input:focus { border-color: var(--panel-border); outline: none; background: var(--input); }
+.pal-swatches { display: flex; flex-wrap: nowrap; gap: 0; border-radius: 7px; overflow: hidden; }
+.pal-panel .pal-swatch { flex: 1 1 36px; min-width: 0; height: 40px; padding: 0; border-radius: 0; box-shadow: inset 0 0 0 1px rgba(127,127,127,0.25); }
+.pal-panel .pal-swatch.on { box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 4px rgba(255,255,255,0.8); }
+.pal-panel .pal-swatch.add { flex: 0 0 34px; background: var(--input); color: var(--text); font-size: 18px; }
+.pal-values { display: flex; border-radius: 5px; overflow: hidden; margin-right: 34px; }
+.pal-values span { flex: 1 1 36px; min-width: 0; text-align: center; font-size: 10px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.pal-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.pal-panel .pal-code { font-family: ui-monospace, Menlo, monospace; font-weight: 600; background: var(--input); }
+.pal-tools small { margin-right: auto; opacity: 0.75; }
+.pal-harmonies { display: flex; flex-direction: column; gap: 3px; }
+.pal-harmony { display: flex; align-items: center; gap: 4px; }
+.pal-harmony span { width: 92px; opacity: 0.8; }
+.pal-panel .pal-swatch.small { flex: 0 0 26px; min-width: 26px; height: 20px; border-radius: 5px; }
+.pal-picker { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+@media (max-width: 600px) { .pal-panel { left: 16px; right: 16px; width: auto; } }
