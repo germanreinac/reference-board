@@ -1446,9 +1446,9 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     board.clear();
     const items = data?.items || [];
     const blobs = await Promise.all(items.map((item) => Promise.resolve(getBlob(item)).catch(() => null)));
-    // Images open from their saved previews (quick), and the ones that fit in the budget
-    // straight at full size; the rest sharpen as you zoom in (see updateDetail). The
-    // first time, each big image is read once to make its preview.
+    // Images open from their saved previews (quick), and the ones on screen sharpen right
+    // after (see updateDetail). The first time, each big image is read once to make its
+    // preview (and kept full size while it fits in the budget).
     let fullPixels = 0;
     const pictures = new Array(items.length).fill(null);
     await inParallel(items.map((_, i) => i), 6, async (i) => {
@@ -1456,12 +1456,9 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
       if (!blob) return;
       const saved = boardId ? await store.loadPreview(boardId, items[i].id).catch(() => null) : null;
       if (saved) {
-        const px = saved.w * saved.h;
-        if (!saved.blob || (Math.max(saved.w, saved.h) <= maxTexture && fullPixels + px <= FULL_BUDGET / 2)) {
+        if (!saved.blob) {
           const full = await decode(blob, items[i].name);
-          if (!full) return;
-          fullPixels += px;
-          pictures[i] = { bitmap: full, fullWidth: saved.w, fullHeight: saved.h };
+          if (full) pictures[i] = { bitmap: full, fullWidth: saved.w, fullHeight: saved.h };
           return;
         }
         const preview = await createImageBitmap(saved.blob).catch(() => null);
