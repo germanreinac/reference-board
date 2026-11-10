@@ -298,7 +298,17 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) saveN
 
 async function decode(blob, name) {
   try {
-    return await createImageBitmap(blob);
+    const bitmap = await createImageBitmap(blob);
+    // Bigger than the graphics card can take: show a copy that fits (the file itself is
+    // kept as it is). It still measures its real size on the board.
+    if (Math.max(bitmap.width, bitmap.height) > maxTexture) {
+      const fitted = await scaledCopy(bitmap, maxTexture);
+      fitted.fullWidth = bitmap.width;
+      fitted.fullHeight = bitmap.height;
+      bitmap.close();
+      return fitted;
+    }
+    return bitmap;
   } catch {
     toast(`Couldn't read "${name}". The file may be damaged or in an unsupported format.`);
     return null;
@@ -1292,19 +1302,37 @@ function fitPane(pane, items) {
   viewChanged();
 }
 
-// ---------- Sharp images on big boards ----------
+// ---------- Full-quality images that stay fluid ----------
 //
-// Every image's full picture on the graphics card adds up fast: a board of a thousand
-// photos would need many gigabytes. So big boards keep a small preview of each image,
-// and swap in the full picture for the images you zoom in on (and back out again when
-// they're small on screen or out of view). Boards that fit in the budget stay full size.
+// Images are kept exactly as they came in: full size, never shrunk or re-compressed. But
+// a board of hundreds of big photos can't all sit full size on the graphics card at once,
+// so each image is drawn at the size it needs on screen, like Miro or PureRef:
+//   - a small saved preview (640 px) when it's small on screen, so big boards open fast
+//   - sharper levels (1280, 2560, 5120 px…) as you zoom in, up to the full original
+//   - back down when it's out of view, within a memory budget.
 
-const PREVIEW = 640;            // the longest side of a preview, in pixels
-const FULL_BUDGET = 160e6;      // full-size pixels kept on the graphics card at once
+const PREVIEW = 640;              // the longest side of a preview, in pixels
+const FULL_BUDGET = 200e6;        // pixels kept on the graphics card above preview size
+let maxTexture = 8192;            // the biggest picture this graphics card takes
+try { maxTexture = app.renderer.gl.getParameter(app.renderer.gl.MAX_TEXTURE_SIZE) || 8192; } catch {}
 
 async function makePreview(bitmap) {
-  const k = PREVIEW / Math.max(bitmap.width, bitmap.height);
-  return createImageBitmap(bitmap, { resizeWidth: Math.max(1, Math.round(bitmap.width * k)), resizeHeight: Math.max(1, Math.round(bitmap.height * k)), resizeQuality: 'high' });
+  return scaledCopy(bitmap, PREVIEW);
+}
+// A copy of a picture (or image file) whose longest side is `side` pixels.
+function scaledCopy(source, side, w = source.width, h = source.height) {
+  const k = Math.min(1, side / Math.max(w, h));
+  return createImageBitmap(source, { resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: 'high' });
+}
+async function previewFile(bitmap) {
+  const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+  c.getContext('2d').drawImage(bitmap, 0, 0);
+  return c.convertToBlob({ type: 'image/webp', quality: 0.85 });
+}
+// Save a preview of a big image for next time (in the background).
+function rememberPreview(boardId, item, preview) {
+  if (!boardId || !preview) return;
+  previewFile(preview).then((blob) => store.savePreview(boardId, item.id, { w: item.fullWidth, h: item.fullHeight, blob })).catch(() => {});
 }
 
 async function inParallel(list, n, work) {
@@ -1318,8 +1346,19 @@ let detailTimer;
 let detailBusy = false;
 function detailSoon() {
   clearTimeout(detailTimer);
-  detailTimer = setTimeout(updateDetail, 160);
+  detailTimer = setTimeout(updateDetail, 140);
 }
+
+const longSide = (it) => Math.max(it.fullWidth, it.fullHeight);
+// The sizes an image can be drawn at (longest side), smallest first.
+function levelsOf(it) {
+  const top = Math.min(longSide(it), maxTexture);
+  const out = [];
+  for (let L = PREVIEW; L < top; L *= 2) out.push(L);
+  out.push(top);
+  return out;
+}
+const boardOfItem = (it) => [...docs.values()].find((d) => d.board.items.includes(it))?.board;
 
 async function updateDetail() {
   if (mode !== 'board') return;
@@ -1327,56 +1366,70 @@ async function updateDetail() {
   detailBusy = true;
   try {
     const res = app.renderer.resolution;
-    // How many screen pixels each image pixel covers, for the images in view.
+    // How many screen pixels the image's longest side covers, for images in view.
     const need = new Map();
-    const all = new Set();
+    const all = [];
     for (const pane of boardPanes()) {
       const b = (docOfPane(pane) || mainDoc)?.board;
       if (!b) continue;
       const cam = pane.camera;
       const a = cam.toWorld(0, 0), z = cam.toWorld(pane.rect.w, pane.rect.h);
       for (const it of b.items) {
-        if (Math.max(it.fullWidth, it.fullHeight) <= PREVIEW || !it.blob) continue;
-        all.add(it);
+        if (longSide(it) <= PREVIEW || !it.blob) continue;
+        all.push(it);
         const s = it.sprite;
         const sx = Math.abs(s.scale.x), sy = Math.abs(s.scale.y);
         const r = Math.hypot(it.width * sx, it.height * sy) / 2;
         if (s.x + r < a.x || s.x - r > z.x || s.y + r < a.y || s.y - r > z.y) continue;
-        need.set(it, Math.max(need.get(it) || 0, Math.max(sx, sy) * cam.zoom * res));
+        need.set(it, Math.max(need.get(it) || 0, longSide(it) * Math.max(sx, sy) * cam.zoom * res));
       }
     }
-    // Full pictures for the images shown bigger than their preview, biggest first,
-    // then the ones already full (so they don't flicker), up to the budget.
-    const previewScale = (it) => PREVIEW / Math.max(it.fullWidth, it.fullHeight);
-    const wanted = [...need].filter(([it, k]) => k > previewScale(it) * 1.15).sort((x, y) => y[1] - x[1]).map(([it]) => it);
-    const keep = new Set();
-    let used = 0;
-    const px = (it) => it.fullWidth * it.fullHeight;
-    for (const it of wanted) if (used + px(it) <= FULL_BUDGET || !keep.size) { keep.add(it); used += px(it); }
-    for (const it of all) if (it.sharp && !keep.has(it) && need.has(it) && used + px(it) <= FULL_BUDGET) { keep.add(it); used += px(it); }
-    for (const it of all) if (it.sharp && !keep.has(it) && used + px(it) <= FULL_BUDGET) { keep.add(it); used += px(it); }
-    // Let go of the full pictures that aren't kept.
-    for (const it of all) {
-      if (!it.sharp || keep.has(it) || it.sprite.destroyed) continue;
-      const full = it.source.resource;
-      it.preview ||= await makePreview(full);
-      if (it.sprite.destroyed || !it.sharp) continue;
-      const board = [...docs.values()].find((d) => d.board.items.includes(it))?.board;
-      if (!board) continue;
-      board.setImageBitmap(it, it.preview);
-      full.close?.();
+    // The size each image in view should have: the smallest level that covers the screen.
+    const target = new Map();
+    for (const [it, px] of need) {
+      const level = levelsOf(it).find((L) => L >= px * 1.05) || levelsOf(it).at(-1);
+      if (level > PREVIEW) target.set(it, level);
     }
-    // Bring in the full pictures that are wanted, a few at a time.
-    const toLoad = wanted.filter((it) => keep.has(it) && !it.sharp);
-    await inParallel(toLoad, 3, async (it) => {
+    const pixelsAt = (it, L) => { const k = L / longSide(it); return it.fullWidth * it.fullHeight * k * k; };
+    const levelNow = (it) => Math.max(it.source.pixelWidth, it.source.pixelHeight);
+    // Biggest on screen first, within the budget.
+    const keep = new Map();
+    let used = 0;
+    for (const [it, L] of [...target].sort((x, y) => (need.get(y[0]) || 0) - (need.get(x[0]) || 0))) {
+      const px = pixelsAt(it, L);
+      if (used + px > FULL_BUDGET && keep.size) continue;
+      keep.set(it, L);
+      used += px;
+    }
+    // Images already sharp but not needed now: keep them while there's room (no flicker).
+    for (const it of all) {
+      if (keep.has(it) || levelNow(it) <= PREVIEW) continue;
+      const px = pixelsAt(it, levelNow(it));
+      if (used + px <= FULL_BUDGET) { keep.set(it, levelNow(it)); used += px; }
+    }
+    // Back to the preview for the rest.
+    for (const it of all) {
+      if (keep.has(it) || levelNow(it) <= PREVIEW || it.sprite.destroyed) continue;
+      it.preview ||= await makePreview(it.source.resource);
+      const b = boardOfItem(it);
+      if (!b || it.sprite.destroyed) continue;
+      const old = it.source.resource;
+      b.setImageBitmap(it, it.preview);
+      if (old !== it.preview) old.close?.();
+    }
+    // Sharper pictures where they're wanted, biggest on screen first, a few at a time.
+    const up = [...keep].filter(([it, L]) => L > levelNow(it) * 1.01);
+    await inParallel(up, 3, async ([it, L]) => {
       try {
-        const full = await createImageBitmap(it.blob);
-        const board = [...docs.values()].find((d) => d.board.items.includes(it))?.board;
-        if (!board || it.sprite.destroyed || it.sharp) { full.close(); return; }
-        board.setImageBitmap(it, full);
+        const bitmap = L >= longSide(it) ? await createImageBitmap(it.blob) : await scaledCopy(it.blob, L, it.fullWidth, it.fullHeight);
+        const b = boardOfItem(it);
+        if (!b || it.sprite.destroyed || levelNow(it) >= bitmap.width) { bitmap.close(); return; }
+        const old = it.source.resource;
+        b.setImageBitmap(it, bitmap);
+        if (old !== it.preview) old.close?.();
         requestRender();
       } catch (err) {
-        console.warn('Sharp image skipped', err);
+        console.warn('Sharper image skipped', err);
       }
     });
   } finally {
@@ -1387,28 +1440,50 @@ async function updateDetail() {
 // ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
-async function loadBoard(data, getBlob, board, { withLayout = true } = {}) {
+async function loadBoard(data, getBlob, board, { withLayout = true, boardId = null } = {}) {
   loading = true;
   try {
     board.clear();
     const items = data?.items || [];
     const blobs = await Promise.all(items.map((item) => Promise.resolve(getBlob(item)).catch(() => null)));
-    // Big boards open with small previews of most images; the full pictures come in as
-    // you zoom in (see updateDetail).
+    // Images open from their saved previews (quick), and the ones that fit in the budget
+    // straight at full size; the rest sharpen as you zoom in (see updateDetail). The
+    // first time, each big image is read once to make its preview.
     let fullPixels = 0;
     const pictures = new Array(items.length).fill(null);
-    await inParallel(items.map((_, i) => i), 4, async (i) => {
-      const full = blobs[i] ? await decode(blobs[i], items[i].name) : null;
+    await inParallel(items.map((_, i) => i), 6, async (i) => {
+      const blob = blobs[i];
+      if (!blob) return;
+      const saved = boardId ? await store.loadPreview(boardId, items[i].id).catch(() => null) : null;
+      if (saved) {
+        const px = saved.w * saved.h;
+        if (!saved.blob || (Math.max(saved.w, saved.h) <= maxTexture && fullPixels + px <= FULL_BUDGET / 2)) {
+          const full = await decode(blob, items[i].name);
+          if (!full) return;
+          fullPixels += px;
+          pictures[i] = { bitmap: full, fullWidth: saved.w, fullHeight: saved.h };
+          return;
+        }
+        const preview = await createImageBitmap(saved.blob).catch(() => null);
+        if (preview) { pictures[i] = { bitmap: preview, preview, fullWidth: saved.w, fullHeight: saved.h }; return; }
+      }
+      const full = await decode(blob, items[i].name);
       if (!full) return;
-      const px = full.width * full.height;
-      if (Math.max(full.width, full.height) <= PREVIEW || fullPixels + px <= FULL_BUDGET / 2) {
-        fullPixels += px;
+      const w = full.width, h = full.height, px = w * h;
+      if (Math.max(w, h) <= PREVIEW) {
+        if (boardId) store.savePreview(boardId, items[i].id, { w, h, blob: null }).catch(() => {});
         pictures[i] = { bitmap: full };
         return;
       }
       const preview = await makePreview(full);
-      pictures[i] = { bitmap: preview, preview, fullWidth: full.width, fullHeight: full.height };
-      full.close();
+      pictures[i] = { preview, fullWidth: w, fullHeight: h, remember: true };
+      if (Math.max(w, h) <= maxTexture && fullPixels + px <= FULL_BUDGET / 2) {
+        fullPixels += px;
+        pictures[i].bitmap = full;
+      } else {
+        pictures[i].bitmap = preview;
+        full.close();
+      }
     });
     let missing = 0;
     items.forEach((item, i) => {
@@ -1416,6 +1491,7 @@ async function loadBoard(data, getBlob, board, { withLayout = true } = {}) {
       if (!p) { missing++; return; }
       const added = board.addImage(p.bitmap, item.x, item.y, { ...item, blob: blobs[i], fullWidth: p.fullWidth, fullHeight: p.fullHeight });
       added.preview = p.preview || null;
+      if (p.remember) rememberPreview(boardId, added, p.preview);
     });
     for (const s of data?.strokes || []) board.addStroke(s);
     for (const n of data?.notes || []) board.addNote(n);
@@ -1447,7 +1523,7 @@ async function openBoardById(id) {
   mainDoc = doc;
   activeDoc = null;
   activate(doc);
-  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board);
+  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { boardId: id });
   // Boards opened from a file, or from the first version, may not have a preview yet.
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
   const waiting = data?.incoming;
@@ -1473,7 +1549,7 @@ async function loadOtherBoard(id) {
   const doc = makeDoc(meta);
   doc.layoutJSON = data?.layout || null;
   docs.set(id, doc);
-  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { withLayout: false });
+  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { withLayout: false, boardId: id });
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
   if (data?.incoming?.length) setTimeout(() => placeIncoming(doc, data.incoming), 0);
   return doc;

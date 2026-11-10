@@ -452,7 +452,7 @@ export class Board {
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
   addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight } = {}) {
-    const fw = fullWidth || bitmap.width, fh = fullHeight || bitmap.height;
+    const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
     sprite.anchor.set(0.5);  // position, scale and rotation all work from the centre

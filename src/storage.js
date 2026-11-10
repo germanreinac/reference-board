@@ -198,11 +198,11 @@ export function newBoardId() {
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('reference-board', 3);
+    const req = indexedDB.open('reference-board', 4);
     req.onupgradeneeded = (e) => {
       const d = req.result;
       const tx = req.transaction;
-      for (const name of ['images', 'state', 'thumbs', 'fonts']) {
+      for (const name of ['images', 'state', 'thumbs', 'fonts', 'previews']) {
         if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
       }
       if (!d.objectStoreNames.contains('boards')) d.createObjectStore('boards', { keyPath: 'id' });
@@ -257,15 +257,28 @@ export const store = {
   getBoard: (id) => run('boards', 'readonly', (tx) => tx.objectStore('boards').get(id)),
   putBoard: (record) => run('boards', 'readwrite', (tx) => tx.objectStore('boards').put(record)),
   // Delete a board with all its images and its preview.
-  deleteBoard: (id) => run(['boards', 'images', 'thumbs'], 'readwrite', (tx) => {
+  deleteBoard: (id) => run(['boards', 'images', 'thumbs', 'previews'], 'readwrite', (tx) => {
     tx.objectStore('boards').delete(id);
     tx.objectStore('thumbs').delete(id);
     tx.objectStore('images').delete(imagesOf(id));
+    tx.objectStore('previews').delete(imagesOf(id));
   }),
 
-  saveImage: (boardId, imageId, blob) => run('images', 'readwrite', (tx) => tx.objectStore('images').put(blob, `${boardId}/${imageId}`)),
-  deleteImage: (boardId, imageId) => run('images', 'readwrite', (tx) => tx.objectStore('images').delete(`${boardId}/${imageId}`)),
+  // Images are kept exactly as they came in (full size, never re-compressed).
+  saveImage: (boardId, imageId, blob) => run(['images', 'previews'], 'readwrite', (tx) => {
+    tx.objectStore('previews').delete(`${boardId}/${imageId}`);
+    return tx.objectStore('images').put(blob, `${boardId}/${imageId}`);
+  }),
+  deleteImage: (boardId, imageId) => run(['images', 'previews'], 'readwrite', (tx) => {
+    tx.objectStore('previews').delete(`${boardId}/${imageId}`);
+    return tx.objectStore('images').delete(`${boardId}/${imageId}`);
+  }),
   loadImage: (boardId, imageId) => run('images', 'readonly', (tx) => tx.objectStore('images').get(`${boardId}/${imageId}`)),
+
+  // A small copy of each big image, so big boards open quickly: { w, h, blob } (w x h is
+  // the full image's size; blob is null for images small enough to show as they are).
+  savePreview: (boardId, imageId, rec) => run('previews', 'readwrite', (tx) => tx.objectStore('previews').put(rec, `${boardId}/${imageId}`)),
+  loadPreview: (boardId, imageId) => run('previews', 'readonly', (tx) => tx.objectStore('previews').get(`${boardId}/${imageId}`)),
 
   saveFont: (name, blob) => run('fonts', 'readwrite', (tx) => tx.objectStore('fonts').put(blob, name)),
   listFonts: async () => {
