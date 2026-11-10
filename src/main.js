@@ -180,6 +180,7 @@ window.addEventListener('themechange', (e) => {
 const toastEl = document.getElementById('toast');
 let toastTimer;
 function toast(message, ms = 4000) {
+  if (!message) message = 'Something went wrong.';
   toastEl.textContent = message;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
@@ -1730,7 +1731,17 @@ async function importBoardFile(file, handle = null) {
   let done = 0;
   await inParallel(data.items, 6, async (item) => {
     const blob = images.get(item.file);
-    if (blob) await store.saveImage(id, item.id, blob);
+    if (blob) {
+      try {
+        await store.saveImage(id, item.id, blob);
+      } catch (err) {
+        // Out of room: Chrome only lets a site use part of the free disk space.
+        store.deleteBoard(id).catch(() => {});
+        throw new Error(err?.name === 'QuotaExceededError' || !err?.message
+          ? `There isn't enough room in Chrome's storage for ${file.name}. Free some disk space (or delete boards you don't need) and try again.`
+          : err.message);
+      }
+    }
     if (++done % 25 === 0 && data.items.length > 50) toast(`Adding ${file.name}… ${done} of ${data.items.length} images`, 60000);
   });
   const now = Date.now();
