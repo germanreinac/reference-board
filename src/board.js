@@ -451,7 +451,7 @@ export class Board {
   // `index` puts it at a given place in the stack (used by undo).
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null } = {}) {
     const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
@@ -476,6 +476,7 @@ export class Board {
       sharp: bitmap.width >= fw,   // false while only a smaller preview is loaded
       fullWidth: fw,
       fullHeight: fh,
+      sketch,                // made in the Sketch studio: { base: id of the image it's painted over, or null }
       crop: null,            // { x, y, w, h } in the picture's own pixels, when cropped
       grey: false,           // shown in greyscale
       opacity: alpha,        // how see-through it is (1 = solid); Focus mode fades it on top of this
@@ -503,6 +504,7 @@ export class Board {
       ...(item.group ? { group: item.group } : {}),
       ...(item.caption ? { caption: item.caption } : {}),
       ...(item.star ? { star: true } : {}),
+      ...(item.sketch ? { sketch: item.sketch } : {}),
     };
   }
 

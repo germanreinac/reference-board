@@ -221,11 +221,11 @@ export function newBoardId() {
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('reference-board', 4);
+    const req = indexedDB.open('reference-board', 5);
     req.onupgradeneeded = (e) => {
       const d = req.result;
       const tx = req.transaction;
-      for (const name of ['images', 'state', 'thumbs', 'fonts', 'previews']) {
+      for (const name of ['images', 'state', 'thumbs', 'fonts', 'previews', 'sketches']) {
         if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
       }
       if (!d.objectStoreNames.contains('boards')) d.createObjectStore('boards', { keyPath: 'id' });
@@ -280,7 +280,8 @@ export const store = {
   getBoard: (id) => run('boards', 'readonly', (tx) => tx.objectStore('boards').get(id)),
   putBoard: (record) => run('boards', 'readwrite', (tx) => tx.objectStore('boards').put(record)),
   // Delete a board with all its images and its preview.
-  deleteBoard: (id) => run(['boards', 'images', 'thumbs', 'previews'], 'readwrite', (tx) => {
+  deleteBoard: (id) => run(['boards', 'images', 'thumbs', 'previews', 'sketches'], 'readwrite', (tx) => {
+    tx.objectStore('sketches').delete(imagesOf(id));
     tx.objectStore('boards').delete(id);
     tx.objectStore('thumbs').delete(id);
     tx.objectStore('images').delete(imagesOf(id));
@@ -301,6 +302,10 @@ export const store = {
   // A small copy of each big image, so big boards open quickly: { w, h, blob } (w x h is
   // the full image's size; blob is null for images small enough to show as they are).
   savePreview: (boardId, imageId, rec) => run('previews', 'readwrite', (tx) => tx.objectStore('previews').put(rec, `${boardId}/${imageId}`)),
+  // A sketch's layers, so it can be opened again in the Sketch studio:
+  // { w, h, paper, layers: [{ name, visible, opacity, blob }] }.
+  saveSketch: (boardId, imageId, rec) => run('sketches', 'readwrite', (tx) => tx.objectStore('sketches').put(rec, `${boardId}/${imageId}`)),
+  loadSketch: (boardId, imageId) => run('sketches', 'readonly', (tx) => tx.objectStore('sketches').get(`${boardId}/${imageId}`)),
   loadPreview: (boardId, imageId) => run('previews', 'readonly', (tx) => tx.objectStore('previews').get(`${boardId}/${imageId}`)),
 
   saveFont: (name, blob) => run('fonts', 'readwrite', (tx) => tx.objectStore('fonts').put(blob, name)),

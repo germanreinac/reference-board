@@ -19,6 +19,7 @@ const ICONS = {
   arrow: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3M7.5 3H13v5.5"/></svg>',
   frame: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M2.5 2.4h5.5"/></svg>',
   pen: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-7.5 7.5-3.8.8.8-3.8z M9 4l3 3"/></svg>',
+  sketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   eraser: '<svg viewBox="0 0 16 16"><path d="M9.5 2.8l3.7 3.7-6.3 6.3H4.2L2.5 11.1z M6.2 6.1l3.7 3.7 M7 12.8h6.5"/></svg>',
   note: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
   undo: '<svg viewBox="0 0 16 16"><path d="M5.5 4L2.5 7l3 3M3 7h7a3.5 3.5 0 010 7H8"/></svg>',
@@ -40,7 +41,7 @@ const TITLES = {
 
 export class Toolbar {
   // onChange() is called whenever the tool, colour or size changes.
-  constructor(element, { onChange, onUndo, onRedo }) {
+  constructor(element, { onChange, onUndo, onRedo, onSketch }) {
     this.el = element;
     this.onChange = onChange;
     this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, shapeSize: 3, shape: 'arrow', collapsed: false };
@@ -56,6 +57,12 @@ export class Toolbar {
       });
       this.toolButtons[tool] = b;
       toolGroup.appendChild(b);
+      // Next to the quick pen: the Sketch studio, for proper drawing and painting.
+      if (tool === 'pen' && onSketch) {
+        const s = this.button(ICONS.sketch, 'Sketch studio: draw and paint with brushes, pen pressure and layers', () => onSketch(s));
+        s.classList.add('sketch-button');
+        toolGroup.appendChild(s);
+      }
     }
 
     // The choice of shapes, above the toolbar.

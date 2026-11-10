@@ -19,6 +19,7 @@ import { imagesFromDrop, imagesFromPaste } from './importer.js';
 import { showMenu, hideMenu } from './menu.js';
 import { History } from './history.js';
 import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
+import { openSketch, sketchOpen } from './sketch.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -1113,6 +1114,125 @@ function goToThing(item) {
   board.selection = [item];
   viewChanged();
   requestRender();
+}
+
+// ---------- Sketch studio ----------
+//
+// Proper drawing and painting (src/sketch.js): brushes, pen pressure, layers. The result
+// goes on the board as an image; its layers are kept, so it opens again for more work.
+//   New sketch      a blank page, put in the middle of the view
+//   Paint over      a see-through sheet over an image, the same size and place, grouped
+//                   with it (the image itself is never changed)
+//   Edit sketch     open a sketch again (double-click it)
+
+const SKETCH_SIZES = [
+  ['Landscape · 2560 × 1440', 2560, 1440],
+  ['Portrait · 1440 × 2560', 1440, 2560],
+  ['Square · 2048 × 2048', 2048, 2048],
+  ['A4 page · 2480 × 3508', 2480, 3508],
+  ['Wide · 3840 × 2160', 3840, 2160],
+];
+const MAX_SKETCH = 4096;   // the biggest side of a sketch, in pixels (keeps brushes quick)
+
+function sketchMenu(x, y) {
+  showMenu(x, y, SKETCH_SIZES.map(([label, w, h]) => ({ label, action: () => newSketch(w, h) })));
+}
+
+async function newSketch(width, height) {
+  if (!current) return;
+  const boardId = current.id;
+  const r = await openSketch({ width, height, paper: '#ffffff', title: 'New sketch' });
+  if (!r || current?.id !== boardId) return;
+  const pane = targetBoardPane();
+  const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+  // About two thirds of the view wide.
+  const k = pane ? Math.min(pane.rect.w * 0.66 / width, pane.rect.h * 0.66 / height) / pane.camera.zoom : 1;
+  await placeSketch(r, { x: at.x, y: at.y, scaleX: k, scaleY: k, name: 'Sketch', sketch: { base: null } });
+}
+
+// Paint over an image: the sheet matches what's visible of it (its crop), and sits on top.
+async function paintOver(item) {
+  if (!current || item?.kind !== 'image' || !item.blob) return;
+  const boardId = current.id;
+  const c = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
+  const long = Math.max(c.w, c.h);
+  const target = Math.min(MAX_SKETCH, Math.max(1600, long));
+  const W = Math.max(1, Math.round(c.w * target / long)), H = Math.max(1, Math.round(c.h * target / long));
+  let reference = null;
+  try { reference = await createImageBitmap(item.blob, c.x, c.y, c.w, c.h); } catch {}
+  const r = await openSketch({ width: W, height: H, reference, paper: null, title: `Painting over ${item.name || 'an image'}` });
+  reference?.close?.();
+  if (!r || current?.id !== boardId || !board.items.includes(item)) return;
+  const s = item.sprite;
+  const before = stateOf(item);
+  if (!item.group) item.group = newGroupId();
+  const index = board.items.indexOf(item) + 1;
+  await placeSketch(r, {
+    x: s.x, y: s.y, rotation: s.rotation, scaleX: s.scale.x * c.w / W, scaleY: s.scale.y * c.h / H,
+    name: `Paint over ${item.name || 'image'}`, group: item.group, index, sketch: { base: item.id },
+  }, () => applyState(before));
+}
+
+// Put a finished sketch on the board (one undo step).
+async function placeSketch(r, opts, undoExtra = () => {}) {
+  const bitmap = await decode(r.blob, 'Sketch');
+  if (!bitmap || !current) return;
+  const item = board.addImage(bitmap, opts.x, opts.y, { ...opts, blob: r.blob });
+  const boardId = current.id;
+  store.saveImage(boardId, item.id, r.blob).catch(() => {});
+  store.saveSketch(boardId, item.id, { w: r.width, h: r.height, paper: r.paper, layers: r.layers }).catch(() => {});
+  board.selection = [item];
+  const data = { ...board.imageJSON(item), blob: item.blob };
+  history.push({
+    undo: () => { removeImageById(data.id); undoExtra(); },
+    redo: () => restoreImage(data),
+  });
+  contentChanged();
+  requestRender();
+  toast('Sketch added. Double-click it to keep working on it.', 2400);
+}
+
+// Open a sketch again, with its layers (and the picture it's painted over, if any).
+async function editSketch(item) {
+  if (!current || item?.kind !== 'image' || !item.blob) return;
+  const boardId = current.id;
+  const saved = await store.loadSketch(boardId, item.id).catch(() => null);
+  const W = saved?.w || item.fullWidth, H = saved?.h || item.fullHeight;
+  const base = item.sketch?.base != null ? board.find('image', item.sketch.base) : null;
+  let reference = null;
+  if (base?.blob) {
+    const c = base.crop || { x: 0, y: 0, w: base.fullWidth, h: base.fullHeight };
+    try { reference = await createImageBitmap(base.blob, c.x, c.y, c.w, c.h); } catch {}
+  }
+  const r = await openSketch({
+    width: W, height: H, reference,
+    layers: saved?.layers || [{ name: 'Layer 1', blob: item.blob }],
+    paper: saved ? saved.paper : null,
+    title: item.name || 'Sketch',
+  });
+  reference?.close?.();
+  if (!r || current?.id !== boardId || !board.items.includes(item)) return;
+  const old = { blob: item.blob, sketch: saved };
+  const now = { blob: r.blob, sketch: { w: r.width, h: r.height, paper: r.paper, layers: r.layers } };
+  const apply = async (v) => {
+    const it = board.find('image', item.id);
+    if (!it) return;
+    const bitmap = await decode(v.blob, 'Sketch');
+    if (!bitmap) return;
+    it.blob = v.blob;
+    const prev = it.source.resource;
+    board.setImageBitmap(it, bitmap);
+    if (prev !== it.preview) prev?.close?.();
+    it.preview?.close?.();
+    it.preview = null;
+    store.saveImage(boardId, it.id, v.blob).catch(() => {});
+    if (v.sketch) store.saveSketch(boardId, it.id, v.sketch).catch(() => {});
+    if (activeDoc) activeDoc.thumbStale = true;
+    requestRender();
+  };
+  await apply(now);
+  history.push({ undo: () => apply(old), redo: () => apply(now) });
+  contentChanged();
 }
 
 // ---------- Compare ----------
@@ -2707,6 +2827,7 @@ async function redo() {
 }
 
 const toolbar = new Toolbar(document.getElementById('toolbar'), {
+  onSketch: (button) => { const r = button.getBoundingClientRect(); sketchMenu(r.left, r.top - 4); },
   onChange: () => { updateCursor(); requestRender(); },
   onUndo: undo,
   onRedo: redo,
@@ -2942,6 +3063,8 @@ const SEL_ICONS = {
   delete: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>',
   star: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>',
   caption: '<svg viewBox="0 0 16 16"><rect x="2" y="1.5" width="12" height="8" rx="1.5"/><path d="M2.5 12h11M2.5 14.5h7"/></svg>',
+  paint: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
+  editSketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/><circle cx="12.5" cy="12.5" r="2" fill="currentColor" stroke="none"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
 const SEL_ACTIONS = [
@@ -2953,6 +3076,8 @@ const SEL_ACTIONS = [
   ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image')],
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
+  ['paint', 'Paint over this image (Sketch studio: brushes and layers; the image stays as it is)', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
+  ['editSketch', 'Edit the sketch (or double-click it)', () => editSketch(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sketch],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['align', 'Align, spread out or arrange', () => { const r = selectionBar.querySelector('[data-action="align"]').getBoundingClientRect(); alignMenu(r.left, r.bottom + 6); }, (sel) => sel.length > 1],
   ['group', 'Group (Ctrl/⌘+G)', groupSelection, (sel) => sel.length > 1 && !(sel.every((x) => x.group && x.group === sel[0].group))],
@@ -3525,6 +3650,7 @@ panesEl.addEventListener('dblclick', (e) => {
   const hit = board.hitTest(w.x, w.y);
   if (hit?.kind === 'note') editNote(hit, pane);
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
+  else if (hit?.kind === 'image' && hit.sketch) { board.selection = [hit]; editSketch(hit); }
   else if (hit?.kind === 'image') { board.selection = [hit]; editCaption(hit, pane); }
 });
 
@@ -3647,6 +3773,7 @@ function openMenu(x, y, pane) {
     { label: 'Flip upside down', action: () => flipSelection('y') },
     { label: 'Greyscale on / off', action: toggleGrey },
     ...(one?.kind === 'image' ? [
+      one.sketch ? { label: 'Edit sketch', action: () => editSketch(one) } : { label: 'Paint over (Sketch studio)…', action: () => paintOver(one) },
       { label: 'Crop…', action: startCrop },
       ...(one.crop ? [{ label: 'Show the whole image', action: resetCrop }] : []),
     ] : []),
