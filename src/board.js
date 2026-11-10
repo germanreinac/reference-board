@@ -75,6 +75,7 @@ export class Board {
     this.frames = [];      // frames, in the order they're presented
     this.ink = 0xffffff;   // the colour frame outlines and titles are drawn in (changes with the theme)
     this.palettes = [];    // colour sets kept with the board: [{ id, name, colours: ['#rrggbb'…] }]
+    this.storyboards = []; // storyboards (src/storyboard.js); their pages and texts are drawn from these
     this.selection = [];   // the images and notes that are selected
     this.marquee = null;   // the selection box being dragged: { x0, y0, x1, y1 } in board units
   }
@@ -440,7 +441,7 @@ export class Board {
   contentsOf(frame) {
     const l = frame.sprite.x - frame.w / 2, t = frame.sprite.y - frame.h / 2;
     return [...this.notes, ...this.shapes, ...this.items].filter((x) => {
-      if (x.locked) return false;
+      if (x.locked && !x.sbGen) return false;   // (a storyboard's own texts move with its pages)
       return x.sprite.x >= l && x.sprite.x <= l + frame.w && x.sprite.y >= t && x.sprite.y <= t + frame.h;
     });
   }
@@ -1159,6 +1160,7 @@ export class Board {
   clear() {
     this.clearFx();
     this.palettes = [];
+    this.storyboards = [];
     for (const item of [...this.items]) this.remove(item);
     for (const note of [...this.notes]) this.remove(note);
     for (const shape of [...this.shapes]) this.remove(shape);
@@ -1367,10 +1369,12 @@ export class Board {
     return {
       items: this.items.map((i) => this.imageJSON(i)),
       strokes: this.strokes.map((s) => this.strokeJSON(s)),
-      notes: this.notes.map((n) => this.noteJSON(n)),
-      shapes: this.shapes.map((x) => this.shapeJSON(x)),
-      frames: this.frames.map((f) => this.frameJSON(f)),
+      // (A storyboard's pages and texts aren't saved: they're drawn again from its data.)
+      notes: this.notes.filter((n) => !n.sbGen).map((n) => this.noteJSON(n)),
+      shapes: this.shapes.filter((x) => !x.sbGen).map((x) => this.shapeJSON(x)),
+      frames: this.frames.filter((f) => !f.sbGen).map((f) => this.frameJSON(f)),
       palettes: this.palettes,
+      storyboards: this.storyboards,
     };
   }
 }

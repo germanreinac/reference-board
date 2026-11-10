@@ -22,6 +22,7 @@ import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
 import { openSketch, sketchOpen, refreshSketch } from './sketch.js';
 import { makePdf } from './pdf.js';
 import { PalettePanel, lightness } from './palettes.js';
+import { Storyboards } from './storyboard.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -114,7 +115,7 @@ function setMode(m) {
   document.body.dataset.mode = m;
   hideMenu();
   // The home screen is always dark; each board has its own look (set when it opens).
-  if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); csPanel?.remove(); csPanel = null; }
+  if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -1492,24 +1493,24 @@ function storyboardDialog() {
     <label>Panel shape <select data-k="shape">${PANEL_SHAPES.map(([l], i) => `<option value="${i}">${l}</option>`).join('')}</select></label>
     <label>Panels per row <select data-k="cols">${[2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
     <label data-row="count">Panels <input type="number" data-k="count" min="1" max="60"></label>
-    <label class="check"><input type="checkbox" data-k="notes"> Action and dialogue lines</label>
     <div class="buttons"><button data-a="cancel">Cancel</button><button data-a="ok" class="primary">Make storyboard</button></div>`;
   el.querySelector('p').textContent = imgs.length
     ? `The ${imgs.length} selected image${imgs.length > 1 ? 's' : ''} become the panels, in reading order (left to right, top to bottom).`
-    : 'Blank panels to draw in: double-click a panel to paint on it.';
+    : 'Blank panels to draw in (double-click one). You can add, reorder and fill in panels as you go.';
   const f = (k) => el.querySelector(`[data-k="${k}"]`);
   f('shape').value = prefs.shape;
   f('cols').value = prefs.cols;
   f('count').value = prefs.count;
-  f('notes').checked = prefs.notes;
   el.querySelector('[data-row="count"]').hidden = imgs.length > 0;
   document.body.appendChild(el);
   const close = () => { el.remove(); window.removeEventListener('keydown', onKey, true); };
   const ok = () => {
-    prefs = { shape: Number(f('shape').value), cols: Number(f('cols').value), count: Math.max(1, Math.min(60, Number(f('count').value) || 9)), notes: f('notes').checked };
+    prefs = { shape: Number(f('shape').value), cols: Number(f('cols').value), count: Math.max(1, Math.min(60, Number(f('count').value) || 9)) };
     try { localStorage.setItem(SB_KEY, JSON.stringify(prefs)); } catch {}
     close();
-    makeStoryboard({ ratio: PANEL_SHAPES[prefs.shape][1], cols: prefs.cols, count: prefs.count, notes: prefs.notes, imgs });
+    const pane = targetBoardPane();
+    const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+    storyboards.create({ ratio: PANEL_SHAPES[prefs.shape][1], cols: prefs.cols, count: prefs.count, images: readingOrder(imgs), at });
   };
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Enter') { e.stopPropagation(); ok(); } };
   window.addEventListener('keydown', onKey, true);
@@ -1518,81 +1519,46 @@ function storyboardDialog() {
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
 }
 
-async function makeStoryboard({ ratio, cols, count, notes, imgs }) {
-  const pane = targetBoardPane();
-  const list = readingOrder(imgs);
-  const n = list.length || count;
-  const PW = 900, PH = Math.round(PW / ratio);
-  const gapX = 80, numberH = 70, textH = notes ? 170 : 30, margin = 110;
-  const rows = Math.max(1, Math.min(Math.ceil(n / cols), ratio < 1 ? 2 : 3));
-  const perPage = cols * rows;
-  const pages = Math.ceil(n / perPage);
-  const cellH = numberH + PH + textH;
-  const pageW = margin * 2 + cols * PW + (cols - 1) * gapX;
-  const pageH = margin * 2 + rows * cellH;
-  const centre = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
-  const spot = board.freeSpot(pageW, pages * (pageH + 160), centre.x, centre.y);
-  const left = spot.x - pageW / 2, top = spot.y - (pages * (pageH + 160)) / 2;
-  const before = list.map(stateOf);
-  const made = [];   // what's new, for undo
-  const base = Math.round(PW / 24);
-  const others = board.frames.filter((f) => /^Storyboard/.test(f.name || '')).length;
-  const title = others ? `Storyboard ${others + 1}` : 'Storyboard';
-  for (let pg = 0; pg < pages; pg++) {
-    const fy = top + pg * (pageH + 160);
-    const fr = board.addFrame({ x: left + pageW / 2, y: fy + pageH / 2, w: pageW, h: pageH, name: pages > 1 ? `${title} · page ${pg + 1}` : title, titleSize: base * 1.4, fill: '#ffffff' });
-    made.push(fr);
-  }
-  for (let i = 0; i < n; i++) {
-    const pg = Math.floor(i / perPage), k = i % perPage, r = Math.floor(k / cols), c = k % cols;
-    const x0 = left + margin + c * (PW + gapX);
-    const y0 = top + pg * (pageH + 160) + margin + r * cellH + numberH;
-    const cx = x0 + PW / 2, cy = y0 + PH / 2;
-    const group = newGroupId();
-    const it = list[i];
-    if (it) {
-      // Crop to the panel's shape, from the middle (the whole image is still there).
-      const fw = it.fullWidth, fh = it.fullHeight;
-      const crop = fw / fh > ratio ? { x: (fw - fh * ratio) / 2, y: 0, w: fh * ratio, h: fh } : { x: 0, y: (fh - fw / ratio) / 2, w: fw, h: fw / ratio };
-      board.setCrop(it, crop, { keepPlace: false });
-      const s = it.sprite;
-      const kx = PW / it.width;
-      s.rotation = 0;
-      s.scale.set(Math.sign(s.scale.x || 1) * kx, Math.sign(s.scale.y || 1) * kx);
-      s.position.set(cx, cy);
-      it.group = group;
-    } else {
-      const W = 1920, H = Math.round(1920 / ratio);
-      const sheet = await addSheet(W, H, '#ffffff', { x: cx, y: cy, scaleX: PW / W, scaleY: PW / W, name: `Panel ${i + 1}`, group });
-      made.push(sheet);
+// The storyboard tool itself (src/storyboard.js).
+const storyboards = new Storyboards({
+  board: () => board,
+  addSheet,
+  removeImage: removeImageById,
+  thingData,
+  restoreThing,
+  stateOf,
+  applyState,
+  push: (step) => history.push(step),
+  changed: () => contentChanged(),
+  render: () => requestRender(),
+  paint: (item) => editSketch(item),
+  exportFrames: (frames) => exportFrames(frames),
+  toast,
+  selectedImages: () => readingOrder(board.selection.filter((x) => x.kind === 'image')),
+  menu: (button, items) => { const r = button.getBoundingClientRect(); showMenu(r.left, r.bottom + 4, items); },
+  // Show part of the board (`soft`: only move if it's mostly out of view).
+  focus: (bounds, soft = false) => {
+    const pane = targetBoardPane();
+    if (!pane || !bounds) return;
+    if (soft) {
+      const a = pane.camera.toWorld(0, 0), z = pane.camera.toWorld(pane.rect.w * 0.7, pane.rect.h);
+      const cx = bounds.x + bounds.width / 2, cy = bounds.y + bounds.height / 2;
+      if (cx > a.x && cx < z.x && cy > a.y && cy < z.y && bounds.width * pane.camera.zoom > 120) return;
     }
-    const outline = board.addShape({ shape: 'rect', x: cx, y: cy, w: PW, h: PH, color: INK_DARK, strokeWidth: 3, group });
-    made.push(outline);
-    const num = board.addNote({ x: x0, y: y0 - numberH / 2, text: String(i + 1), style: 'text', level: 'h2', base, color: INK_DARK, group });
-    num.sprite.x = x0 + num.width / 2;
-    made.push(num);
-    if (notes) {
-      for (const [j, label] of ['Action: ', 'Dialogue: '].entries()) {
-        const t = board.addNote({ x: x0, y: y0 + PH + 40 + j * base * 2.1, text: label, style: 'text', level: 'body', base: base * 0.8, color: '#55555c', group });
-        t.sprite.x = x0 + t.width / 2;
-        made.push(t);
-      }
-    }
-  }
-  board.syncImages();
-  const data = made.map(thingData);
-  const after = list.map(stateOf);
-  history.push({
-    undo: () => { data.forEach((d) => removeThing(d.kind, d.data.id)); before.forEach(applyState); requestRender(); },
-    redo: async () => { await Promise.all(data.map(restoreThing)); after.forEach(applyState); requestRender(); },
-  });
-  board.selection = [];
-  if (pane) { const b = board.bounds(made.filter((x) => x.kind === 'frame')); if (b) pane.camera.frame(b, pane.rect.w, pane.rect.h, 60); }
-  contentChanged();
-  viewChanged();
-  requestRender();
-  toast(list.length ? 'Storyboard made. Double-click Action or Dialogue to write.' : 'Storyboard made. Double-click a panel to draw in it, or Action / Dialogue to write.', 3600);
-}
+    pane.camera.frame(bounds, pane.rect.w * (soft ? 0.7 : 0.75), pane.rect.h, 60);
+    viewChanged();
+    requestRender();
+  },
+  copyImage: async (art) => {
+    const data = { ...board.imageJSON(art), blob: art.blob };
+    delete data.id;
+    const bitmap = await decode(art.blob, art.name);
+    if (!bitmap) return null;
+    const item = board.addImage(bitmap, art.sprite.x + 40, art.sprite.y + 40, data);
+    store.saveImage(current.id, item.id, art.blob).catch(() => {});
+    return item;
+  },
+});
 
 // ---------- Exporting frames ----------
 //
@@ -2104,6 +2070,8 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     for (const x of data?.shapes || []) board.addShape(x);
     for (const f of data?.frames || []) board.addFrame(f);
     board.palettes = Array.isArray(data?.palettes) ? data.palettes : [];
+    board.storyboards = Array.isArray(data?.storyboards) ? data.storyboards : [];
+    storyboards.layoutAllOn(board);
     // Make sure the fonts the text uses are loaded, then lay the text out again.
     const used = [...new Set([...board.notes, ...board.frames].map((n) => `${n.font || 'Inter'}|${n.weight}|${!!n.italic}`))];
     Promise.all(used.map((k) => { const [f, w, i] = k.split('|'); return ensureFont(f, w, i === 'true'); }))
@@ -4014,7 +3982,13 @@ panesEl.addEventListener('pointerdown', (e) => {
       if (!board.isSelected(hit)) board.selection = board.groupOf(hit);
       board.bringToFront(hit);
       // Frames take what's inside them along.
-      const items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])];
+      let items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])];
+      // A storyboard's panel: the whole storyboard moves (its panels keep their order).
+      const owner = storyboards.ownerOf(hit);
+      if (owner?.sb) {
+        const pages = board.frames.filter((f) => f.sbGen === owner.sb.id);
+        items = [...new Set([...pages, ...pages.flatMap((f) => board.contentsOf(f))])];
+      }
       drag = { kind: 'move', pane, items, before: items.map(stateOf), start: w, moved: false };
     } else {
       // Clicked empty space: deselect and pan.
@@ -4092,7 +4066,11 @@ function endDrag() {
   } else if (d.kind === 'move' && d.moved && moveToOtherBoard(d)) {
     // (handled: dropped onto a pane that shows another board)
   } else if (['move', 'scale', 'rotate'].includes(d.kind)) {
-    recordChange(d.items, d.before);
+    // A storyboard's pages and panels follow its own layout: moving its pages moves it.
+    const owned = d.items.filter((x) => storyboards.ownerOf(x));
+    if (owned.length) storyboards.moved(new Set(owned.map((x) => storyboards.ownerOf(x).sb?.id).filter(Boolean)));
+    const rest = d.items.filter((x) => !storyboards.ownerOf(x));
+    recordChange(rest, d.before.filter((st) => rest.some((x) => x.kind === st.kind && x.id === st.id)));
   } else if (d.kind === 'marquee') {
     board.marquee = null;
   } else if (d.kind === 'crop') {
@@ -4142,8 +4120,11 @@ panesEl.addEventListener('dblclick', (e) => {
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const title = board.frameTitleAt(w.x, w.y);
+  if (title?.sbGen) return storyboards.edit(storyboards.find(title.sbGen));
   if (title) return renameFrame(title, pane, board.titleIndexAt(title, w.x, w.y));
   const hit = board.hitTest(w.x, w.y);
+  // A storyboard's page: open its editor (its panels are painted on as sketches).
+  if (hit?.kind === 'frame' && hit.sbGen) return storyboards.edit(storyboards.find(hit.sbGen));
   if (hit?.kind === 'note') editNote(hit, pane);
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
   else if (hit?.kind === 'image' && hit.sketch) { board.selection = [hit]; editSketch(hit); }
@@ -4213,6 +4194,7 @@ function openMenu(x, y, pane) {
     '-',
     { label: 'Palettes', action: () => palettePanel.toggle() },
     { label: 'New storyboard…', action: () => { board.selection = []; storyboardDialog(); } },
+    ...(board.storyboards.length ? [{ label: 'Storyboards', submenu: board.storyboards.map((sb) => ({ label: sb.name, action: () => { storyboards.edit(sb); storyboards.api.focus(storyboards.bounds(sb)); } })) }] : []),
     { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
     { label: 'Capture screen…', action: captureScreen },
     { label: 'Lock everything', action: () => setLocked('all', true) },
@@ -4309,6 +4291,7 @@ function openMenu(x, y, pane) {
     ...(imgs.length ? [{ label: imgs.every((x) => x.star) ? 'Remove star' : 'Star as a favourite', shortcut: 'M', action: toggleStar }] : []),
     ...(one?.kind === 'image' ? [{ label: one.caption ? 'Edit caption' : 'Write a caption', shortcut: 'Enter', action: () => editCaption(one, pane) }] : []),
     ...(n === 2 && imgs.length === 2 ? [{ label: 'Compare these two…', action: compareSelection }] : []),
+    ...(storyboards.ownerOf(one) ? [{ label: 'Edit storyboard…', action: () => { const o = storyboards.ownerOf(one); storyboards.edit(o.sb, o.panel); } }] : []),
     ...(sel.some((x) => x.kind === 'frame') ? [
       { label: 'Export as PDF', action: () => exportFrames(board.frames.filter((f) => sel.includes(f))) },
       { label: 'Export as PNG', action: () => exportFrames(sel.filter((x) => x.kind === 'frame').slice(0, 1), 'png') },
