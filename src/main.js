@@ -60,7 +60,7 @@ document.getElementById('stage').appendChild(app.canvas);
 // everything would go blank: save and reload the page instead.
 app.canvas.addEventListener('webglcontextlost', () => {
   toast('The graphics card reset. Reloading the board…', 10000);
-  setTimeout(() => location.reload(), 1500);
+  Promise.resolve(mainDoc && saveNow()).catch(() => {}).finally(() => setTimeout(() => location.reload(), 1200));
 });
 
 // The board you're working on: the one in the pane you last clicked. Each pane can
