@@ -67,7 +67,9 @@ export async function unpackBoard(file) {
   try {
     entries = new Map((await listZip(file)).map((e) => [e.name, e]));
   } catch {
-    throw new Error("That file isn't a reference board, or it's damaged.");
+    throw new Error(file.parts
+      ? `Some parts of "${file.name}" seem to be missing. Drop all its parts together.`
+      : "That file isn't a reference board, or it's damaged.");
   }
   if (!entries.has('board.json')) throw new Error("That file isn't a reference board.");
   const data = JSON.parse(await zipText(file, entries.get('board.json')));
@@ -87,6 +89,29 @@ export async function unpackBoard(file) {
 
 export function isBoardFile(file) {
   return file.name?.toLowerCase().endsWith(FILE_EXT);
+}
+
+// A big board file can come in numbered parts ("Name.refboard.001", ".002"…), to fit size
+// limits when sending it. Dropped together, the parts are joined back into the board file
+// (end to end, as they were cut: nothing is copied or changed).
+const PART = /^(.*\.refboard)\.(\d{3})$/i;
+export const isBoardPart = (file) => PART.test(file.name || '');
+export function joinParts(files) {
+  const groups = new Map();
+  for (const f of files) {
+    const [, base, n] = f.name.match(PART);
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push({ n: Number(n), f });
+  }
+  return [...groups].map(([base, parts]) => {
+    parts.sort((a, b) => a.n - b.n);
+    parts.forEach((p, i) => {
+      if (p.n !== i + 1) throw new Error(`Part ${String(i + 1).padStart(3, '0')} of "${base}" is missing. Drop all its parts together.`);
+    });
+    const joined = new File(parts.map((p) => p.f), base, { type: 'application/zip' });
+    joined.parts = parts.length;
+    return joined;
+  });
 }
 
 export function isBackupFile(file) {

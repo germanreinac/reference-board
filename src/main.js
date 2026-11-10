@@ -31,7 +31,7 @@ import { LEVELS } from './board.js';
 import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
 document.querySelector('.home-version').textContent = `Version ${VERSION}`;
 import {
-  FILE_EXT, packBoard, unpackBoard, isBoardFile, describeBoard, canPickFiles,
+  FILE_EXT, packBoard, unpackBoard, isBoardFile, isBoardPart, joinParts, describeBoard, canPickFiles,
   pickSaveLocation, ensureWritePermission, writeToHandle, pickBoardToOpen, downloadBlob,
   store, newBoardId, askToKeepStorage, storageIsKept, packBackup, unpackBackup, isBackupFile, BACKUP_EXT,
 } from './storage.js';
@@ -2630,6 +2630,9 @@ window.addEventListener('drop', async (e) => {
     if (backups.length) { for (const f of backups) await restoreBackup(f); return; }
     // Board files are added to your boards, never replacing one.
     const boardFiles = [...e.dataTransfer.files].filter(isBoardFile);
+    // A big board sent in parts (Name.refboard.001, .002…): joined back together.
+    const parts = [...e.dataTransfer.files].filter(isBoardPart);
+    if (parts.length) boardFiles.push(...joinParts(parts));
     if (boardFiles.length) {
       let lastId;
       for (const f of boardFiles) lastId = await importBoardFile(f);
