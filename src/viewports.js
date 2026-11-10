@@ -436,6 +436,24 @@ export class Viewports {
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85));
   }
 
+  // A picture of part of the board (for exporting frames): `bounds` drawn into
+  // width x height pixels, on `background` (a colour number). Returns a canvas.
+  renderRegion(board, bounds, width, height, background = this.background) {
+    const cam = new Camera();
+    cam.frame(bounds, width, height, 0);
+    const texture = RenderTexture.create({ width, height, resolution: 1 });
+    const selection = board.selection;
+    board.selection = [];
+    board.drawOverlay(cam.zoom);
+    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x, cam.y);
+    this.app.renderer.render({ container: board.world, target: texture, clear: true, clearColor: background, transform: this.matrix });
+    board.selection = selection;
+    board.drawOverlay(cam.zoom);
+    const canvas = this.app.renderer.extract.canvas(texture);
+    texture.destroy(true);
+    return canvas;
+  }
+
   setColours({ board, dot }) {
     this.background = board;
     this.dotColour = dot;

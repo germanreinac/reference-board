@@ -1867,3 +1867,22 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   .sketch { grid-template-columns: 46px 1fr; }
   .sketch-right { display: none; }
 }
+
+/* A small dialog in the middle of the screen (storyboard settings and the like). */
+.mini-dialog {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 70;
+  width: min(360px, calc(100vw - 32px)); padding: 18px 20px 16px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4); color: var(--text);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.mini-dialog h3 { margin: 0; color: var(--text-strong); font-size: 16px; }
+.mini-dialog p { margin: 0 0 4px; font-size: 12px; line-height: 1.5; }
+.mini-dialog label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.mini-dialog label[hidden] { display: none; }
+.mini-dialog label.check { justify-content: flex-start; }
+.mini-dialog select, .mini-dialog input[type="number"] { min-width: 150px; padding: 5px 8px; border: 1px solid var(--panel-border); border-radius: 7px; background: var(--input); color: var(--text-strong); font: inherit; }
+.mini-dialog input[type="number"] { min-width: 0; width: 80px; }
+.mini-dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.mini-dialog button { padding: 6px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: none; color: var(--text-strong); font: inherit; cursor: pointer; }
+.mini-dialog button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
