@@ -1092,17 +1092,30 @@ export class Board {
 
   // Text is drawn as a picture, so it gets blurry when you zoom in. This redraws
   // each note's text sharp enough for the most zoomed-in pane, within limits.
-  updateTextSharpness(maxZoom, pixelRatio) {
+  // `views`: the panes showing this board, as { zoom, x0, y0, x1, y1 } (the board area each
+  // one shows). Only text in view is made sharp: sharp text takes a lot of graphics memory,
+  // and a big board can have hundreds of notes.
+  updateTextSharpness(views, pixelRatio) {
+    const zoomFor = (x, y, r) => {
+      let z = 0;
+      for (const v of views) if (x + r >= v.x0 && x - r <= v.x1 && y + r >= v.y0 && y - r <= v.y1) z = Math.max(z, v.zoom);
+      return z;
+    };
+    const resFor = (want) => 2 ** Math.ceil(Math.log2(Math.max(0.25, want)));
     for (const n of this.notes) {
-      const want = Math.min(maxZoom * pixelRatio, 4096 / Math.max(n.width, n.height, 1));
-      const res = 2 ** Math.ceil(Math.log2(Math.max(0.25, want)));
+      const s = n.sprite;
+      const k = Math.abs(s.scale.x) || 1;
+      const z = zoomFor(s.x, s.y, Math.hypot(n.width, n.height) * k / 2);
+      const want = z ? Math.min(z * pixelRatio * k, 4096 / Math.max(n.width, n.height, 1)) : 0.5;
+      const res = resFor(want);
       if (n.label.resolution !== res) n.label.resolution = res;
     }
     for (const i of this.items) {
       const t = i.captionText;
       if (!t) continue;
-      const want = Math.min(maxZoom * pixelRatio * t.scale.x, 4096 / Math.max(CAPTION_WRAP, t.height / (t.scale.y || 1), 1));
-      const res = 2 ** Math.ceil(Math.log2(Math.max(0.25, want)));
+      const z = zoomFor(i.sprite.x, i.sprite.y, Math.hypot(i.width * i.sprite.scale.x, i.height * i.sprite.scale.y));
+      const want = z ? Math.min(z * pixelRatio * t.scale.x, 4096 / Math.max(CAPTION_WRAP, t.height / (t.scale.y || 1), 1)) : 0.5;
+      const res = resFor(want);
       if (t.resolution !== res) t.resolution = res;
     }
   }

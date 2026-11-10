@@ -56,6 +56,12 @@ await app.init({
   preference: 'webgl',
 });
 document.getElementById('stage').appendChild(app.canvas);
+// If the graphics card drops the board's drawing (out of memory, or the driver reset),
+// everything would go blank: save and reload the page instead.
+app.canvas.addEventListener('webglcontextlost', () => {
+  toast('The graphics card reset. Reloading the board…', 10000);
+  setTimeout(() => location.reload(), 1500);
+});
 
 // The board you're working on: the one in the pane you last clicked. Each pane can
 // show a different board (see "Boards on screen" below); `board`, `history` and
@@ -123,9 +129,14 @@ function requestRender() {
   requestAnimationFrame(() => {
     renderQueued = false;
     if (mode !== 'board') return;
-    // Keep note text sharp for the most zoomed-in pane.
-    const maxZoom = Math.max(1, ...boardPanes().map((p) => p.camera.zoom));
-    for (const d of docs.values()) d.board.updateTextSharpness(maxZoom, app.renderer.resolution);
+    // Keep the text in view sharp, for the most zoomed-in pane that shows it.
+    for (const d of docs.values()) {
+      const views = boardPanes().filter((p) => (docOfPane(p) || mainDoc) === d).map((p) => {
+        const a = p.camera.toWorld(0, 0), z = p.camera.toWorld(p.rect.w, p.rect.h);
+        return { zoom: Math.max(1, p.camera.zoom), x0: a.x, y0: a.y, x1: z.x, y1: z.y };
+      });
+      d.board.updateTextSharpness(views, app.renderer.resolution);
+    }
     viewports.render();
     detailSoon();
     noteEditor.position();
