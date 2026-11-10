@@ -1634,6 +1634,156 @@ async function colourScript() {
   requestRender();
 }
 
+// ---------- Colour script strip ----------
+//
+// A film strip of the selected shots' colours, in reading order: one column per shot.
+//   Key colour   one colour per shot (the strongest of its main colours; click to change)
+//   Palette      each shot's main colours, in proportion
+//   Gradient     the key colours flowing into each other across the sequence
+// Add it to the board (under the shots) or download it as a PNG.
+
+let csPanel = null;
+
+async function colourStripPanel() {
+  const imgs = readingOrder(board.selection.filter((x) => x.kind === 'image' && x.blob && !x.name.startsWith('Colours of') && !x.name.startsWith('Colour script')));
+  if (!imgs.length) { toast('Select the shots (images or panels) to make a colour script of.', 2200); return; }
+  csPanel?.remove();
+  toast('Working out the colours…', 20000);
+  const shots = [];
+  for (const it of imgs) {
+    const colours = await imageColours(it, 5);
+    // The key colour: a big share, and some colour in it (not just the grey of the sky).
+    const key = [...colours].sort((a, b) => b.share * (0.35 + chroma(b)) - a.share * (0.35 + chroma(a)))[0];
+    shots.push({ item: it, colours, key: key.hex, thumb: await thumbOf(it) });
+  }
+  toastEl.classList.remove('show');
+  const state = { mode: 'key', labels: true };
+  const el = document.createElement('div');
+  el.className = 'cs-panel';
+  el.innerHTML = `
+    <div class="cs-head">
+      <strong>Colour script</strong>
+      <div class="cs-modes"><button data-m="key">Key colour</button><button data-m="palette">Palette</button><button data-m="gradient">Gradient</button></div>
+      <label><input type="checkbox" data-k="labels" checked> Numbers</label>
+      <span class="cs-space"></span>
+      <button data-a="png">PNG</button>
+      <button data-a="add" class="primary">Add to board</button>
+      <button data-a="close" title="Close">✕</button>
+    </div>
+    <div class="cs-strip"></div>
+    <p class="cs-hint">Click a shot's colour to change it.</p>`;
+  document.body.appendChild(el);
+  csPanel = el;
+  const strip = el.querySelector('.cs-strip');
+  const picker = Object.assign(document.createElement('input'), { type: 'color' });
+  picker.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:0;height:0';
+  el.appendChild(picker);
+  let editing = null;
+  picker.addEventListener('input', () => { if (editing) { editing.key = picker.value; paint(); } });
+  const paint = () => {
+    for (const b of el.querySelectorAll('[data-m]')) b.classList.toggle('on', b.dataset.m === state.mode);
+    strip.replaceChildren();
+    const c = renderStrip(shots, { ...state, cell: 120, h: 70, thumbs: true });
+    c.className = 'cs-canvas';
+    c.addEventListener('click', (e) => {
+      const r = c.getBoundingClientRect();
+      const i = Math.floor((e.clientX - r.left) / r.width * shots.length);
+      if (!shots[i]) return;
+      editing = shots[i];
+      picker.value = editing.key;
+      picker.click();
+    });
+    strip.appendChild(c);
+  };
+  el.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => { state.mode = b.dataset.m; paint(); }));
+  el.querySelector('[data-k="labels"]').addEventListener('change', (e) => { state.labels = e.target.checked; paint(); });
+  el.querySelector('[data-a="close"]').addEventListener('click', () => { el.remove(); csPanel = null; });
+  el.querySelector('[data-a="png"]').addEventListener('click', () => {
+    renderStrip(shots, { ...state, cell: 400, h: 260 }).toBlob((blob) => downloadBlob(blob, `${current?.name || 'Board'} - colour script.png`), 'image/png');
+  });
+  el.querySelector('[data-a="add"]').addEventListener('click', async () => {
+    const canvas = renderStrip(shots, { ...state, cell: 400, h: 260 });
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    const b = board.bounds(imgs);
+    const k = b.width / canvas.width;
+    const bitmap = await createImageBitmap(blob);
+    const item = board.addImage(bitmap, b.x + b.width / 2, b.y + b.height + canvas.height * k / 2 + b.width * 0.03, { name: 'Colour script', blob, scaleX: k, scaleY: k });
+    store.saveImage(current.id, item.id, blob).catch(() => {});
+    const data = { ...board.imageJSON(item), blob };
+    history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+    board.selection = [item];
+    contentChanged();
+    requestRender();
+    toast('Colour script added under the shots.', 2000);
+  });
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  paint();
+}
+
+function chroma({ r, g, b }) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  return (max - min) / 255;
+}
+
+// A small picture of what's visible of an image (for the strip's top row).
+async function thumbOf(item) {
+  const bitmap = await createImageBitmap(item.blob);
+  const c = item.crop || { x: 0, y: 0, w: bitmap.width, h: bitmap.height };
+  const thumb = await createImageBitmap(bitmap, c.x, c.y, c.w, c.h, { resizeWidth: 240, resizeHeight: Math.max(1, Math.round(240 * c.h / c.w)), resizeQuality: 'high' });
+  bitmap.close();
+  return thumb;
+}
+
+// Draw the strip: one column `cell` wide per shot, `h` tall (plus thumbnails and numbers).
+function renderStrip(shots, { mode, labels, cell, h, thumbs = false }) {
+  const n = shots.length;
+  const thumbH = thumbs ? Math.round(cell * 0.56) : 0;
+  const labelH = labels ? Math.round(cell * 0.16) : 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = n * cell;
+  canvas.height = thumbH + h + labelH;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#141416';
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  shots.forEach((s, i) => {
+    const x = i * cell;
+    if (thumbs && s.thumb) {
+      const k = Math.max(cell / s.thumb.width, thumbH / s.thumb.height);
+      const w = s.thumb.width * k, th = s.thumb.height * k;
+      g.save();
+      g.beginPath(); g.rect(x, 0, cell, thumbH); g.clip();
+      g.drawImage(s.thumb, x + (cell - w) / 2, (thumbH - th) / 2, w, th);
+      g.restore();
+    }
+    if (mode === 'palette') {
+      const total = s.colours.reduce((a, c) => a + c.share, 0);
+      let y = thumbH;
+      s.colours.forEach((c, j) => {
+        const bh = j === s.colours.length - 1 ? thumbH + h - y : Math.round(h * c.share / total);
+        g.fillStyle = c.hex;
+        g.fillRect(x, y, cell, bh);
+        y += bh;
+      });
+    } else if (mode === 'key') {
+      g.fillStyle = s.key;
+      g.fillRect(x, thumbH, cell, h);
+    }
+  });
+  if (mode === 'gradient') {
+    const grad = g.createLinearGradient(0, 0, canvas.width, 0);
+    shots.forEach((s, i) => grad.addColorStop(n === 1 ? 0.5 : (i + 0.5) / n, s.key));
+    g.fillStyle = grad;
+    g.fillRect(0, thumbH, canvas.width, h);
+  }
+  if (labels) {
+    g.font = `600 ${Math.round(labelH * 0.55)}px Inter, system-ui, sans-serif`;
+    g.fillStyle = '#d9d9de';
+    g.textBaseline = 'middle';
+    shots.forEach((_, i) => g.fillText(String(i + 1), i * cell + labelH * 0.4, thumbH + h + labelH / 2));
+  }
+  return canvas;
+}
+
 // The k most common colours of an image's pixels (k-means), biggest share first.
 function mainColours(data, k) {
   const px = [];
@@ -3328,6 +3478,7 @@ const SEL_ICONS = {
   caption: '<svg viewBox="0 0 16 16"><rect x="2" y="1.5" width="12" height="8" rx="1.5"/><path d="M2.5 12h11M2.5 14.5h7"/></svg>',
   paint: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   editSketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/><circle cx="12.5" cy="12.5" r="2" fill="currentColor" stroke="none"/></svg>',
+  script: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.2"/><path d="M5.8 3.5v9M10.2 3.5v9"/><path d="M1.5 9.5h13" opacity=".6"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
 const SEL_ACTIONS = [
@@ -3341,6 +3492,7 @@ const SEL_ACTIONS = [
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
   ['paint', 'Paint over this image (Sketch studio: brushes and layers; the image stays as it is)', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
   ['editSketch', 'Edit the sketch (or double-click it)', () => editSketch(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sketch],
+  ['script', 'Colour script: a strip of these shots\' colours', colourStripPanel, (sel) => sel.filter((x) => x.kind === 'image').length > 1],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['align', 'Align, spread out or arrange', () => { const r = selectionBar.querySelector('[data-action="align"]').getBoundingClientRect(); alignMenu(r.left, r.bottom + 6); }, (sel) => sel.length > 1],
   ['group', 'Group (Ctrl/⌘+G)', groupSelection, (sel) => sel.length > 1 && !(sel.every((x) => x.group && x.group === sel[0].group))],
@@ -4044,7 +4196,8 @@ function openMenu(x, y, pane) {
     ] : []),
     '-',
     ...(one?.kind === 'image' ? [{ label: 'Extract colours', action: extractColours }] : []),
-    { label: 'Colour script', action: colourScript },
+    { label: 'Colour script strip…', action: colourStripPanel },
+    { label: 'Colour strips under each image', action: colourScript },
     '-',
     ...(one?.kind === 'image' ? [
       { label: 'Copy image', action: () => copyImage(one) },

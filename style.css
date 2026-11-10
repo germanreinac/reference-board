@@ -1886,3 +1886,22 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
 .mini-dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .mini-dialog button { padding: 6px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: none; color: var(--text-strong); font: inherit; cursor: pointer; }
 .mini-dialog button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Colour script strip (a panel over the board) */
+.cs-panel {
+  position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 55;
+  width: min(1100px, calc(100vw - 32px)); padding: 10px 12px 8px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35); color: var(--text);
+}
+.cs-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.cs-head strong { color: var(--text-strong); }
+.cs-head label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.cs-space { flex: 1; }
+.cs-modes { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: 8px; }
+.cs-panel button { padding: 4px 10px; border: 0; border-radius: 6px; background: none; color: var(--text-strong); font: inherit; font-size: 12px; cursor: pointer; }
+.cs-panel button:hover { background: var(--panel-2); }
+.cs-panel button.on, .cs-panel button.primary { background: var(--accent); color: #fff; }
+.cs-strip { overflow-x: auto; border-radius: 8px; }
+.cs-canvas { display: block; height: 150px; width: auto; max-width: none; cursor: pointer; border-radius: 8px; }
+.cs-hint { margin: 6px 0 0; font-size: 11px; opacity: 0.7; }
