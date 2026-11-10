@@ -449,10 +449,11 @@ export class Board {
   // Put a decoded image on the board, centred on (x, y).
   // `blob` is the original image file; we keep it so the board can be saved.
   // `index` puts it at a given place in the stack (used by undo).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false } = {}) {
-    // Mipmaps are smaller pre-shrunk copies of the image. They keep big photos
-    // looking smooth (not sparkly or jagged) when you zoom far out.
-    const source = new ImageSource({ resource: bitmap, autoGenerateMipmaps: true });
+  // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
+  // it (big boards load previews first; see setImageBitmap).
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight } = {}) {
+    const fw = fullWidth || bitmap.width, fh = fullHeight || bitmap.height;
+    const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
     sprite.anchor.set(0.5);  // position, scale and rotation all work from the centre
     sprite.position.set(x, y);
@@ -464,16 +465,17 @@ export class Board {
       kind: 'image',
       id: takeId(id),
       sprite,
-      width: bitmap.width,   // original pixel size of the image
-      height: bitmap.height,
+      width: fw,             // original pixel size of the image
+      height: fh,
       name,
       sourceUrl,             // where the image came from, when we know it
       blob,
       locked: !!locked,      // locked things can't be selected, moved or erased
       group,                 // things with the same group move and select together
-      source,                // the full picture on the graphics card
-      fullWidth: bitmap.width,
-      fullHeight: bitmap.height,
+      source,                // the picture on the graphics card (full size, or a preview)
+      sharp: bitmap.width >= fw,   // false while only a smaller preview is loaded
+      fullWidth: fw,
+      fullHeight: fh,
       crop: null,            // { x, y, w, h } in the picture's own pixels, when cropped
       grey: false,           // shown in greyscale
       opacity: alpha,        // how see-through it is (1 = solid); Focus mode fades it on top of this
@@ -859,6 +861,19 @@ export class Board {
 
   // Show only part of a picture. `crop` is { x, y, w, h } in the picture's own pixels
   // (null shows all of it). With keepPlace the visible part stays where it was on the board.
+  // Swap the picture an image shows: its full-size picture, or a smaller preview of it.
+  // Sizes, crop and position stay the same (a preview is drawn stretched to the full size).
+  setImageBitmap(item, bitmap) {
+    const old = item.source;
+    item.source = imageSource(bitmap, item.fullWidth);
+    item.sharp = bitmap.width >= item.fullWidth;
+    const c = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
+    const oldTexture = item.sprite.texture;
+    item.sprite.texture = new Texture({ source: item.source, frame: new Rectangle(c.x, c.y, c.w, c.h) });
+    oldTexture.destroy(false);
+    old.destroy();   // (the old picture itself is let go of by whoever swapped it)
+  }
+
   setCrop(item, crop, { keepPlace = true } = {}) {
     const s = item.sprite;
     const old = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
@@ -1102,7 +1117,11 @@ export class Board {
     list.splice(i, 1);
     this.selection = this.selection.filter((x) => x !== item);
     // Also free the picture from graphics memory.
-    if (item.kind === 'image') item.sprite.destroy({ texture: true, textureSource: true });
+    if (item.kind === 'image') {
+      item.sprite.destroy({ texture: true, textureSource: true });
+      item.preview?.close?.();
+      item.preview = null;
+    }
     else item.sprite.destroy({ children: true });
     return i;
   }
@@ -1336,6 +1355,13 @@ export class Board {
       frames: this.frames.map((f) => this.frameJSON(f)),
     };
   }
+}
+
+// An image's picture for the graphics card. Mipmaps are smaller pre-shrunk copies of it:
+// they keep big photos smooth (not sparkly or jagged) when you zoom far out. A preview
+// smaller than the real image gets a lower resolution, so it still measures full size.
+function imageSource(bitmap, fullWidth) {
+  return new ImageSource({ resource: bitmap, resolution: bitmap.width / fullWidth, autoGenerateMipmaps: true });
 }
 
 // A five-pointed star filling a w x h box, as a flat list of points.

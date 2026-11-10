@@ -301,7 +301,8 @@ export class Viewports {
         view.sprite.texture = view.texture;
         old.destroy(true);
       }
-      view.sprite.position.set(r.x - BLEED, r.y - BLEED);
+      // On whole screen pixels: a picture placed between pixels gets softened.
+      view.sprite.position.set(Math.round((r.x - BLEED) * res) / res, Math.round((r.y - BLEED) * res) / res);
     }
 
     for (const { split, el } of this.dividers) {

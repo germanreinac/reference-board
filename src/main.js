@@ -127,6 +127,7 @@ function requestRender() {
     const maxZoom = Math.max(1, ...boardPanes().map((p) => p.camera.zoom));
     for (const d of docs.values()) d.board.updateTextSharpness(maxZoom, app.renderer.resolution);
     viewports.render();
+    detailSoon();
     noteEditor.position();
     placeToolbar();
     placeSelectionBar();
@@ -1280,6 +1281,98 @@ function fitPane(pane, items) {
   viewChanged();
 }
 
+// ---------- Sharp images on big boards ----------
+//
+// Every image's full picture on the graphics card adds up fast: a board of a thousand
+// photos would need many gigabytes. So big boards keep a small preview of each image,
+// and swap in the full picture for the images you zoom in on (and back out again when
+// they're small on screen or out of view). Boards that fit in the budget stay full size.
+
+const PREVIEW = 640;            // the longest side of a preview, in pixels
+const FULL_BUDGET = 160e6;      // full-size pixels kept on the graphics card at once
+
+async function makePreview(bitmap) {
+  const k = PREVIEW / Math.max(bitmap.width, bitmap.height);
+  return createImageBitmap(bitmap, { resizeWidth: Math.max(1, Math.round(bitmap.width * k)), resizeHeight: Math.max(1, Math.round(bitmap.height * k)), resizeQuality: 'high' });
+}
+
+async function inParallel(list, n, work) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => {
+    while (next < list.length) await work(list[next++]);
+  }));
+}
+
+let detailTimer;
+let detailBusy = false;
+function detailSoon() {
+  clearTimeout(detailTimer);
+  detailTimer = setTimeout(updateDetail, 160);
+}
+
+async function updateDetail() {
+  if (mode !== 'board') return;
+  if (detailBusy || loading) { detailSoon(); return; }
+  detailBusy = true;
+  try {
+    const res = app.renderer.resolution;
+    // How many screen pixels each image pixel covers, for the images in view.
+    const need = new Map();
+    const all = new Set();
+    for (const pane of boardPanes()) {
+      const b = (docOfPane(pane) || mainDoc)?.board;
+      if (!b) continue;
+      const cam = pane.camera;
+      const a = cam.toWorld(0, 0), z = cam.toWorld(pane.rect.w, pane.rect.h);
+      for (const it of b.items) {
+        if (Math.max(it.fullWidth, it.fullHeight) <= PREVIEW || !it.blob) continue;
+        all.add(it);
+        const s = it.sprite;
+        const sx = Math.abs(s.scale.x), sy = Math.abs(s.scale.y);
+        const r = Math.hypot(it.width * sx, it.height * sy) / 2;
+        if (s.x + r < a.x || s.x - r > z.x || s.y + r < a.y || s.y - r > z.y) continue;
+        need.set(it, Math.max(need.get(it) || 0, Math.max(sx, sy) * cam.zoom * res));
+      }
+    }
+    // Full pictures for the images shown bigger than their preview, biggest first,
+    // then the ones already full (so they don't flicker), up to the budget.
+    const previewScale = (it) => PREVIEW / Math.max(it.fullWidth, it.fullHeight);
+    const wanted = [...need].filter(([it, k]) => k > previewScale(it) * 1.15).sort((x, y) => y[1] - x[1]).map(([it]) => it);
+    const keep = new Set();
+    let used = 0;
+    const px = (it) => it.fullWidth * it.fullHeight;
+    for (const it of wanted) if (used + px(it) <= FULL_BUDGET || !keep.size) { keep.add(it); used += px(it); }
+    for (const it of all) if (it.sharp && !keep.has(it) && need.has(it) && used + px(it) <= FULL_BUDGET) { keep.add(it); used += px(it); }
+    for (const it of all) if (it.sharp && !keep.has(it) && used + px(it) <= FULL_BUDGET) { keep.add(it); used += px(it); }
+    // Let go of the full pictures that aren't kept.
+    for (const it of all) {
+      if (!it.sharp || keep.has(it) || it.sprite.destroyed) continue;
+      const full = it.source.resource;
+      it.preview ||= await makePreview(full);
+      if (it.sprite.destroyed || !it.sharp) continue;
+      const board = [...docs.values()].find((d) => d.board.items.includes(it))?.board;
+      if (!board) continue;
+      board.setImageBitmap(it, it.preview);
+      full.close?.();
+    }
+    // Bring in the full pictures that are wanted, a few at a time.
+    const toLoad = wanted.filter((it) => keep.has(it) && !it.sharp);
+    await inParallel(toLoad, 3, async (it) => {
+      try {
+        const full = await createImageBitmap(it.blob);
+        const board = [...docs.values()].find((d) => d.board.items.includes(it))?.board;
+        if (!board || it.sprite.destroyed || it.sharp) { full.close(); return; }
+        board.setImageBitmap(it, full);
+        requestRender();
+      } catch (err) {
+        console.warn('Sharp image skipped', err);
+      }
+    });
+  } finally {
+    detailBusy = false;
+  }
+}
+
 // ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
@@ -1289,11 +1382,29 @@ async function loadBoard(data, getBlob, board, { withLayout = true } = {}) {
     board.clear();
     const items = data?.items || [];
     const blobs = await Promise.all(items.map((item) => Promise.resolve(getBlob(item)).catch(() => null)));
-    const bitmaps = await Promise.all(items.map((item, i) => (blobs[i] ? decode(blobs[i], item.name) : null)));
+    // Big boards open with small previews of most images; the full pictures come in as
+    // you zoom in (see updateDetail).
+    let fullPixels = 0;
+    const pictures = new Array(items.length).fill(null);
+    await inParallel(items.map((_, i) => i), 4, async (i) => {
+      const full = blobs[i] ? await decode(blobs[i], items[i].name) : null;
+      if (!full) return;
+      const px = full.width * full.height;
+      if (Math.max(full.width, full.height) <= PREVIEW || fullPixels + px <= FULL_BUDGET / 2) {
+        fullPixels += px;
+        pictures[i] = { bitmap: full };
+        return;
+      }
+      const preview = await makePreview(full);
+      pictures[i] = { bitmap: preview, preview, fullWidth: full.width, fullHeight: full.height };
+      full.close();
+    });
     let missing = 0;
     items.forEach((item, i) => {
-      if (!bitmaps[i]) { missing++; return; }
-      board.addImage(bitmaps[i], item.x, item.y, { ...item, blob: blobs[i] });
+      const p = pictures[i];
+      if (!p) { missing++; return; }
+      const added = board.addImage(p.bitmap, item.x, item.y, { ...item, blob: blobs[i], fullWidth: p.fullWidth, fullHeight: p.fullHeight });
+      added.preview = p.preview || null;
     });
     for (const s of data?.strokes || []) board.addStroke(s);
     for (const n of data?.notes || []) board.addNote(n);
