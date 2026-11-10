@@ -1729,10 +1729,13 @@ async function importBoardFile(file, handle = null) {
   // Fonts the board's text uses come with it.
   for (const f of fonts) await addFontFile(f.blob, f.name).catch(() => {});
   const id = newBoardId();
-  await Promise.all(data.items.map((item) => {
+  // Copy the images into Chrome's storage, a few at a time (a big board can be gigabytes).
+  let done = 0;
+  await inParallel(data.items, 6, async (item) => {
     const blob = images.get(item.file);
-    return blob ? store.saveImage(id, item.id, blob) : null;
-  }));
+    if (blob) await store.saveImage(id, item.id, blob);
+    if (++done % 25 === 0 && data.items.length > 50) toast(`Adding ${file.name}… ${done} of ${data.items.length} images`, 60000);
+  });
   const now = Date.now();
   const { look, ...rest } = data;
   await store.putBoard({ id, name: await freeName(file.name.replace(/\.refboard$/i, '')), created: now, updated: now, handle, board: rest, ...(look ? { look } : {}) });

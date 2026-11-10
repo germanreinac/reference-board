@@ -9,7 +9,7 @@
 //      saves changes as you work, so closing the tab never loses anything. These
 //      live only in this browser on this computer: save to a file to back up or share.
 
-import { zip, unzip, strToU8, strFromU8 } from '../vendor/fflate.mjs';
+import { listZip, zipEntry, zipText, makeZip } from './zipfile.js';
 
 export const FILE_EXT = '.refboard';
 // A backup of all your boards: one file holding a .refboard file for each board.
@@ -37,51 +37,51 @@ export function describeBoard(board, layout) {
 }
 
 // ---------- Board files ----------
+//
+// Read and written piece by piece (src/zipfile.js), so boards of any size work: images
+// go in and come out exactly as they are, without loading the whole file into memory.
 
 // Pack a board into a single .refboard file (a zip).
 // `data` is a board description; `getBlob(item)` returns each image's file.
 // `getFont(name)` returns an uploaded font's file (null for built-in fonts); those
 // fonts go into the board file too, so it looks the same on someone else's computer.
-export async function packBoard(data, getBlob, getFont = () => null) {
+export async function packBoard(data, getBlob, getFont = () => null, onProgress) {
   const fontFiles = [];
   for (const name of new Set((data.notes || []).map((n) => n.font).filter(Boolean))) {
     const blob = getFont(name);
     if (blob) fontFiles.push({ name, file: `fonts/${fontFiles.length}.font`, blob });
   }
   data = { ...data, fontFiles: fontFiles.map(({ name, file }) => ({ name, file })) };
-  const files = { 'board.json': [strToU8(JSON.stringify(data, null, 1)), { level: 6 }] };
-  for (const f of fontFiles) files[f.file] = [new Uint8Array(await f.blob.arrayBuffer()), { level: 6 }];
-  await Promise.all(data.items.map(async (item) => {
+  const entries = [{ name: 'board.json', text: JSON.stringify(data, null, 1) }];
+  for (const f of fontFiles) entries.push({ name: f.file, data: new Uint8Array(await f.blob.arrayBuffer()) });
+  for (const item of data.items) {
     const blob = await getBlob(item);
-    if (!blob) return;
-    // Images are already compressed, so we store them as they are (level 0 = no extra squeezing).
-    files[item.file] = [new Uint8Array(await blob.arrayBuffer()), { level: 0 }];
-  }));
-  const bytes = await new Promise((resolve, reject) => zip(files, (err, out) => (err ? reject(err) : resolve(out))));
-  return new Blob([bytes], { type: 'application/zip' });
+    if (blob) entries.push({ name: item.file, blob });
+  }
+  return makeZip(entries, onProgress);
 }
 
 // Read a .refboard file. Returns the description and the images as Blobs.
 export async function unpackBoard(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let files;
+  let entries;
   try {
-    files = await new Promise((resolve, reject) => unzip(bytes, (err, out) => (err ? reject(err) : resolve(out))));
+    entries = new Map((await listZip(file)).map((e) => [e.name, e]));
   } catch {
     throw new Error("That file isn't a reference board, or it's damaged.");
   }
-  if (!files['board.json']) throw new Error("That file isn't a reference board.");
-  const data = JSON.parse(strFromU8(files['board.json']));
+  if (!entries.has('board.json')) throw new Error("That file isn't a reference board.");
+  const data = JSON.parse(await zipText(file, entries.get('board.json')));
   if (data.format !== FORMAT) throw new Error("That file isn't a reference board.");
   if (data.version > VERSION) throw new Error('That board was made with a newer version. Refresh the page to update.');
   const images = new Map();
   for (const item of data.items) {
-    const raw = files[item.file];
-    if (!raw) continue;
+    const e = entries.get(item.file);
+    if (!e) continue;
     const ext = item.file.split('.').pop().toLowerCase();
-    images.set(item.file, new Blob([raw], { type: TYPE_FOR_EXT[ext] || 'image/png' }));
+    images.set(item.file, await zipEntry(file, e, TYPE_FOR_EXT[ext] || 'image/png'));
   }
-  const fonts = (data.fontFiles || []).filter((f) => files[f.file]).map((f) => ({ name: f.name, blob: new Blob([files[f.file]]) }));
+  const fonts = [];
+  for (const f of data.fontFiles || []) if (entries.has(f.file)) fonts.push({ name: f.name, blob: await zipEntry(file, entries.get(f.file)) });
   return { data, images, fonts };
 }
 
@@ -95,32 +95,30 @@ export function isBackupFile(file) {
 
 // Pack board files ([{ name, blob }]) into one backup file.
 export async function packBackup(boards) {
-  const files = {
-    'backup.json': [strToU8(JSON.stringify({ format: 'reference-board-backup', made: Date.now(), boards: boards.map((b) => b.name) })), { level: 6 }],
-  };
+  const entries = [{ name: 'backup.json', text: JSON.stringify({ format: 'reference-board-backup', made: Date.now(), boards: boards.map((b) => b.name) }) }];
   const used = new Set();
   for (const b of boards) {
     let file = `${b.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Board'}`;
     for (let n = 2; used.has(file.toLowerCase()); n++) file = `${b.name} ${n}`;
     used.add(file.toLowerCase());
-    files[file + FILE_EXT] = [new Uint8Array(await b.blob.arrayBuffer()), { level: 0 }];
+    entries.push({ name: file + FILE_EXT, blob: b.blob });
   }
-  const bytes = await new Promise((resolve, reject) => zip(files, (err, out) => (err ? reject(err) : resolve(out))));
-  return new Blob([bytes], { type: 'application/zip' });
+  return makeZip(entries);
 }
 
 // The board files inside a backup, as File objects.
 export async function unpackBackup(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let files;
+  let entries;
   try {
-    files = await new Promise((resolve, reject) => unzip(bytes, (err, out) => (err ? reject(err) : resolve(out))));
+    entries = await listZip(file);
   } catch {
     throw new Error("That file isn't a backup of boards, or it's damaged.");
   }
-  return Object.entries(files)
-    .filter(([name]) => name.toLowerCase().endsWith(FILE_EXT))
-    .map(([name, raw]) => new File([raw], name.split('/').pop(), { type: 'application/zip' }));
+  const out = [];
+  for (const e of entries.filter((x) => x.name.toLowerCase().endsWith(FILE_EXT))) {
+    out.push(new File([await zipEntry(file, e)], e.name.split('/').pop(), { type: 'application/zip' }));
+  }
+  return out;
 }
 
 // Chrome (and Edge) can save straight to a file you pick, and save to it again
