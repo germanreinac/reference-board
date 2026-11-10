@@ -1801,45 +1801,50 @@ body[data-motion="on"] .divider.dragging::after { opacity: 0; }
 .divider::after { display: none !important; }
 .pane-edges .divider-glow { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
 
-/* ---------- Sketch studio (src/sketch.js) ---------- */
-.sketch {
-  position: fixed; inset: 0; z-index: 60;
-  display: grid; grid-template-columns: 52px 1fr 232px; grid-template-rows: auto 1fr;
-  background: var(--gap, #0b0b0d); color: var(--text); user-select: none;
-}
+/* ---------- Painting on the board (src/sketch.js) ---------- */
+/* Covers the board pane the sheet is in; the board shows through. The tools float over it. */
+.sketch { position: fixed; z-index: 60; color: var(--text); user-select: none; pointer-events: none; }
+.sketch > * { pointer-events: auto; }
 .sketch button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--text-strong); cursor: pointer; border-radius: 7px; }
 .sketch button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.sketch button:hover { background: var(--panel-2, rgba(255,255,255,0.06)); }
+.sketch button:hover { background: var(--panel-2, rgba(127,127,127,0.12)); }
 .sketch button.on { background: var(--accent); color: #fff; }
-.sketch-top {
-  grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--panel-border);
-}
-.sketch-title { font-weight: 600; color: var(--text-strong); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sketch-group { display: flex; align-items: center; gap: 4px; }
-.sketch-group.end { margin-left: auto; gap: 8px; }
-.sketch-group label { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-right: 10px; }
-.sketch-group input[type="range"] { width: 110px; accent-color: var(--accent); }
-.sketch-group output { min-width: 34px; font-size: 11px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
-.sketch-group button { width: 32px; height: 32px; }
-.sketch button.text { width: auto; padding: 6px 14px; border: 1px solid var(--panel-border); font: inherit; }
-.sketch button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.sketch-left { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; background: var(--panel); border-right: 1px solid var(--panel-border); }
-.sketch-left button { width: 38px; height: 38px; }
-.sketch-left hr { width: 26px; border: 0; border-top: 1px solid var(--panel-border); margin: 6px 0; }
-.sketch-stage { position: relative; overflow: hidden; touch-action: none; }
+.sketch-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
 .sketch-stage canvas { position: absolute; inset: 0; }
+.sketch-top, .sketch-left, .sketch-right {
+  position: absolute; z-index: 1; background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+.sketch-top {
+  top: 10px; left: 0; right: 0; margin: 0 auto; width: fit-content; max-width: calc(100% - 20px);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 8px 6px 14px;
+}
+.sketch-title { font-weight: 600; color: var(--text-strong); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sketch-group { display: flex; align-items: center; gap: 4px; }
+.sketch-group.end { gap: 6px; }
+.sketch-group label { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-right: 6px; }
+.sketch-group input[type="range"] { width: 92px; accent-color: var(--accent); }
+.sketch-group output { min-width: 32px; font-size: 11px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.sketch-group button { width: 30px; height: 30px; }
+.sketch button.text { width: auto; padding: 5px 12px; border: 1px solid var(--panel-border); font: inherit; }
+.sketch button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sketch-left { left: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px; }
+.sketch-left button { width: 36px; height: 36px; }
+.sketch-left hr { width: 24px; border: 0; border-top: 1px solid var(--panel-border); margin: 4px 0; }
 .sketch-cursor {
   position: absolute; pointer-events: none; transform: translate(-50%, -50%);
   border-radius: 50%; border: 1px solid rgba(255,255,255,0.9); box-shadow: 0 0 0 1px rgba(0,0,0,0.55);
 }
 .sketch-cursor[hidden] { display: none; }
-.sketch-right { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--panel); border-left: 1px solid var(--panel-border); overflow-y: auto; }
-.sketch-colour input[type="color"] { width: 100%; height: 44px; padding: 0; border: 1px solid var(--panel-border); border-radius: 8px; background: none; cursor: pointer; }
+.sketch-right {
+  right: 10px; top: 64px; width: 216px; max-height: calc(100% - 84px);
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow-y: auto;
+}
+.sketch-colour input[type="color"] { width: 100%; height: 40px; padding: 0; border: 1px solid var(--panel-border); border-radius: 8px; background: none; cursor: pointer; }
 .sketch-recent { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .sketch-recent .swatch { width: 22px; height: 22px; padding: 0; border-radius: 6px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(127,127,127,0.45); }
 .sketch-recent .swatch:hover { background: var(--c); transform: scale(1.1); }
-.sketch-layers-head { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; font-weight: 600; color: var(--text-strong); }
+.sketch-layers-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; color: var(--text-strong); }
 .sketch-layers-head button { width: 28px; height: 28px; }
 .sketch-layers { display: flex; flex-direction: column; gap: 4px; }
 .sketch-layer { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-size: 12px; }
@@ -1850,14 +1855,14 @@ body[data-motion="on"] .divider.dragging::after { opacity: 0; }
 .sketch-layer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
 .sketch-layer small { font-size: 10px; }
 .sketch-layer-tools { display: flex; align-items: center; gap: 2px; }
-.sketch-layer-tools label { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 12px; }
+.sketch-layer-tools label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; font-size: 12px; }
 .sketch-layer-tools input { width: 100%; min-width: 0; accent-color: var(--accent); }
-.sketch-layer-tools label { min-width: 0; }
 .sketch-layer-tools button { width: 26px; height: 26px; flex: none; }
-.sketch-under { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--panel-border); font-size: 12px; }
+.sketch-under { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--panel-border); font-size: 12px; }
 .sketch-under label { display: flex; align-items: center; gap: 8px; }
 .sketch-under input[type="color"] { width: 26px; height: 20px; padding: 0; border: 0; background: none; }
-body.sketching #toolbar, body.sketching #selection-bar { visibility: hidden; }
+@media (max-width: 760px) { .sketch-right { display: none; } }
+body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-tools { visibility: hidden; }
 @media (max-width: 760px) {
   .sketch { grid-template-columns: 46px 1fr; }
   .sketch-right { display: none; }

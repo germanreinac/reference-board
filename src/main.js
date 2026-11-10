@@ -19,7 +19,7 @@ import { imagesFromDrop, imagesFromPaste } from './importer.js';
 import { showMenu, hideMenu } from './menu.js';
 import { History } from './history.js';
 import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
-import { openSketch, sketchOpen } from './sketch.js';
+import { openSketch, sketchOpen, refreshSketch } from './sketch.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -139,6 +139,7 @@ function requestRender() {
       d.board.updateTextSharpness(views, app.renderer.resolution);
     }
     viewports.render();
+    if (sketchOpen()) refreshSketch();
     detailSoon();
     noteEditor.position();
     placeToolbar();
@@ -1116,14 +1117,17 @@ function goToThing(item) {
   requestRender();
 }
 
-// ---------- Sketch studio ----------
+// ---------- Painting on the board ----------
 //
-// Proper drawing and painting (src/sketch.js): brushes, pen pressure, layers. The result
-// goes on the board as an image; its layers are kept, so it opens again for more work.
-//   New sketch      a blank page, put in the middle of the view
+// Proper drawing and painting (src/sketch.js), done right where the sketch is on the board.
+// A sketch is an image with its layers kept (item.sketch), so it can be painted on again:
+//   item.sketch = { base, w, h, paper, rev, layers: [{ name, visible, opacity, key }] }
+// Each layer is stored like an image, under its key; `rev` counts the saves, so every
+// version gets its own keys (undo can go back, and Drive sees the change).
+//   New sketch      a blank page in the middle of the view
 //   Paint over      a see-through sheet over an image, the same size and place, grouped
 //                   with it (the image itself is never changed)
-//   Edit sketch     open a sketch again (double-click it)
+//   Paint again     double-click a sketch
 
 const SKETCH_SIZES = [
   ['Landscape · 2560 × 1440', 2560, 1440],
@@ -1138,101 +1142,168 @@ function sketchMenu(x, y) {
   showMenu(x, y, SKETCH_SIZES.map(([label, w, h]) => ({ label, action: () => newSketch(w, h) })));
 }
 
-async function newSketch(width, height) {
-  if (!current) return;
-  const boardId = current.id;
-  const r = await openSketch({ width, height, paper: '#ffffff', title: 'New sketch' });
-  if (!r || current?.id !== boardId) return;
-  const pane = targetBoardPane();
-  const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
-  // About two thirds of the view wide.
-  const k = pane ? Math.min(pane.rect.w * 0.66 / width, pane.rect.h * 0.66 / height) / pane.camera.zoom : 1;
-  await placeSketch(r, { x: at.x, y: at.y, scaleX: k, scaleY: k, name: 'Sketch', sketch: { base: null } });
+// A blank picture: white paper, or see-through.
+async function blankSheet(w, h, paper) {
+  const c = new OffscreenCanvas(w, h);
+  const g = c.getContext('2d');
+  if (paper) { g.fillStyle = paper; g.fillRect(0, 0, w, h); }
+  return c.convertToBlob({ type: 'image/png' });
 }
 
-// Paint over an image: the sheet matches what's visible of it (its crop), and sits on top.
+// Add a sheet to the board (not yet an undo step: that comes when painting is done).
+async function addSheet(w, h, paper, opts) {
+  const blob = await blankSheet(w, h, paper);
+  const bitmap = await decode(blob, 'Sketch');
+  const item = board.addImage(bitmap, opts.x, opts.y, { ...opts, blob, sketch: { base: opts.base ?? null, w, h, paper, rev: 0, layers: [] } });
+  store.saveImage(current.id, item.id, blob).catch(() => {});
+  board.selection = [item];
+  requestRender();
+  return item;
+}
+
+async function newSketch(width, height) {
+  if (!current) return;
+  const pane = targetBoardPane();
+  const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
+  const k = pane ? Math.min(pane.rect.w * 0.6 / width, pane.rect.h * 0.6 / height) / pane.camera.zoom : 1;
+  const spot = board.freeSpot(width * k, height * k, at.x, at.y);
+  const item = await addSheet(width, height, '#ffffff', { x: spot.x, y: spot.y, scaleX: k, scaleY: k, name: 'Sketch' });
+  const r = await paintOn(item, { paper: '#ffffff', title: 'New sketch' });
+  if (!r) { removeImageById(item.id); return; }
+  await finishSketch(item, r, { isNew: true });
+}
+
+// Paint over an image: a sheet the size of what's visible of it (its crop), on top of it.
 async function paintOver(item) {
   if (!current || item?.kind !== 'image' || !item.blob) return;
-  const boardId = current.id;
   const c = item.crop || { x: 0, y: 0, w: item.fullWidth, h: item.fullHeight };
   const long = Math.max(c.w, c.h);
   const target = Math.min(MAX_SKETCH, Math.max(1600, long));
   const W = Math.max(1, Math.round(c.w * target / long)), H = Math.max(1, Math.round(c.h * target / long));
-  let reference = null;
-  try { reference = await createImageBitmap(item.blob, c.x, c.y, c.w, c.h); } catch {}
-  const r = await openSketch({ width: W, height: H, reference, paper: null, title: `Painting over ${item.name || 'an image'}` });
-  reference?.close?.();
-  if (!r || current?.id !== boardId || !board.items.includes(item)) return;
   const s = item.sprite;
   const before = stateOf(item);
   if (!item.group) item.group = newGroupId();
-  const index = board.items.indexOf(item) + 1;
-  await placeSketch(r, {
+  const sheet = await addSheet(W, H, null, {
     x: s.x, y: s.y, rotation: s.rotation, scaleX: s.scale.x * c.w / W, scaleY: s.scale.y * c.h / H,
-    name: `Paint over ${item.name || 'image'}`, group: item.group, index, sketch: { base: item.id },
-  }, () => applyState(before));
-}
-
-// Put a finished sketch on the board (one undo step).
-async function placeSketch(r, opts, undoExtra = () => {}) {
-  const bitmap = await decode(r.blob, 'Sketch');
-  if (!bitmap || !current) return;
-  const item = board.addImage(bitmap, opts.x, opts.y, { ...opts, blob: r.blob });
-  const boardId = current.id;
-  store.saveImage(boardId, item.id, r.blob).catch(() => {});
-  store.saveSketch(boardId, item.id, { w: r.width, h: r.height, paper: r.paper, layers: r.layers }).catch(() => {});
-  board.selection = [item];
-  const data = { ...board.imageJSON(item), blob: item.blob };
-  history.push({
-    undo: () => { removeImageById(data.id); undoExtra(); },
-    redo: () => restoreImage(data),
+    name: `Paint over ${item.name || 'image'}`, group: item.group, index: board.items.indexOf(item) + 1, base: item.id,
   });
-  contentChanged();
-  requestRender();
-  toast('Sketch added. Double-click it to keep working on it.', 2400);
+  let reference = null;
+  try { reference = await createImageBitmap(item.blob, c.x, c.y, c.w, c.h); } catch {}
+  const r = await paintOn(sheet, { paper: null, reference, title: `Painting over ${item.name || 'an image'}` });
+  reference?.close?.();
+  if (!r) { removeImageById(sheet.id); applyState(before); requestRender(); return; }
+  await finishSketch(sheet, r, { isNew: true, undoExtra: () => applyState(before) });
 }
 
-// Open a sketch again, with its layers (and the picture it's painted over, if any).
+// A sketch's layers, from storage (older sketches kept them separately, or not at all).
+async function sketchLayers(item) {
+  const boardId = current.id;
+  const meta = item.sketch?.layers || [];
+  if (meta.length) {
+    const blobs = await Promise.all(meta.map((l) => store.loadImage(boardId, l.key).catch(() => null)));
+    if (blobs.every(Boolean)) return meta.map((l, i) => ({ ...l, blob: blobs[i] }));
+  }
+  const old = await store.loadSketch(boardId, item.id).catch(() => null);
+  if (old?.layers?.length) return old.layers;
+  return [{ name: 'Layer 1', visible: true, opacity: 1, blob: item.blob }];
+}
+
 async function editSketch(item) {
   if (!current || item?.kind !== 'image' || !item.blob) return;
-  const boardId = current.id;
-  const saved = await store.loadSketch(boardId, item.id).catch(() => null);
-  const W = saved?.w || item.fullWidth, H = saved?.h || item.fullHeight;
-  const base = item.sketch?.base != null ? board.find('image', item.sketch.base) : null;
+  if (!item.sketch?.w) item.sketch = { base: item.sketch?.base ?? null, w: item.fullWidth, h: item.fullHeight, paper: null, rev: 0, layers: [] };
+  const layers = await sketchLayers(item);
+  const base = item.sketch.base != null ? board.find('image', item.sketch.base) : null;
   let reference = null;
   if (base?.blob) {
     const c = base.crop || { x: 0, y: 0, w: base.fullWidth, h: base.fullHeight };
     try { reference = await createImageBitmap(base.blob, c.x, c.y, c.w, c.h); } catch {}
   }
-  const r = await openSketch({
-    width: W, height: H, reference,
-    layers: saved?.layers || [{ name: 'Layer 1', blob: item.blob }],
-    paper: saved ? saved.paper : null,
-    title: item.name || 'Sketch',
-  });
+  const r = await paintOn(item, { layers, paper: item.sketch.paper ?? null, reference, title: item.name || 'Sketch' });
   reference?.close?.();
-  if (!r || current?.id !== boardId || !board.items.includes(item)) return;
-  const old = { blob: item.blob, sketch: saved };
-  const now = { blob: r.blob, sketch: { w: r.width, h: r.height, paper: r.paper, layers: r.layers } };
+  if (!r) return;
+  await finishSketch(item, r, { isNew: false, oldLayers: layers });
+}
+
+// Paint on a sketch where it is: the painting tools open over the pane that shows it,
+// lined up with the board, which keeps zooming and moving underneath.
+let sketchPane = null;
+async function paintOn(item, opts) {
+  noteEditor.finish();
+  const pane = boardPanes().find((p) => (docOfPane(p) || mainDoc)?.board.items.includes(item)) || targetBoardPane();
+  if (!pane) return null;
+  sketchPane = pane;
+  const fit = () => {
+    const s = item.sprite;
+    const w = Math.abs(item.width * s.scale.x), h = Math.abs(item.height * s.scale.y);
+    const r = Math.hypot(w, h) / 2;
+    const box = Math.abs(s.rotation) > 0.01 ? { x: s.x - r, y: s.y - r, width: 2 * r, height: 2 * r } : { x: s.x - w / 2, y: s.y - h / 2, width: w, height: h };
+    pane.camera.frame(box, pane.rect.w, pane.rect.h, 90);
+    viewChanged();
+    requestRender();
+  };
+  const host = {
+    rect: () => ({ ...pane.rect }),
+    matrix: () => {
+      const s = item.sprite, cam = pane.camera, z = cam.zoom;
+      const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+      // Sheet pixels are the image's pixels.
+      const sx = s.scale.x, sy = s.scale.y, W = item.fullWidth, H = item.fullHeight;
+      const a = z * sx * cos, b = z * sx * sin, c = -z * sy * sin, d = z * sy * cos;
+      return new DOMMatrix([a, b, c, d, cam.x + z * s.x - (a * W / 2 + c * H / 2), cam.y + z * s.y - (b * W / 2 + d * H / 2)]);
+    },
+    zoomAt: (x, y, f) => { pane.camera.zoomAt(x, y, f); viewChanged(); requestRender(); },
+    panBy: (dx, dy) => { pane.camera.panBy(dx, dy); viewChanged(); requestRender(); },
+    fit,
+  };
+  fit();
+  item.sprite.visible = false;   // the painting tools show it, live, while you work
+  board.selection = [];
+  requestRender();
+  const r = await openSketch({ width: item.fullWidth, height: item.fullHeight, layers: opts.layers || null, paper: opts.paper, reference: opts.reference, title: opts.title, host });
+  sketchPane = null;
+  if (!item.sprite.destroyed) item.sprite.visible = true;
+  requestRender();
+  return r;
+}
+
+// Save what was painted: the picture on the board, and its layers (one undo step).
+async function finishSketch(item, r, { isNew, undoExtra = () => {}, oldLayers = null }) {
+  const boardId = current.id;
+  const rev = (item.sketch?.rev || 0) + 1;
+  const now = {
+    blob: r.blob,
+    sketch: { base: item.sketch?.base ?? null, w: r.width, h: r.height, paper: r.paper, rev, layers: r.layers.map((l, i) => ({ name: l.name, visible: l.visible, opacity: l.opacity, key: `sk${item.id}r${rev}l${i}` })) },
+    layerBlobs: r.layers.map((l) => l.blob),
+  };
+  const old = isNew ? null : { blob: item.blob, sketch: item.sketch, layerBlobs: oldLayers ? oldLayers.map((l) => l.blob) : [] };
   const apply = async (v) => {
     const it = board.find('image', item.id);
-    if (!it) return;
+    if (!it || !current) return;
+    v.sketch.layers.forEach((l, i) => { if (v.layerBlobs[i]) store.saveImage(current.id, l.key, v.layerBlobs[i]).catch(() => {}); });
     const bitmap = await decode(v.blob, 'Sketch');
     if (!bitmap) return;
     it.blob = v.blob;
+    it.sketch = v.sketch;
     const prev = it.source.resource;
     board.setImageBitmap(it, bitmap);
     if (prev !== it.preview) prev?.close?.();
     it.preview?.close?.();
     it.preview = null;
-    store.saveImage(boardId, it.id, v.blob).catch(() => {});
-    if (v.sketch) store.saveSketch(boardId, it.id, v.sketch).catch(() => {});
+    store.saveImage(current.id, it.id, v.blob).catch(() => {});
     if (activeDoc) activeDoc.thumbStale = true;
     requestRender();
   };
   await apply(now);
-  history.push({ undo: () => apply(old), redo: () => apply(now) });
+  if (isNew) {
+    const data = { ...board.imageJSON(item), blob: item.blob };
+    history.push({ undo: () => { removeImageById(data.id); undoExtra(); }, redo: () => restoreImage(data) });
+    toast('Double-click the sketch to paint on it again.', 2400);
+  } else {
+    history.push({ undo: () => apply(old), redo: () => apply(now) });
+  }
+  board.selection = [item];
   contentChanged();
+  void boardId;
 }
 
 // ---------- Compare ----------
@@ -1851,6 +1922,10 @@ async function importBoardFile(file, handle = null) {
   let done = 0;
   await inParallel(data.items, 6, async (item) => {
     const blob = images.get(item.file);
+    for (const l of item.sketch?.layers || []) {
+      const layer = images.get(`sketches/${l.key}.png`);
+      if (layer) await store.saveImage(id, l.key, layer).catch(() => {});
+    }
     if (blob) {
       try {
         await store.saveImage(id, item.id, blob);

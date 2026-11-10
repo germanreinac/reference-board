@@ -57,6 +57,11 @@ export async function packBoard(data, getBlob, getFont = () => null, onProgress)
   for (const item of data.items) {
     const blob = await getBlob(item);
     if (blob) entries.push({ name: item.file, blob });
+    // A sketch's layers, so it can be painted on again wherever the board is opened.
+    for (const l of item.sketch?.layers || []) {
+      const layer = await getBlob({ id: l.key });
+      if (layer) entries.push({ name: `sketches/${l.key}.png`, blob: layer });
+    }
   }
   return makeZip(entries, onProgress);
 }
@@ -81,6 +86,10 @@ export async function unpackBoard(file) {
     if (!e) continue;
     const ext = item.file.split('.').pop().toLowerCase();
     images.set(item.file, await zipEntry(file, e, TYPE_FOR_EXT[ext] || 'image/png'));
+    for (const l of item.sketch?.layers || []) {
+      const name = `sketches/${l.key}.png`;
+      if (entries.has(name)) images.set(name, await zipEntry(file, entries.get(name), 'image/png'));
+    }
   }
   const fonts = [];
   for (const f of data.fontFiles || []) if (entries.has(f.file)) fonts.push({ name: f.name, blob: await zipEntry(file, entries.get(f.file)) });

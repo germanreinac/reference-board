@@ -20,6 +20,19 @@
 
 import { store } from './storage.js';
 
+// A board's files in Drive: its images, and its sketches' layers. `key` names the file in
+// Drive's list (an edited sketch is a new file each time it's saved: id@rev); `id` is where
+// it's kept in this browser.
+function boardFiles(board) {
+  const out = [];
+  for (const item of board?.items || []) {
+    const rev = item.sketch?.rev || 0;
+    out.push({ key: rev ? `${item.id}@${rev}` : String(item.id), id: item.id, name: item.name, itemId: item.id, rev });
+    for (const l of item.sketch?.layers || []) out.push({ key: `L:${l.key}`, id: l.key, name: `${item.name || 'Sketch'} layer` });
+  }
+  return out;
+}
+
 // When a board last changed in any way: its content (updated), or its name, project or
 // look (changed).
 const touched = (rec) => Math.max(rec?.updated || 0, rec?.changed || 0);
@@ -240,13 +253,18 @@ async function doSync(hooks) {
       try {
         const parsed = JSON.parse(await (await download(data.id)).text());
         const images = parsed.driveImages || {};
-        const items = parsed.board?.items || [];
+        // What's missing here (or an older version of a sketch).
+        const localRev = new Map((local?.board?.items || []).map((i) => [i.id, i.sketch?.rev || 0]));
         const missing = [];
-        for (const item of items) if (images[item.id] && !(await store.loadImage(boardId, item.id).catch(() => null))) missing.push(item);
+        for (const f of boardFiles(parsed.board)) {
+          if (!images[f.key]) continue;
+          const stale = f.itemId !== undefined && f.rev && localRev.get(f.itemId) !== f.rev;
+          if (stale || !(await store.loadImage(boardId, f.id).catch(() => null))) missing.push(f);
+        }
         imagesTotal += missing.length;
         progress();
-        await inParallel(missing, 6, async (item) => {
-          try { await store.saveImage(boardId, item.id, await download(images[item.id])); } catch (err) { console.warn('Drive: image skipped', err); }
+        await inParallel(missing, 6, async (f) => {
+          try { await store.saveImage(boardId, f.id, await download(images[f.key])); } catch (err) { console.warn('Drive: image skipped', err); }
           imagesDone++;
           if (imagesDone % 5 === 0) progress();
         });
@@ -307,14 +325,14 @@ async function pushBoard(rec, root, folder, dataOf) {
     await patch(folder.id, { name: safeName(rec.name) });
   }
   d.folderId = folder.id;
-  const items = rec.board?.items || [];
-  const keep = new Set(items.map((i) => String(i.id)));
-  for (const item of items) {
-    if (d.images[item.id]) continue;
-    const blob = await store.loadImage(rec.id, item.id).catch(() => null);
+  const files = boardFiles(rec.board);
+  const keep = new Set(files.map((f) => f.key));
+  for (const f of files) {
+    if (d.images[f.key]) continue;
+    const blob = await store.loadImage(rec.id, f.id).catch(() => null);
     if (!blob) continue;
-    const up = await upload(blob, { name: `${safeName(String(item.name || 'image').replace(/\.[a-z0-9]{2,4}$/i, ''))}-${item.id}.${extOf(blob.type)}`, parents: [folder.id], appProperties: { refboard: 'image', itemId: String(item.id) } });
-    d.images[item.id] = up.id;
+    const up = await upload(blob, { name: `${safeName(String(f.name || 'image').replace(/\.[a-z0-9]{2,4}$/i, ''))}-${safeName(f.key)}.${extOf(blob.type)}`, parents: [folder.id], appProperties: { refboard: 'image', itemId: f.key } });
+    d.images[f.key] = up.id;
   }
   // Images removed from the board go to Drive's bin (recoverable for 30 days).
   for (const [itemId, fileId] of Object.entries(d.images)) {

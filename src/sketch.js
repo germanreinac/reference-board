@@ -1,17 +1,20 @@
-// The Sketch studio: a full-screen place to draw and paint properly, next to the quick
-// pen on the board (which is for notes and pointing at things).
+// Painting on the board: proper drawing tools, used right where the sketch sits on the
+// board (no separate screen). The board keeps working around it: scroll to zoom, Space or
+// middle-drag to move, and everything else stays in view.
 //
 //   Brushes   Pencil, Ink, Marker, Soft brush and Eraser, with pen pressure and smoothing
-//   Layers    add, hide, reorder, see-through, merge; a reference picture underneath
+//   Layers    add, hide, reorder, see-through, merge
 //   Colour    any colour, recent colours, and the eyedropper (I, or hold Alt)
-//   View      scroll to zoom, Space or middle-drag to move, R / Shift+R to turn the canvas
 //   Undo      Ctrl/⌘+Z and Ctrl/⌘+Shift+Z
 //
-// openSketch({ width, height, reference, layers, paper, title }) resolves with
-//   { blob, layers, paper }  when you press Done (blob: the drawing as a PNG, layers kept
-//                            so it can be opened again later), or null if you cancel.
-// `reference` (an image file) is shown under the drawing, to paint over, but isn't part
-// of the result. `paper` is the background colour (null: see-through).
+// openSketch({ width, height, layers, paper, title, host, reference }) resolves with
+//   { blob, layers, paper, width, height } when you press Done, or null if you cancel.
+// `host` places the sheet on screen:
+//   rect()            the board pane, in screen pixels { x, y, w, h }
+//   matrix()          a DOMMatrix from sheet pixels to pane pixels (follows the board's zoom)
+//   zoomAt(x, y, f)   panBy(dx, dy)   fit()     move the board's view
+// `reference` (a picture the sheet is painted over) is only used by the eyedropper: the
+// board shows it underneath anyway.
 
 const BRUSHES = {
   pencil: { label: 'Pencil', key: 'P', size: 4, hardness: 0.85, flow: 0.55, spacing: 0.18, sizePressure: 0.5, flowPressure: 0.8, grain: 0.35, wash: false },
@@ -49,6 +52,11 @@ const savePrefs = (p) => { try { localStorage.setItem(STORE, JSON.stringify(p));
 let current = null;   // the open studio (one at a time)
 export const sketchOpen = () => !!current;
 
+// The board moved (zoom, pan, window size): put the sheet back in step with it.
+export function refreshSketch() {
+  if (current) { current.resize(); current.draw(); }
+}
+
 export function openSketch(options) {
   if (current) return Promise.resolve(null);
   return new Promise((resolve) => { current = new Studio(options, resolve); });
@@ -60,7 +68,8 @@ const makeCanvas = (w, h) => {
 };
 
 class Studio {
-  constructor({ width, height, reference = null, layers = null, paper = '#ffffff', title = 'Sketch' }, resolve) {
+  constructor({ width, height, reference = null, layers = null, paper = '#ffffff', title = 'Sketch', host }, resolve) {
+    this.host = host;
     this.W = width;
     this.H = height;
     this.resolve = resolve;
@@ -70,12 +79,10 @@ class Studio {
     this.active = 0;
     this.undoStack = [];
     this.redoStack = [];
-    this.view = { zoom: 1, x: 0, y: 0, rot: 0 };
     this.changed = false;
     this.reference = null;
     this.refShown = true;
     this.buildUI(title);
-    this.fitView();
     this.setup(layers, reference).then(() => this.draw());
   }
 
@@ -83,6 +90,7 @@ class Studio {
     if (reference) {
       try {
         this.reference = await createImageBitmap(reference, { resizeWidth: this.W, resizeHeight: this.H, resizeQuality: 'high' });
+        this.refShown = false;
       } catch { this.reference = null; }
     }
     if (saved?.length) {
@@ -124,9 +132,7 @@ class Studio {
         <div class="sketch-group">
           <button data-a="undo" title="Undo (Ctrl/⌘+Z)">${ICONS.undo}</button>
           <button data-a="redo" title="Redo (Ctrl/⌘+Shift+Z)">${ICONS.redo}</button>
-          <button data-a="rotL" title="Turn the canvas left (Shift+R)">${ICONS.rotL}</button>
-          <button data-a="rotR" title="Turn the canvas right (R)">${ICONS.rotR}</button>
-          <button data-a="fit" title="Fit and straighten (0)">${ICONS.fit}</button>
+          <button data-a="fit" title="Zoom to the sheet (0)">${ICONS.fit}</button>
         </div>
         <div class="sketch-group end">
           <button class="text" data-a="cancel" title="Close without saving (Esc)">Cancel</button>
@@ -200,7 +206,7 @@ class Studio {
     // Buttons.
     const actions = {
       undo: () => this.undo(), redo: () => this.redo(),
-      rotL: () => this.rotate(-15), rotR: () => this.rotate(15), fit: () => { this.fitView(); this.draw(); },
+      fit: () => this.host.fit(),
       cancel: () => this.close(false), done: () => this.close(true),
       addLayer: () => this.addLayer(), deleteLayer: () => this.deleteLayer(),
       layerUp: () => this.moveLayer(1), layerDown: () => this.moveLayer(-1), merge: () => this.mergeDown(),
@@ -220,7 +226,7 @@ class Studio {
     this.stage.addEventListener('contextmenu', (e) => e.preventDefault());
     this.onKey = (e) => this.key(e);
     this.onKeyUp = (e) => { if (e.code === 'Space') { this.spaceDown = false; this.updateCursor(); } if (e.key === 'Alt') { this.altDown = false; this.updateCursor(); } };
-    this.onResize = () => { this.resize(); this.draw(); };
+    this.onResize = () => setTimeout(() => { this.resize(); this.draw(); }, 50);
     window.addEventListener('keydown', this.onKey, true);
     window.addEventListener('keyup', this.onKeyUp, true);
     window.addEventListener('resize', this.onResize);
@@ -230,36 +236,28 @@ class Studio {
     this.renderRecent();
   }
 
+  // The studio covers the board pane the sheet is in; the board stays visible through it.
   resize() {
-    const r = this.stage.getBoundingClientRect();
+    const r = this.host.rect();
+    Object.assign(this.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = Math.round(r.width * dpr);
-    this.canvas.height = Math.round(r.height * dpr);
-    this.canvas.style.width = `${r.width}px`;
-    this.canvas.style.height = `${r.height}px`;
+    const w = Math.round(r.w * dpr), h = Math.round(r.h * dpr);
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    this.canvas.style.width = `${r.w}px`;
+    this.canvas.style.height = `${r.h}px`;
     this.dpr = dpr;
-    this.stageW = r.width;
-    this.stageH = r.height;
-  }
-
-  fitView() {
-    this.resize();
-    const z = Math.min((this.stageW - 60) / this.W, (this.stageH - 60) / this.H);
-    this.view = { zoom: z, x: this.stageW / 2, y: this.stageH / 2, rot: 0 };
     this.updateCursor();
   }
 
-  // Screen point -> canvas pixel, and back. The view is: centre (x, y), zoom, turned by rot.
+  // Sheet pixels <-> pane pixels.
+  get matrix() { return this.host.matrix(); }
+  get scale() { const m = this.matrix; return Math.hypot(m.a, m.b); }
   toCanvas(sx, sy) {
-    const { zoom, x, y, rot } = this.view;
-    const a = (-rot * Math.PI) / 180;
-    const dx = sx - x, dy = sy - y;
-    return { x: (dx * Math.cos(a) - dy * Math.sin(a)) / zoom + this.W / 2, y: (dx * Math.sin(a) + dy * Math.cos(a)) / zoom + this.H / 2 };
-  }
-
-  rotate(deg) {
-    this.view.rot = ((this.view.rot + deg) % 360 + 360) % 360;
-    this.draw();
+    const p = this.matrix.inverse().transformPoint({ x: sx, y: sy });
+    return { x: p.x, y: p.y };
   }
 
   // ---------- Tools and settings ----------
@@ -315,7 +313,7 @@ class Studio {
     const picker = this.mode === 'picker' || this.altDown;
     this.stage.style.cursor = hand ? (this.panning ? 'grabbing' : 'grab') : picker ? 'crosshair' : 'none';
     this.cursor.hidden = hand || picker;
-    const d = Math.max(4, this.size * this.view.zoom);
+    const d = Math.max(4, this.size * this.scale);
     Object.assign(this.cursor.style, { width: `${d}px`, height: `${d}px` });
   }
 
@@ -354,13 +352,6 @@ class Studio {
     // What's underneath: the paper colour and the reference picture.
     const under = this.el.querySelector('.sketch-under');
     under.replaceChildren();
-    if (this.reference) {
-      const b = document.createElement('label');
-      b.innerHTML = '<input type="checkbox"> Show the picture underneath';
-      b.querySelector('input').checked = this.refShown;
-      b.querySelector('input').addEventListener('change', (e) => { this.refShown = e.target.checked; this.draw(); });
-      under.appendChild(b);
-    }
     const p = document.createElement('label');
     p.innerHTML = '<input type="checkbox"> Paper <input type="color">';
     const [check, col] = p.querySelectorAll('input');
@@ -493,7 +484,7 @@ class Studio {
 
   down(e) {
     if (e.button === 1 || e.button === 2 || this.mode === 'hand' || this.spaceDown) {
-      this.panning = { x: e.clientX, y: e.clientY, vx: this.view.x, vy: this.view.y };
+      this.panning = { x: e.clientX, y: e.clientY };
       try { this.stage.setPointerCapture(e.pointerId); } catch {}
       this.updateCursor();
       return;
@@ -528,9 +519,8 @@ class Studio {
     const r = this.stage.getBoundingClientRect();
     Object.assign(this.cursor.style, { display: '', left: `${e.clientX - r.left}px`, top: `${e.clientY - r.top}px` });
     if (this.panning) {
-      this.view.x = this.panning.vx + e.clientX - this.panning.x;
-      this.view.y = this.panning.vy + e.clientY - this.panning.y;
-      this.draw();
+      this.host.panBy(e.clientX - this.panning.x, e.clientY - this.panning.y);
+      this.panning = { x: e.clientX, y: e.clientY };
       return;
     }
     if (!this.stroke) return;
@@ -613,7 +603,7 @@ class Studio {
     const x = Math.floor(p.x), y = Math.floor(p.y);
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     if (this.paper) { c.fillStyle = this.paper; c.fillRect(0, 0, 1, 1); }
-    if (this.reference && this.refShown) c.drawImage(this.reference, x, y, 1, 1, 0, 0, 1, 1);
+    if (this.reference) c.drawImage(this.reference, x, y, 1, 1, 0, 0, 1, 1);
     for (const l of this.layers) {
       if (!l.visible) continue;
       c.globalAlpha = l.opacity;
@@ -631,13 +621,7 @@ class Studio {
     let d = e.deltaY;
     if (e.deltaMode === 1) d *= 16;
     const f = Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0015));
-    const z = Math.min(64, Math.max(0.02, this.view.zoom * f));
-    const k = z / this.view.zoom;
-    this.view.x = sx + (this.view.x - sx) * k;
-    this.view.y = sy + (this.view.y - sy) * k;
-    this.view.zoom = z;
-    this.updateCursor();
-    this.draw();
+    this.host.zoomAt(sx, sy, f);
   }
 
   key(e) {
@@ -658,8 +642,7 @@ class Studio {
       this.syncControls();
       return;
     }
-    if (k === 'r') { this.rotate(e.shiftKey ? -15 : 15); return; }
-    if (k === '0') { this.fitView(); this.draw(); return; }
+    if (k === '0') { this.host.fit(); return; }
     if (k === 'i') { this.setBrush('picker'); return; }
     if (k === 'h') { this.setBrush('hand'); return; }
     if (k === 'b') { this.setBrush(this.prefs.brush === 'eraser' ? 'pencil' : this.prefs.brush); return; }
@@ -674,27 +657,17 @@ class Studio {
     requestAnimationFrame(() => {
       this.drawQueued = false;
       const g = this.ctx;
-      const { zoom, x, y, rot } = this.view;
+      const m = this.matrix;
+      const zoom = this.scale;
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-      g.translate(x, y);
-      g.rotate((rot * Math.PI) / 180);
-      g.scale(zoom, zoom);
-      g.translate(-this.W / 2, -this.H / 2);
+      g.setTransform(this.dpr * m.a, this.dpr * m.b, this.dpr * m.c, this.dpr * m.d, this.dpr * m.e, this.dpr * m.f);
       g.imageSmoothingQuality = 'high';
       g.imageSmoothingEnabled = zoom < 2;
-      // The page: a checkerboard when see-through, so you can tell.
-      g.shadowColor = 'rgba(0,0,0,0.35)';
-      g.shadowBlur = 24 / zoom;
-      g.fillStyle = this.paper || '#ffffff';
-      g.fillRect(0, 0, this.W, this.H);
-      g.shadowColor = 'transparent';
-      if (!this.paper) {
-        g.fillStyle = this.checker ||= g.createPattern(this.checkerTile(), 'repeat');
+      if (this.paper) {
+        g.fillStyle = this.paper;
         g.fillRect(0, 0, this.W, this.H);
       }
-      if (this.reference && this.refShown) g.drawImage(this.reference, 0, 0, this.W, this.H);
       for (const l of this.layers) {
         if (!l.visible) continue;
         const s = this.stroke;
@@ -715,6 +688,12 @@ class Studio {
         }
         g.globalAlpha = 1;
       }
+      // The edge of the sheet, so you can see where you can paint.
+      g.lineWidth = 1.5 / zoom;
+      g.setLineDash([6 / zoom, 5 / zoom]);
+      g.strokeStyle = 'rgba(127, 127, 127, 0.9)';
+      g.strokeRect(0, 0, this.W, this.H);
+      g.setLineDash([]);
     });
   }
 
