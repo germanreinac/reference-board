@@ -1287,6 +1287,23 @@ async function editSketch(item) {
   await finishSketch(item, r, { isNew: false, oldLayers: layers });
 }
 
+// Sketches from the first version kept their layers only in this browser: store them the
+// current way (with the sketch), so they're saved in board files and synced to Drive too.
+async function upgradeOldSketches(boardId, b) {
+  let changed = false;
+  for (const it of b.items) {
+    if (!it.sketch || it.sketch.layers?.length) continue;
+    const old = await store.loadSketch(boardId, it.id).catch(() => null);
+    if (!old?.layers?.length) continue;
+    const rev = (it.sketch.rev || 0) + 1;
+    const layers = old.layers.map((l, i) => ({ name: l.name, visible: l.visible !== false, opacity: l.opacity ?? 1, key: `sk${it.id}r${rev}l${i}` }));
+    await Promise.all(layers.map((l, i) => store.saveImage(boardId, l.key, old.layers[i].blob)));
+    it.sketch = { base: it.sketch.base ?? null, w: old.w || it.fullWidth, h: old.h || it.fullHeight, paper: old.paper ?? null, rev, layers };
+    changed = true;
+  }
+  if (changed) contentChanged();
+}
+
 // Paint on a sketch where it is: the painting tools open over the pane that shows it,
 // lined up with the board, which keeps zooming and moving underneath.
 let sketchPane = null;
@@ -2114,6 +2131,7 @@ async function openBoardById(id) {
   activeDoc = null;
   activate(doc);
   await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { boardId: id });
+  await upgradeOldSketches(id, doc.board);
   // Boards opened from a file, or from the first version, may not have a preview yet.
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
   const waiting = data?.incoming;
@@ -4595,4 +4613,4 @@ document.fonts.addEventListener('loadingdone', () => { for (const d of docs.valu
 await route();
 
 // Handy for testing from the browser console.
-window.__refboard = { get board() { return board; }, get docs() { return docs; }, viewports, layout, addImages, saveNow, get current() { return current; }, store, routing: () => routing };
+window.__refboard = { get board() { return board; }, get docs() { return docs; }, viewports, layout, addImages, saveNow, get current() { return current; }, store, routing: () => routing, syncNow: () => syncNow() };
