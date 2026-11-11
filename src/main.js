@@ -2213,6 +2213,15 @@ async function doRoute() {
     location.replace(`#/board/${await inboxId()}`);
     return doRoute();
   }
+  // The example board that comes with the site: artdirection.io/?example (or #/example).
+  if (location.hash.startsWith('#/example') || (new URLSearchParams(location.search).has('example') && !location.hash)) {
+    const ok = await openExample();
+    location.replace(ok ? `#/board/${EXAMPLE_ID}` : '#/');
+    await doRoute();
+    // Seen for the first time: show the whole board.
+    if (ok === 'new' && mainDoc?.meta.id === EXAMPLE_ID) { fitPane(null, null); requestRender(); }
+    return;
+  }
   if (location.hash.startsWith('#/add')) {
     await leaveBoard();
     setMode('add');
@@ -2420,6 +2429,117 @@ async function exportBoard(id) {
     });
   } catch (err) {
     toast(err.message || "Couldn't save the board.");
+  }
+}
+
+// ---------- A public example board ----------
+//
+// The site can come with one example board that anyone can open with a link
+// (artdirection.io/?example): the file example/example.refboard, fetched and added the
+// first time. It's for showing the app, and for measuring how fast a real board loads.
+//
+// "Save a blurred example copy" makes that file from the open board without giving
+// anything away: every image is smeared beyond recognition (shrunk to a couple of dozen
+// pixels and stretched back), drawings' layers are left out, and all words (notes,
+// captions, names) are swapped for filler of the same length. It all happens in this
+// browser; the originals go nowhere.
+
+const EXAMPLE_FILE = 'example/example.refboard';
+const EXAMPLE_ID = 'example';
+
+async function blurredCopy(blob) {
+  const bitmap = await createImageBitmap(blob);
+  const long = Math.max(bitmap.width, bitmap.height);
+  // The picture as a tiny thumbnail (about 20 pixels across)…
+  const k = 20 / long;
+  const tiny = new OffscreenCanvas(Math.max(2, Math.round(bitmap.width * k)), Math.max(2, Math.round(bitmap.height * k)));
+  tiny.getContext('2d').drawImage(bitmap, 0, 0, tiny.width, tiny.height);
+  // …stretched back to (up to) 1280 pixels: soft blobs of colour, nothing readable.
+  const out = Math.min(1, 1280 / long);
+  const c = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * out)), Math.max(1, Math.round(bitmap.height * out)));
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(tiny, 0, 0, c.width, c.height);
+  bitmap.close();
+  return { blob: await c.convertToBlob({ type: 'image/webp', quality: 0.8 }), k: 1 / out };
+}
+
+// Words swapped for filler with the same shape (lengths, capitals, punctuation, numbers).
+const FILLER = 'loremipsumdolorsitametconsecteturadipiscingelitseddoeiusmodtemporincididuntutlaboreetdoloremagnaaliqua';
+function fillerText(text) {
+  let i = 0;
+  return String(text || '').replace(/\p{L}/gu, (ch) => {
+    const f = FILLER[i++ % FILLER.length];
+    return ch === ch.toUpperCase() && ch !== ch.toLowerCase() ? f.toUpperCase() : f;
+  });
+}
+
+async function saveBlurredExample() {
+  if (!current) return;
+  if (!confirm('Save a blurred example copy of this board?\n\nImages are smeared beyond recognition and all text is replaced with filler. It makes a file called "example.refboard"; nothing is uploaded.')) return;
+  try {
+    const data = { ...describeBoard(board, activeDoc === mainDoc ? layout() : { toJSON: () => activeDoc.layoutJSON }), ...(current.look ? { look: current.look } : {}) };
+    const files = new Map();
+    let done = 0;
+    const items = [];
+    for (const [i, d] of data.items.entries()) {
+      const it = board.items[i];
+      if (!it?.blob) continue;
+      const { blob, k } = await blurredCopy(it.blob);
+      // (The copy is smaller: scale it up on the board so it covers the same area. Crops
+      // are baked in the same way.)
+      const item = { ...d, name: 'image', sourceUrl: '', file: `images/${d.id}.webp`, scaleX: d.scaleX * k, scaleY: d.scaleY * k };
+      if (item.crop) item.crop = { x: item.crop.x / k, y: item.crop.y / k, w: item.crop.w / k, h: item.crop.h / k };
+      if (item.caption) item.caption = fillerText(item.caption);
+      delete item.sketch;
+      files.set(item.id, blob);
+      items.push(item);
+      if (++done % 10 === 0) toast(`Blurring… ${done} of ${data.items.length}`, 30000);
+    }
+    const out = {
+      ...data, items,
+      notes: (data.notes || []).map((n) => ({ ...n, text: fillerText(n.text) })),
+      frames: (data.frames || []).map((f) => ({ ...f, name: fillerText(f.name) })),
+      palettes: (data.palettes || []).map((p) => ({ ...p, name: fillerText(p.name) })),
+      storyboards: (data.storyboards || []).map((sb) => ({ ...sb, name: fillerText(sb.name), panels: sb.panels.map((p) => ({ ...p, action: fillerText(p.action), dialogue: fillerText(p.dialogue), notes: fillerText(p.notes) })) })),
+    };
+    const file = await packBoard(out, (item) => files.get(item.id));
+    downloadBlob(file, 'example.refboard');
+    toast(`Saved example.refboard (${(file.size / 1e6).toFixed(1)} MB): ${items.length} blurred images, text replaced.`, 6000);
+  } catch (err) {
+    console.warn(err);
+    toast("Couldn't make the example copy.");
+  }
+}
+
+// Open the example board that comes with the site, adding it the first time (and again
+// when the site has a newer one).
+async function openExample() {
+  try {
+    const have = await store.getBoard(EXAMPLE_ID);
+    const head = await fetch(EXAMPLE_FILE, { method: 'HEAD', cache: 'no-cache' }).catch(() => null);
+    const stamp = head?.ok ? (head.headers.get('etag') || head.headers.get('last-modified') || head.headers.get('content-length') || '1') : null;
+    if (!have || (stamp && have.exampleStamp !== stamp)) {
+      if (!head?.ok) { toast("This site doesn't have an example board yet."); return false; }
+      toast('Getting the example board…', 60000);
+      const res = await fetch(EXAMPLE_FILE);
+      if (!res.ok) throw new Error('missing');
+      const { data, images, fonts } = await unpackBoard(new File([await res.blob()], 'example.refboard'));
+      for (const f of fonts) await addFontFile(f.blob, f.name).catch(() => {});
+      if (have) await store.deleteBoard(EXAMPLE_ID);
+      await inParallel(data.items, 8, async (item) => { const blob = images.get(item.file); if (blob) await store.saveImage(EXAMPLE_ID, item.id, blob); });
+      const now = Date.now();
+      const { look, ...rest } = data;
+      await store.putBoard({ id: EXAMPLE_ID, name: 'Example board', created: now, updated: now, handle: null, board: rest, exampleStamp: stamp, ...(look ? { look } : {}) });
+      toastEl.classList.remove('show');
+      return 'new';
+    }
+    return true;
+  } catch (err) {
+    console.warn(err);
+    toast("Couldn't open the example board.");
+    return false;
   }
 }
 
@@ -4215,6 +4335,7 @@ function openMenu(x, y, pane) {
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
     { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
     { label: 'Back up all boards', action: backupAllBoards },
+    { label: 'Save a blurred example copy…', action: saveBlurredExample },
     '-',
     { label: 'New board', action: newBoard },
     { label: 'All boards', action: goHome },

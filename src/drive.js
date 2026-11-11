@@ -288,6 +288,7 @@ async function doSync(hooks) {
 
     // 2. Boards changed here: send them up.
     for (const rec of await store.listBoards()) {
+      if (rec.id === 'example') continue;   // the site's own example board isn't yours to sync
       const d = rec.drive || {};
       if (d.syncedAt && touched(rec) <= d.syncedAt && remote.has(rec.id)) continue;
       const fresh = await store.getBoard(rec.id);   // the latest, in case it was just saved
