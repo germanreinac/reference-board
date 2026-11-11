@@ -308,6 +308,11 @@ export const store = {
     tx.objectStore('previews').delete(imagesOf(id));
   }),
 
+  // Free the space a board's pictures take here (its images, previews and drawing
+  // layers), keeping the board itself in the list. Used when it's safely in Google Drive.
+  deleteBoardFiles: (id) => run(['images', 'previews', 'sketches'], 'readwrite', (tx) => {
+    for (const name of ['images', 'previews', 'sketches']) tx.objectStore(name).delete(imagesOf(id));
+  }),
   // Images are kept exactly as they came in (full size, never re-compressed).
   saveImage: (boardId, imageId, blob) => run(['images', 'previews'], 'readwrite', (tx) => {
     tx.objectStore('previews').delete(`${boardId}/${imageId}`);

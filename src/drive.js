@@ -261,6 +261,8 @@ async function doSync(hooks) {
           const stale = f.itemId !== undefined && f.rev && localRev.get(f.itemId) !== f.rev;
           if (stale || !(await store.loadImage(boardId, f.id).catch(() => null))) missing.push(f);
         }
+        // A board removed from this computer stays that way: only its details are updated.
+        if (local?.offloaded) missing.length = 0;
         imagesTotal += missing.length;
         progress();
         await inParallel(missing, 6, async (f) => {
@@ -290,6 +292,8 @@ async function doSync(hooks) {
     for (const rec of await store.listBoards()) {
       const d = rec.drive || {};
       if (d.syncedAt && touched(rec) <= d.syncedAt && remote.has(rec.id)) continue;
+      // Removed from this computer, and its Drive folder is gone too: nothing to send.
+      if (rec.offloaded && !remote.has(rec.id)) continue;
       const fresh = await store.getBoard(rec.id);   // the latest, in case it was just saved
       await pushBoard(fresh, root, remote.get(rec.id), dataOf);
       changed = true;
@@ -349,6 +353,38 @@ async function pushBoard(rec, root, folder, dataOf) {
   const latest = await store.getBoard(rec.id);
   if (latest) await store.putBoard({ ...latest, drive: d });
   driveUpdated(rec.id, d);
+}
+
+// ---------- Boards kept only in Drive ----------
+//
+// A board can be removed from this computer to free space: its pictures are deleted here
+// and stay in Drive, and come back when the board is opened.
+
+// Is everything of this board safely in Drive (so its local pictures can go)?
+export function fullyInDrive(rec) {
+  const d = rec?.drive;
+  if (!isConnected() || !d?.folderId || !d.dataId) return false;
+  if (touched(rec) > (d.syncedAt || 0)) return false;
+  return boardFiles(rec.board).every((f) => d.images?.[f.key]);
+}
+
+// Bring a board's pictures back from Drive. onProgress(done, total). Throws
+// Error('reconnect') when Google needs a click to sign in again.
+export async function downloadBoardFiles(rec, onProgress = () => {}) {
+  if (!(await token())) throw new DriveError('reconnect');
+  const files = boardFiles(rec.board).filter((f) => rec.drive?.images?.[f.key]);
+  let done = 0, failed = 0;
+  onProgress(0, files.length);
+  await inParallel(files, 6, async (f) => {
+    try {
+      if (!(await store.loadImage(rec.id, f.id).catch(() => null))) await store.saveImage(rec.id, f.id, await download(rec.drive.images[f.key]));
+    } catch (err) {
+      if (err.message === 'reconnect') throw err;
+      failed++;
+    }
+    onProgress(++done, files.length);
+  });
+  return { total: files.length, failed };
 }
 
 // main.js keeps the open boards' details in memory; it listens for this.

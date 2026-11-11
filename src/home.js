@@ -259,7 +259,16 @@ export class Home {
     when.className = 'when';
     const count = record.board?.items?.length || 0;
     const waiting = record.board?.incoming?.length || 0;
-    when.textContent = `${timeAgo(record.updated)} · ${count} image${count === 1 ? '' : 's'}${waiting ? ` · ${waiting} new` : ''}`;
+    when.textContent = `${record.offloaded ? 'In Google Drive' : timeAgo(record.updated)} · ${count} image${count === 1 ? '' : 's'}${waiting ? ` · ${waiting} new` : ''}`;
+    if (record.offloaded) {
+      // Removed from this computer: a cloud on its preview. It downloads when opened.
+      card.classList.add('offloaded');
+      card.title = 'Kept in Google Drive to save space here. It downloads when you open it.';
+      const cloud = document.createElement('span');
+      cloud.className = 'cloud';
+      cloud.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.500 12.500h7.200a3 3 0 00.4-6 4.200 4.200 0 00-8.100.9A2.600 2.600 0 004.500 12.500z"/><path d="M8 7.200v3.300M6.600 9.200L8 10.600l1.400-1.400"/></svg>';
+      preview.appendChild(cloud);
+    }
     meta.append(name, when);
 
     const check = document.createElement('span');
@@ -276,11 +285,12 @@ export class Home {
       e.stopPropagation();
       const r = more.getBoundingClientRect();
       showMenu(r.left, r.bottom + 4, [
-        { label: 'Open', action: () => this.actions.open(record.id) },
+        { label: record.offloaded ? 'Open (downloads from Google Drive)' : 'Open', action: () => this.actions.open(record.id) },
         { label: 'Rename', action: () => this._rename(card, record) },
         { label: 'Move to project', submenu: this.moveItems([record.id]) },
         { label: 'Select', action: () => this.toggle(record.id) },
         { label: 'Save to file…', action: () => this.actions.exportFile(record.id) },
+        ...(record.offloaded ? [] : [{ label: 'Remove from this computer (keep in Drive)', action: () => this.actions.offload(record.id) }]),
         '-',
         { label: 'Delete', action: () => this.actions.remove([record.id]) },
       ]);

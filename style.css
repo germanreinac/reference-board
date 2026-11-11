@@ -1997,3 +1997,12 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
 .sb-controls { position: absolute; right: 16px; top: 10px; display: flex; gap: 4px; }
 .sb-controls button { padding: 6px 10px; border: 0; border-radius: 8px; background: rgba(255,255,255,0.1); color: #fff; font: inherit; cursor: pointer; }
 .sb-controls button:hover { background: rgba(255,255,255,0.2); }
+
+/* A board kept only in Google Drive (removed from this computer to save space) */
+.board-card .thumb { position: relative; }
+.board-card.offloaded .thumb { filter: saturate(0.6) brightness(0.8); }
+.board-card .cloud {
+  position: absolute; right: 8px; bottom: 8px; width: 28px; height: 28px; padding: 5px; box-sizing: border-box;
+  border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff;
+}
+.board-card .cloud svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }

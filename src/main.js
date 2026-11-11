@@ -2142,7 +2142,7 @@ async function openBoardById(id) {
 async function loadOtherBoard(id) {
   if (docs.has(id)) return docs.get(id);
   const record = await store.getBoard(id);
-  if (!record) return null;
+  if (!record || record.offloaded) return null;   // (gone, or kept only in Google Drive)
   const { board: data, ...meta } = record;
   const doc = makeDoc(meta);
   doc.layoutJSON = data?.layout || null;
@@ -2171,7 +2171,7 @@ async function releaseUnusedBoards() {
 // Show a board in a pane (null: the main board).
 async function showBoardInPane(pane, id) {
   if (id === mainDoc?.meta.id) id = null;
-  if (id && !(await loadOtherBoard(id))) { toast('That board no longer exists.'); return; }
+  if (id && !(await loadOtherBoard(id))) { toast((await store.getBoard(id))?.offloaded ? 'That board is kept in Google Drive. Open it from the Boards screen first to download it.' : 'That board no longer exists.', 5000); return; }
   pane.type = 'board';
   pane.boardId = id;
   pane.state = {};
@@ -2225,6 +2225,13 @@ async function doRoute() {
       await leaveBoard();
       // Show the board's own look straight away (no flash of another one).
       const rec = await store.getBoard(id);
+      // Kept only in Google Drive: download it first (or stay on the home screen).
+      if (rec?.offloaded && !(await bringBoardBack(rec))) {
+        window.history.replaceState(null, '', '#/');
+        setMode('home');
+        await home.refresh();
+        return;
+      }
       if (rec) applyLook(rec.look || defaultLook());
       setMode('board');
       await openBoardById(id);
@@ -2446,6 +2453,7 @@ async function exportBoard(id) {
   try {
     const record = await store.getBoard(id);
     if (!record) return;
+    if (record.offloaded) { toast('This board is kept in Google Drive. Open it first to download it, then save it to a file.', 5000); return; }
     await writeBoardFile({
       name: record.name,
       handle: null,
@@ -2466,6 +2474,54 @@ const driveButton = document.getElementById('drive-button');
 let driveState = drive.isConnected() ? 'idle' : 'off';
 let lastSynced = 0;
 let driveProgress = '';
+// ---------- Remove from this computer (keep in Drive) ----------
+//
+// Frees the space a board takes in Chrome. Only when everything of it is confirmed to be
+// in Google Drive; the board stays in the list (marked with a cloud) and downloads again
+// when it's opened.
+
+const sizeText = (bytes) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`);
+
+async function offloadBoard(id) {
+  if (!drive.isConnected()) { toast('Connect Google Drive first (the Google Drive button, top right): the board has to be safely there before it can be removed from this computer.', 6000); return; }
+  if (docs.has(id)) { toast('Close this board first.'); return; }
+  toast('Checking that everything is in Google Drive…', 60000);
+  await syncNow();
+  const rec = await store.getBoard(id);
+  if (!rec) return;
+  if (!drive.fullyInDrive(rec)) {
+    toast(drive.needsReconnect() ? 'Google Drive needs you to sign in again (the Google Drive button, top right). Then try again.' : "This board isn't fully in Google Drive yet, so it's staying here. Try again once syncing has finished.", 6000);
+    return;
+  }
+  const files = await store.loadImages(id);
+  const bytes = [...files.values()].reduce((a, b) => a + (b?.size || 0), 0);
+  toastEl.classList.remove('show');
+  if (!confirm(`Remove "${rec.name}" from this computer?\n\nThis frees about ${sizeText(bytes)} in Chrome. The board stays safe in your Google Drive and in your list, and downloads again when you open it.`)) return;
+  await store.deleteBoardFiles(id);
+  await store.putBoard({ ...(await store.getBoard(id)), offloaded: true });
+  tabIds = tabIds.filter((t) => t !== id);
+  saveTabs();
+  await home.refresh();
+  toast(`Freed about ${sizeText(bytes)}. "${rec.name}" is in your Google Drive.`, 4000);
+}
+
+// Opening a board that was removed from this computer: get its pictures back first.
+// Returns true when it's ready to open.
+async function bringBoardBack(rec) {
+  if (!drive.isConnected()) { toast(`"${rec.name}" is kept in Google Drive. Connect Google Drive (top right) to open it.`, 6000); return false; }
+  try {
+    toast(`Getting "${rec.name}" from Google Drive…`, 600000);
+    const r = await drive.downloadBoardFiles(rec, (done, total) => { if (done % 5 === 0 || done === total) toast(`Getting "${rec.name}" from Google Drive… ${done} of ${total}`, 600000); });
+    const latest = await store.getBoard(rec.id);
+    if (latest) await store.putBoard({ ...latest, offloaded: false });
+    toast(r.failed ? `${r.failed} image${r.failed > 1 ? 's' : ''} couldn't be downloaded.` : `"${rec.name}" is back on this computer.`, 2500);
+    return true;
+  } catch (err) {
+    toast(err.message === 'reconnect' ? `Google Drive needs you to sign in again (the Google Drive button, top right) to open "${rec.name}".` : `Couldn't get "${rec.name}" from Google Drive. Check your internet connection and try again.`, 6000);
+    return false;
+  }
+}
+
 const driveHooks = {
   beforeSync: () => saveNow(),
   isOpen: (id) => docs.has(id),
@@ -2645,7 +2701,9 @@ const BACKUP_KEY = 'refboard.lastBackup';
 async function backupAllBoards() {
   try {
     await saveNow({ thumb: true });
-    const records = (await store.listBoards()).sort((a, b) => b.updated - a.updated);
+    const everything = (await store.listBoards()).sort((a, b) => b.updated - a.updated);
+    // Boards kept only in Google Drive aren't here to back up (they're safe there).
+    const records = everything.filter((r) => !r.offloaded);
     if (!records.length) { toast('There are no boards to back up yet.'); return; }
     toast(`Backing up ${records.length} board${records.length > 1 ? 's' : ''}…`, 60000);
     const boards = [];
@@ -2730,6 +2788,8 @@ const home = new Home(document.getElementById('home'), {
   exportFile: exportBoard,
   remove: deleteBoards,
   setGroup: setBoardsGroup,
+  offload: offloadBoard,
+  driveConnected: () => drive.isConnected(),
 });
 
 // ---------- Tabs: the boards you have open ----------
