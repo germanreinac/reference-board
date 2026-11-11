@@ -284,6 +284,17 @@ async function run(stores, mode, fn) {
 
 const imagesOf = (boardId) => IDBKeyRange.bound(`${boardId}/`, `${boardId}/\uffff`);
 
+async function allOf(storeName, boardId) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const os = d.transaction(storeName, 'readonly').objectStore(storeName);
+    const keys = os.getAllKeys(imagesOf(boardId));
+    const values = os.getAll(imagesOf(boardId));
+    values.onsuccess = () => resolve(new Map(keys.result.map((k, i) => [String(k).slice(boardId.length + 1), values.result[i]])));
+    values.onerror = keys.onerror = () => reject(values.error || keys.error);
+  });
+}
+
 export const store = {
   listBoards: () => run('boards', 'readonly', (tx) => tx.objectStore('boards').getAll()),
   getBoard: (id) => run('boards', 'readonly', (tx) => tx.objectStore('boards').get(id)),
@@ -307,6 +318,10 @@ export const store = {
     return tx.objectStore('images').delete(`${boardId}/${imageId}`);
   }),
   loadImage: (boardId, imageId) => run('images', 'readonly', (tx) => tx.objectStore('images').get(`${boardId}/${imageId}`)),
+  // Everything kept for a board in one go (much quicker than asking a thousand times):
+  // a Map from image id (as text) to its file, or to its saved preview.
+  loadImages: (boardId) => allOf('images', boardId),
+  loadPreviews: (boardId) => allOf('previews', boardId),
 
   // A small copy of each big image, so big boards open quickly: { w, h, blob } (w x h is
   // the full image's size; blob is null for images small enough to show as they are).

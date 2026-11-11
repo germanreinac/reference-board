@@ -2015,7 +2015,7 @@ async function updateDetail() {
 // ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
-async function loadBoard(data, getBlob, board, { withLayout = true, boardId = null } = {}) {
+async function loadBoard(data, getBlob, board, { withLayout = true, boardId = null, previews = null } = {}) {
   loading = true;
   try {
     board.clear();
@@ -2026,10 +2026,10 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     // preview (and kept full size while it fits in the budget).
     let fullPixels = 0;
     const pictures = new Array(items.length).fill(null);
-    await inParallel(items.map((_, i) => i), 6, async (i) => {
+    await inParallel(items.map((_, i) => i), 8, async (i) => {
       const blob = blobs[i];
       if (!blob) return;
-      const saved = boardId ? await store.loadPreview(boardId, items[i].id).catch(() => null) : null;
+      const saved = previews ? previews.get(String(items[i].id)) : boardId ? await store.loadPreview(boardId, items[i].id).catch(() => null) : null;
       if (saved) {
         if (!saved.blob) {
           const full = await decode(blob, items[i].name);
@@ -2098,7 +2098,9 @@ async function openBoardById(id) {
   mainDoc = doc;
   activeDoc = null;
   activate(doc);
-  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { boardId: id });
+  // (All its images and previews are fetched from storage in two goes, not one by one.)
+  const [files, previews] = await Promise.all([store.loadImages(id), store.loadPreviews(id)]);
+  await loadBoard(data, (item) => files.get(String(item.id)), doc.board, { boardId: id, previews });
   await upgradeOldSketches(id, doc.board);
   // Boards opened from a file, or from the first version, may not have a preview yet.
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
@@ -2125,7 +2127,8 @@ async function loadOtherBoard(id) {
   const doc = makeDoc(meta);
   doc.layoutJSON = data?.layout || null;
   docs.set(id, doc);
-  await loadBoard(data, (item) => store.loadImage(id, item.id), doc.board, { withLayout: false, boardId: id });
+  const [files, previews] = await Promise.all([store.loadImages(id), store.loadPreviews(id)]);
+  await loadBoard(data, (item) => files.get(String(item.id)), doc.board, { withLayout: false, boardId: id, previews });
   doc.thumbStale = !doc.board.isEmpty() && !(await store.loadThumb(id).catch(() => null));
   if (data?.incoming?.length) setTimeout(() => placeIncoming(doc, data.incoming), 0);
   return doc;

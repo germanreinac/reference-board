@@ -11,7 +11,7 @@
 // A pane can also show a tool instead of the board (image search, the 3D
 // mannequin). Those tools live inside the pane's HTML box; see src/editors.js.
 
-import { RenderTexture, Sprite, Matrix, TilingSprite, Texture, Graphics } from '../vendor/pixi.min.mjs';
+import { RenderTexture, Sprite, Container, Matrix, TilingSprite, Texture, Graphics } from '../vendor/pixi.min.mjs';
 import { GAP } from './layout.js';
 import { Camera } from './camera.js';
 import { paneOutline, paneOutlinePoints, BLEED, ripple, rippling, spring, motionOn, push } from './liquid.js';
@@ -95,9 +95,10 @@ export class Viewports {
       if (!panes.includes(pane)) {
         view.editor?.destroy();
         view.el.remove();
-        view.sprite.destroy();
+        view.sprite.destroy({ children: true });
         view.mask.destroy();
         view.texture.destroy(true);
+        view.bgTexture.destroy(true);
         this.views.delete(pane);
       }
     }
@@ -141,13 +142,20 @@ export class Viewports {
     el.append(host, tools, zoomEl, label);
     this.el.appendChild(el);
 
-    const texture = RenderTexture.create({ width: 1, height: 1, resolution: this.app.renderer.resolution });
-    const sprite = new Sprite(texture);
+    // Two pictures per pane: the dotted background, and the board on top of it (see-through
+    // where it's empty). Kept apart so the background can move (the wake behind the mouse)
+    // without drawing the whole board again.
+    const res = this.app.renderer.resolution;
+    const texture = RenderTexture.create({ width: 1, height: 1, resolution: res });
+    const bgTexture = RenderTexture.create({ width: 1, height: 1, resolution: res });
+    const sprite = new Container();
+    const bgSprite = new Sprite(bgTexture), boardSprite = new Sprite(texture);
+    sprite.addChild(bgSprite, boardSprite);
     // The pane's picture is cut to its liquid outline, so the edge itself moves with the waves.
     const mask = new Graphics();
     this.app.stage.addChild(sprite, mask);
     sprite.mask = mask;
-    return { el, zoomEl, tools, host, label, texture, sprite, mask, editor: null, editorType: 'board' };
+    return { el, zoomEl, tools, host, label, texture, bgTexture, sprite, bgSprite, boardSprite, mask, editor: null, editorType: 'board', zoomText: '' };
   }
 
   // Make sure a pane shows the right thing: the board, or a tool.
@@ -296,10 +304,13 @@ export class Viewports {
       if (view.texture.width !== tw || view.texture.height !== th) {
         // Make a new picture at the new size. (Resizing the old one in place leaves
         // PixiJS drawing at the old size, which squashes the view.)
-        const old = view.texture;
+        const old = view.texture, oldBg = view.bgTexture;
         view.texture = RenderTexture.create({ width: tw, height: th, resolution: res });
-        view.sprite.texture = view.texture;
+        view.bgTexture = RenderTexture.create({ width: tw, height: th, resolution: res });
+        view.boardSprite.texture = view.texture;
+        view.bgSprite.texture = view.bgTexture;
         old.destroy(true);
+        oldBg.destroy(true);
       }
       // On whole screen pixels: a picture placed between pixels gets softened.
       view.sprite.position.set(Math.round((r.x - BLEED) * res) / res, Math.round((r.y - BLEED) * res) / res);
@@ -379,13 +390,18 @@ export class Viewports {
 
   // The liquid keeps flowing slowly: redraw the edges about 20 times a second at rest,
   // and every frame while ripples are spreading. Only the outline is redrawn, not the board.
+  // It rests when nobody's there (no mouse or keys for a while, or another window in
+  // front), so an open board in the background doesn't keep the computer busy.
   _flow() {
     let last = 0;
+    let lastInput = performance.now();
+    const awake = () => { lastInput = performance.now(); };
+    for (const type of ['pointermove', 'pointerdown', 'keydown', 'wheel']) window.addEventListener(type, awake, { passive: true, capture: true });
     const tick = (now) => {
       requestAnimationFrame(tick);
       if (!motionOn() || document.body.dataset.mode !== 'board' || document.body.classList.contains('presenting')) return;
       const busy = rippling(now) || this.springs > 0;
-      if (!busy && now - last < 50) return;
+      if (!busy && (now - last < 50 || now - lastInput > 20000 || !document.hasFocus())) return;
       last = now;
       this.drawEdges(now);
     };
@@ -566,16 +582,11 @@ export class Viewports {
     this.app.renderer.render({ container: g, target, clear: false });
   }
 
-  // Redraw just one pane (used for the stirring, so the rest of the window isn't redrawn).
+  // Redraw just one pane's background (the wake in the dots): the board itself isn't drawn again.
   renderPane(pane) {
     const view = this.views.get(pane);
     if (!view || pane.type !== 'board' || !this.layout.visiblePanes().includes(pane)) return;
-    const cam = pane.camera;
-    const board = this.boardOf(pane);
-    board.drawOverlay(cam.zoom);
-    this.drawDots(pane, view.texture);
-    this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x + BLEED, cam.y + BLEED);
-    this.app.renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
+    this.drawDots(pane, view.bgTexture);
     this.app.render();
   }
 
@@ -588,14 +599,17 @@ export class Viewports {
       const cam = pane.camera;
       const board = this.boardOf(pane);
       board.drawOverlay(cam.zoom);
-      this.drawDots(pane, view.texture);
+      this.drawDots(pane, view.bgTexture);
       this.matrix.set(cam.zoom, 0, 0, cam.zoom, cam.x + BLEED, cam.y + BLEED);
-      renderer.render({ container: board.world, target: view.texture, clear: false, transform: this.matrix });
-      view.zoomEl.textContent = `${Math.round(cam.zoom * 100)}%`;
+      renderer.render({ container: board.world, target: view.texture, clear: true, clearColor: CLEAR, transform: this.matrix });
+      const zoom = `${Math.round(cam.zoom * 100)}%`;
+      if (view.zoomText !== zoom) view.zoomEl.textContent = view.zoomText = zoom;
     }
     this.app.render();
   }
 }
+
+const CLEAR = [0, 0, 0, 0];   // see-through
 
 // One dot in the middle of a square tile, repeated across the pane.
 const DOT_CELL = 64;
