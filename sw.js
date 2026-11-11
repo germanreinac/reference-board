@@ -18,8 +18,6 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   // Only the app's own files. Image searches and other websites pass straight through.
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
-  // The example board is big and kept in the boards' own storage once opened: not here.
-  if (url.pathname.includes('/example/')) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const fixed = url.search.includes('v=');
