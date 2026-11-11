@@ -52,15 +52,23 @@ export class Board {
   constructor() {
     this.world = new Container();       // everything on the board
     this.imageLayer = new Container();  // the images, back to front
-    this.strokeLayer = new Container(); // pen strokes, oldest first
-    this.noteLayer = new Container();   // text notes
-    this.frameLayer = new Container();  // frames, behind everything
-    this.shapeLayer = new Container();  // rectangles, ellipses, lines and arrows
-    this.captionLayer = new Container(); // the text under images
+    // Each layer is its own "render group": the graphics card's to-do list for a layer is
+    // only rebuilt when something in that layer changes shape. (Without this, redrawing
+    // the selection outline every frame of a drag rebuilt the list for the whole board,
+    // which made big boards lag behind the mouse.)
+    const layer = () => new Container({ isRenderGroup: true });
+    this.strokeLayer = layer();  // pen strokes, oldest first
+    this.noteLayer = layer();    // text notes
+    this.frameLayer = layer();   // frames, behind everything
+    this.shapeLayer = layer();   // rectangles, ellipses, lines and arrows
+    this.captionLayer = layer(); // the text under images
     this.overlay = new Graphics();      // selection outline, drawn on top
-    this.fxLayer = new Container();      // things burning away (see burn())
+    this.fxLayer = layer();              // things burning away (see burn())
     this.fx = new Graphics();            // flames, smoke, ash piles and the sweeper
-    this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.fxLayer, this.fx, this.overlay);
+    const fxGroup = layer(), overlayGroup = layer();
+    fxGroup.addChild(this.fx);
+    overlayGroup.addChild(this.overlay);
+    this.world.addChild(this.frameLayer, this.imageLayer, this.captionLayer, this.shapeLayer, this.strokeLayer, this.noteLayer, this.fxLayer, fxGroup, overlayGroup);
     this.burning = [];     // { box, thing, mask, glow, b, start, dur }
     this.particles = [];   // { x, y, vx, vy, life, age, r, colour, alpha, kind }
     this.piles = [];       // ash left behind: { x, y, w, left (1 → 0 as it's swept), start }
@@ -478,7 +486,7 @@ export class Board {
       sharp: bitmap.width >= fw,   // false while only a smaller preview is loaded
       fullWidth: fw,
       fullHeight: fh,
-      sketch,                // made in the Sketch studio: { base: id of the image it's painted over, or null }
+      sketch,                // made with Advanced drawing: { base: id of the image it's painted over, or null }
       crop: null,            // { x, y, w, h } in the picture's own pixels, when cropped
       grey: false,           // shown in greyscale
       opacity: alpha,        // how see-through it is (1 = solid); Focus mode fades it on top of this

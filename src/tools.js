@@ -19,6 +19,8 @@ const ICONS = {
   arrow: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3M7.5 3H13v5.5"/></svg>',
   frame: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M2.5 2.4h5.5"/></svg>',
   pen: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-7.5 7.5-3.8.8.8-3.8z M9 4l3 3"/></svg>',
+  storyboard: '<svg viewBox="0 0 16 16"><path d="M2 6.800h12v5.700a1 1 0 01-1 1H3a1 1 0 01-1-1z"/><path d="M2 6.800l11.300-3.100.5 1.900L2.500 8.700zM5.300 5.900l1.600 1.500M8.700 5l1.600 1.500"/></svg>',
+  palette: '<svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 100 12c1 0 1.4-.6 1.4-1.2 0-.9-.8-1.1-.8-1.9 0-.7.6-1.1 1.3-1.1H11A3 3 0 0014 6.800 5.300 5.300 0 008 2z"/><circle cx="5.200" cy="7.600" r="0.800" fill="currentColor"/><circle cx="7" cy="4.900" r="0.800" fill="currentColor"/><circle cx="10" cy="5.100" r="0.800" fill="currentColor"/></svg>',
   sketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   eraser: '<svg viewBox="0 0 16 16"><path d="M9.5 2.8l3.7 3.7-6.3 6.3H4.2L2.5 11.1z M6.2 6.1l3.7 3.7 M7 12.8h6.5"/></svg>',
   note: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
@@ -41,27 +43,36 @@ const TITLES = {
 
 export class Toolbar {
   // onChange() is called whenever the tool, colour or size changes.
-  constructor(element, { onChange, onUndo, onRedo, onSketch }) {
+  // `extras`: buttons for the bigger tools (advanced drawing, storyboard, palettes):
+  // [{ id, icon, title, onClick(button) }].
+  constructor(element, { onChange, onUndo, onRedo, extras = [] }) {
     this.el = element;
     this.onChange = onChange;
     this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, shapeSize: 3, shape: 'arrow', collapsed: false };
     this.load();
 
-    const toolGroup = this.group();
+    // Moving around, then making things, then the bigger tools.
     this.toolButtons = {};
-    for (const tool of ['select', 'hand', 'pen', 'eraser', 'text', 'note', 'shape', 'frame']) {
-      const b = this.button(ICONS[tool] || ICONS.rect, TITLES[tool], () => {
-        // Clicking the shape tool again opens the choice of shapes.
-        if (tool === 'shape' && this.state.tool === 'shape') { this.shapePicker.hidden = !this.shapePicker.hidden; return; }
-        this.setTool(tool);
-      });
-      this.toolButtons[tool] = b;
-      toolGroup.appendChild(b);
-      // Next to the quick pen: the Sketch studio, for proper drawing and painting.
-      if (tool === 'pen' && onSketch) {
-        const s = this.button(ICONS.sketch, 'Sketch studio: draw and paint with brushes, pen pressure and layers', () => onSketch(s));
-        s.classList.add('sketch-button');
-        toolGroup.appendChild(s);
+    for (const tools of [['select', 'hand'], ['pen', 'eraser', 'text', 'note', 'shape', 'frame']]) {
+      const toolGroup = this.group();
+      for (const tool of tools) {
+        const b = this.button(ICONS[tool] || ICONS.rect, TITLES[tool], () => {
+          // Clicking the shape tool again opens the choice of shapes.
+          if (tool === 'shape' && this.state.tool === 'shape') { this.shapePicker.hidden = !this.shapePicker.hidden; return; }
+          this.setTool(tool);
+        });
+        this.toolButtons[tool] = b;
+        toolGroup.appendChild(b);
+      }
+    }
+    if (extras.length) {
+      const g = this.group('extras');
+      this.extraButtons = {};
+      for (const x of extras) {
+        const b = this.button(ICONS[x.icon], x.title, () => x.onClick(b));
+        b.classList.add(`${x.id}-button`);
+        this.extraButtons[x.id] = b;
+        g.appendChild(b);
       }
     }
 
@@ -84,7 +95,8 @@ export class Toolbar {
       if (!this.shapePicker.hidden && !this.shapePicker.contains(e.target) && !this.toolButtons.shape.contains(e.target)) this.shapePicker.hidden = true;
     }, true);
 
-    // The colour: one swatch; clicking it opens the palette above the toolbar.
+    // The colour, shown only with the tools that use it (pen, note, shape): one swatch;
+    // clicking it opens the palette above the toolbar.
     const colourGroup = this.group('colours');
     this.colourButton = document.createElement('button');
     this.colourButton.className = 'swatch current-colour';

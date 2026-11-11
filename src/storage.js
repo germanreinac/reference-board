@@ -326,7 +326,7 @@ export const store = {
   // A small copy of each big image, so big boards open quickly: { w, h, blob } (w x h is
   // the full image's size; blob is null for images small enough to show as they are).
   savePreview: (boardId, imageId, rec) => run('previews', 'readwrite', (tx) => tx.objectStore('previews').put(rec, `${boardId}/${imageId}`)),
-  // A sketch's layers, so it can be opened again in the Sketch studio:
+  // A sketch's layers, so it can be opened again in Advanced drawing:
   // { w, h, paper, layers: [{ name, visible, opacity, blob }] }.
   saveSketch: (boardId, imageId, rec) => run('sketches', 'readwrite', (tx) => tx.objectStore('sketches').put(rec, `${boardId}/${imageId}`)),
   loadSketch: (boardId, imageId) => run('sketches', 'readonly', (tx) => tx.objectStore('sketches').get(`${boardId}/${imageId}`)),

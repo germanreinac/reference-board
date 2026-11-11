@@ -1181,7 +1181,7 @@ function goToThing(item) {
   requestRender();
 }
 
-// ---------- Painting on the board ----------
+// ---------- Advanced drawing (on the board) ----------
 //
 // Proper drawing and painting (src/sketch.js), done right where the sketch is on the board.
 // A sketch is an image with its layers kept (item.sketch), so it can be painted on again:
@@ -1202,8 +1202,28 @@ const SKETCH_SIZES = [
 ];
 const MAX_SKETCH = 4096;   // the biggest side of a sketch, in pixels (keeps brushes quick)
 
-function sketchMenu(x, y) {
-  showMenu(x, y, SKETCH_SIZES.map(([label, w, h]) => ({ label, action: () => newSketch(w, h) })));
+// The Advanced drawing button (and the D key). With an image selected it goes straight to
+// drawing over it (or on it, if it's a drawing already); otherwise it offers a new canvas.
+function advancedDrawing(button = toolbar.extraButtons?.sketch) {
+  const one = board.selection.length === 1 && board.selection[0].kind === 'image' ? board.selection[0] : null;
+  if (one) return one.sketch ? editSketch(one) : paintOver(one);
+  const r = button.getBoundingClientRect();
+  showMenu(r.left, r.top - 4, [
+    { label: 'Draw over an image: select it first', disabled: true },
+    '-',
+    { label: 'New canvas', submenu: SKETCH_SIZES.map(([label, w, h]) => ({ label, action: () => newSketch(w, h) })) },
+  ]);
+}
+
+// The Storyboard button: this board's storyboards, and a new one.
+function storyboardMenu(button) {
+  const r = button.getBoundingClientRect();
+  const imgs = board.selection.filter((x) => x.kind === 'image');
+  showMenu(r.left, r.top - 4, [
+    ...board.storyboards.map((sb) => ({ label: sb.name, action: () => { storyboards.edit(sb); storyboards.api.focus(storyboards.bounds(sb)); } })),
+    ...(board.storyboards.length ? ['-'] : []),
+    { label: imgs.length > 1 ? `New storyboard from the ${imgs.length} selected images…` : 'New storyboard…', action: () => { if (imgs.length < 2) board.selection = []; storyboardDialog(); } },
+  ]);
 }
 
 // A blank picture: white paper, or see-through.
@@ -1231,8 +1251,8 @@ async function newSketch(width, height) {
   const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
   const k = pane ? Math.min(pane.rect.w * 0.6 / width, pane.rect.h * 0.6 / height) / pane.camera.zoom : 1;
   const spot = board.freeSpot(width * k, height * k, at.x, at.y);
-  const item = await addSheet(width, height, '#ffffff', { x: spot.x, y: spot.y, scaleX: k, scaleY: k, name: 'Sketch' });
-  const r = await paintOn(item, { paper: '#ffffff', title: 'New sketch' });
+  const item = await addSheet(width, height, '#ffffff', { x: spot.x, y: spot.y, scaleX: k, scaleY: k, name: 'Drawing' });
+  const r = await paintOn(item, { paper: '#ffffff', title: 'New drawing' });
   if (!r) { removeImageById(item.id); return; }
   await finishSketch(item, r, { isNew: true });
 }
@@ -1249,11 +1269,11 @@ async function paintOver(item) {
   if (!item.group) item.group = newGroupId();
   const sheet = await addSheet(W, H, null, {
     x: s.x, y: s.y, rotation: s.rotation, scaleX: s.scale.x * c.w / W, scaleY: s.scale.y * c.h / H,
-    name: `Paint over ${item.name || 'image'}`, group: item.group, index: board.items.indexOf(item) + 1, base: item.id,
+    name: `Drawing over ${item.name || 'image'}`, group: item.group, index: board.items.indexOf(item) + 1, base: item.id,
   });
   let reference = null;
   try { reference = await createImageBitmap(item.blob, c.x, c.y, c.w, c.h); } catch {}
-  const r = await paintOn(sheet, { paper: null, reference, title: `Painting over ${item.name || 'an image'}` });
+  const r = await paintOn(sheet, { paper: null, reference, title: `Drawing over ${item.name || 'an image'}` });
   reference?.close?.();
   if (!r) { removeImageById(sheet.id); applyState(before); requestRender(); return; }
   await finishSketch(sheet, r, { isNew: true, undoExtra: () => applyState(before) });
@@ -1378,7 +1398,7 @@ async function finishSketch(item, r, { isNew, undoExtra = () => {}, oldLayers = 
   if (isNew) {
     const data = { ...board.imageJSON(item), blob: item.blob };
     history.push({ undo: () => { removeImageById(data.id); undoExtra(); }, redo: () => restoreImage(data) });
-    toast('Double-click the sketch to paint on it again.', 2400);
+    toast('Double-click the drawing to keep working on it.', 2400);
   } else {
     history.push({ undo: () => apply(old), redo: () => apply(now) });
   }
@@ -3292,7 +3312,11 @@ async function redo() {
 }
 
 const toolbar = new Toolbar(document.getElementById('toolbar'), {
-  onSketch: (button) => { const r = button.getBoundingClientRect(); sketchMenu(r.left, r.top - 4); },
+  extras: [
+    { id: 'sketch', icon: 'sketch', title: 'Advanced drawing (D): draw over the selected image with brushes and layers, or start a new canvas', onClick: (b) => advancedDrawing(b) },
+    { id: 'storyboard', icon: 'storyboard', title: 'Storyboard: make one, or open one on this board', onClick: (b) => storyboardMenu(b) },
+    { id: 'palettes', icon: 'palette', title: 'Palettes: colour sets kept with this board', onClick: () => palettePanel.toggle() },
+  ],
   onChange: () => { updateCursor(); requestRender(); },
   onUndo: undo,
   onRedo: redo,
@@ -3542,8 +3566,8 @@ const SEL_ACTIONS = [
   ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image')],
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
-  ['paint', 'Paint over this image (Sketch studio: brushes and layers; the image stays as it is)', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
-  ['editSketch', 'Edit the sketch (or double-click it)', () => editSketch(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sketch],
+  ['paint', 'Draw over this image (D): Advanced drawing with brushes and layers. The image itself stays as it is', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
+  ['editSketch', 'Keep drawing on it (D, or double-click it)', () => editSketch(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sketch],
   ['script', 'Colour script: a strip of these shots\' colours', colourStripPanel, (sel) => sel.filter((x) => x.kind === 'image').length > 1],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['align', 'Align, spread out or arrange', () => { const r = selectionBar.querySelector('[data-action="align"]').getBoundingClientRect(); alignMenu(r.left, r.bottom + 6); }, (sel) => sel.length > 1],
@@ -4257,7 +4281,7 @@ function openMenu(x, y, pane) {
     { label: 'Flip upside down', action: () => flipSelection('y') },
     { label: 'Greyscale on / off', action: toggleGrey },
     ...(one?.kind === 'image' ? [
-      one.sketch ? { label: 'Edit sketch', action: () => editSketch(one) } : { label: 'Paint over (Sketch studio)…', action: () => paintOver(one) },
+      one.sketch ? { label: 'Keep drawing on it', shortcut: 'D', action: () => editSketch(one) } : { label: 'Draw over it (Advanced drawing)', shortcut: 'D', action: () => paintOver(one) },
       { label: 'Crop…', action: startCrop },
       ...(one.crop ? [{ label: 'Show the whole image', action: resetCrop }] : []),
     ] : []),
@@ -4561,6 +4585,8 @@ window.addEventListener('keydown', (e) => {
     if (cropping) { cropping = null; toast('Crop cancelled', 1200); }
     else board.selected = null;
     requestRender();
+  } else if (e.code === 'KeyD' && !e.shiftKey) {
+    advancedDrawing();
   } else if (TOOL_KEYS[e.code]) {
     toolbar.setTool(TOOL_KEYS[e.code]);
   } else if (e.key === '[' || e.key === ']') {

@@ -1,4 +1,4 @@
-// Painting on the board: proper drawing tools, used right where the sketch sits on the
+// Advanced drawing: proper drawing tools, used right where the sketch sits on the
 // board (no separate screen). The board keeps working around it: scroll to zoom, Space or
 // middle-drag to move, and everything else stays in view.
 //
@@ -136,7 +136,7 @@ class Studio {
         </div>
         <div class="sketch-group end">
           <button class="text" data-a="cancel" title="Close without saving (Esc)">Cancel</button>
-          <button class="text primary" data-a="done" title="Put the drawing on the board (Ctrl/⌘+Enter)">Done</button>
+          <button class="text primary" data-a="done" title="Keep the drawing (Ctrl/⌘+Enter)">Done</button>
         </div>
       </div>
       <div class="sketch-left"></div>
@@ -710,7 +710,7 @@ class Studio {
 
   async close(save) {
     if (this.closing) return;
-    if (!save && this.changed && !confirm('Close the sketch without saving your changes?')) return;
+    if (!save && this.changed && !confirm('Close without keeping your changes?')) return;
     this.closing = true;
     let result = null;
     if (save) {
