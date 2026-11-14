@@ -114,6 +114,7 @@ function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
   hideMenu();
+  if (m === 'home') requestAnimationFrame(fitBrand);
   // The home screen is always dark; each board has its own look (set when it opens).
   if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
@@ -2777,6 +2778,20 @@ window.launchQueue?.setConsumer(async ({ files }) => {
     else openBoard(await importBoardFile(file, handle));
   }
 });
+
+// The line under the big name is sized so its longer row is exactly as wide as the name.
+function fitBrand() {
+  const mark = document.querySelector('.wordmark'), sub = document.querySelector('.brand-sub');
+  if (!mark || !sub || !mark.offsetWidth) return;
+  // (The name is pulled a hair to the left to line up its M; allow for that.)
+  const target = mark.getBoundingClientRect().width + parseFloat(getComputedStyle(mark).marginLeft || 0);
+  sub.style.fontSize = '100px';
+  const widest = Math.max(...[...sub.children].map((el) => el.getBoundingClientRect().width));
+  if (widest > 0) sub.style.fontSize = `${(100 * target / widest).toFixed(2)}px`;
+}
+window.addEventListener('resize', fitBrand);
+document.fonts?.ready.then(fitBrand);
+fitBrand();
 
 // ---------- Home screen ----------
 
