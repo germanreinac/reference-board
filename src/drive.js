@@ -94,7 +94,7 @@ async function requestToken(interactive) {
       },
       error_callback: (err) => reject(new Error({
         popup_closed: 'The Google sign-in window was closed before finishing.',
-        popup_failed_to_open: 'Chrome blocked the Google sign-in window. Allow pop-ups for artdirection.io (icon at the right of the address bar) and try again.',
+        popup_failed_to_open: 'Chrome blocked the Google sign-in window. Allow pop-ups for melti.io (icon at the right of the address bar) and try again.',
       }[err?.type] || `Google sign-in didn't work (${err?.type || 'unknown'}).`)),
     });
     client.requestAccessToken({ prompt: interactive ? '' : 'none' });

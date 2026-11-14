@@ -1,4 +1,4 @@
-// Runs only on the Reference Board app's own page. It passes messages both ways:
+// Runs only on the Melti app's own page. It passes messages both ways:
 //   extension → app: images to add (the app listens for these messages)
 //   app → extension: the list of boards, for the "Save to board" menu
 // and tells the extension when the app is ready, so anything waiting can be delivered.

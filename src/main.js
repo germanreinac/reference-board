@@ -2250,7 +2250,7 @@ window.addEventListener('hashchange', route);
 
 // ---------- Board links ----------
 //
-// A board's address shows its name: artdirection.io/#/board/megalith-video-3 (lower case,
+// A board's address shows its name: melti.io/#/board/megalith-video-3 (lower case,
 // dashes for spaces). If two boards would get the same address, a few characters of the
 // board's own id are added. Old links with the id still work. (Boards live in this
 // browser, so a link only opens here, or wherever the board has synced to.)
@@ -2619,7 +2619,7 @@ setInterval(updateDriveButton, 30000);
 
 // ---------- The phone page: save photos to a board ----------
 //
-// artdirection.io/#/add — made for the phone (add it to the home screen). Pick photos
+// melti.io/#/add — made for the phone (add it to the home screen). Pick photos
 // (screenshots, saved images), pick a board, done: they go to the board's Drive folder
 // and appear on the board on your computer. Without Drive, it saves to this browser's boards.
 
@@ -2927,7 +2927,7 @@ const HELP = [
   ]],
   ['Adding', [
     ['Images', 'Drop them in, or paste with Ctrl/⌘ + V'], ['From any website', 'Right-click → Save image to board (browser extension)'],
-    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'artdirection.io/#/add'],
+    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'],
   ]],
   ['Tools', [
     ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],

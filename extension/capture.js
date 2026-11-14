@@ -10,7 +10,7 @@
   Object.assign(overlay.style, { position: 'fixed', inset: '0', zIndex: '2147483647', cursor: 'crosshair', background: 'rgba(0,0,0,0.25)' });
   Object.assign(box.style, { position: 'fixed', border: '2px solid #4da3ff', background: 'rgba(77,163,255,0.12)', display: 'none', pointerEvents: 'none', borderRadius: '4px' });
   Object.assign(hint.style, { position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)', padding: '8px 14px', borderRadius: '10px', background: 'rgba(20,20,22,0.9)', color: '#fff', font: '13px system-ui, sans-serif', pointerEvents: 'none' });
-  hint.textContent = 'Drag a box to capture it to Reference Board · Esc to cancel';
+  hint.textContent = 'Drag a box to capture it to Melti · Esc to cancel';
   overlay.append(box, hint);
   document.documentElement.appendChild(overlay);
   let start = null;

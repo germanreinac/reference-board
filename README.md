@@ -5,7 +5,7 @@ seen through several split panes, each with its own pan and zoom.
 
 ## Try it
 
-Open **[artdirection.io](https://artdirection.io)** in Chrome. There is nothing to install.
+Open **[melti.io](https://melti.io)** in Chrome. There is nothing to install.
 
 ## Controls
 
@@ -271,7 +271,7 @@ doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 
 **Connect Google Drive** (the cloud button on the home screen or in the top bar) keeps your boards
 in your own Google Drive, in a folder called **Art Direction**, with a folder for each board
-holding its images. Then they're on every computer where you open artdirection.io and connect
+holding its images. Then they're on every computer where you open melti.io and connect
 the same Google account. Nothing goes through anyone else's server: the app talks to Google
 straight from your browser, and it can only see the files it makes, not the rest of your Drive.
 
@@ -283,7 +283,7 @@ straight from your browser, and it can only see the files it makes, not the rest
 - Deleting a board here sends its Drive folder to Drive's bin (you can restore it for 30 days).
 - Fonts you uploaded stay on the computer you added them on.
 
-**Saving from your phone:** open **artdirection.io/#/add** (on iPhone: in Safari, then Share →
+**Saving from your phone:** open **melti.io/#/add** (on iPhone: in Safari, then Share →
 **Add to Home Screen**). Connect Google Drive once. Then, whenever you see something you like
 (Instagram, Pinterest, anywhere), save it or take a screenshot, open Art Direction, **Choose
 photos**, pick a board and save. The photos appear on that board on your computer, in view,
@@ -297,7 +297,7 @@ without downloading anything first.
 
 **Install (once, about a minute):**
 
-1. Download [reference-board-extension.zip](https://artdirection.io/reference-board-extension.zip) and unzip it.
+1. Download [reference-board-extension.zip](https://melti.io/reference-board-extension.zip) and unzip it.
 2. In Chrome, go to `chrome://extensions` and switch on **Developer mode** (top right).
 3. Click **Load unpacked** and choose the unzipped `reference-board-extension` folder.
 4. Optional: click the puzzle-piece icon in Chrome's toolbar and pin **Reference Board**.

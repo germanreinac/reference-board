@@ -1,21 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Reference Board",
-  "version": "1.2.0",
+  "name": "Melti",
+  "version": "1.2.1",
   "description": "Save any image, or a captured part of a web page, straight to one of your boards.",
   "permissions": ["contextMenus", "activeTab", "scripting", "tabs", "storage", "unlimitedStorage"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "Reference Board" },
+  "action": { "default_popup": "popup.html", "default_title": "Melti" },
   "commands": {
     "capture-area": {
       "suggested_key": { "default": "Alt+Shift+S" },
-      "description": "Capture part of this page to Reference Board"
+      "description": "Capture part of this page to Melti"
     }
   },
   "content_scripts": [
     {
-      "matches": ["https://artdirection.io/*", "https://www.artdirection.io/*", "https://germanreinac.github.io/reference-board/*", "http://localhost:8765/*"],
+      "matches": ["https://melti.io/*", "https://www.melti.io/*", "https://artdirection.io/*", "https://www.artdirection.io/*", "https://germanreinac.github.io/reference-board/*", "http://localhost:8765/*"],
       "js": ["bridge.js"],
       "run_at": "document_idle"
     }

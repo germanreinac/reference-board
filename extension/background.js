@@ -4,11 +4,11 @@
 //   - downloads images (an extension can download from any site, so nothing is blocked)
 //   - takes screenshots of the visible page and crops them to the box you drew
 //   - shows a small board picker on the page when you choose "Choose a board…"
-//   - hands everything to the Reference Board tab, opening it in the background if
+//   - hands everything to the Melti tab, opening it in the background if
 //     needed. While the app isn't open yet, images wait in the extension's own storage.
 
-const APP_URL = 'https://artdirection.io/';
-const APP_TABS = ['https://artdirection.io/*', 'https://www.artdirection.io/*', 'https://germanreinac.github.io/reference-board/*', 'http://localhost:8765/*'];
+const APP_URL = 'https://melti.io/';
+const APP_TABS = ['https://melti.io/*', 'https://www.melti.io/*', 'https://artdirection.io/*', 'https://www.artdirection.io/*', 'https://germanreinac.github.io/reference-board/*', 'http://localhost:8765/*'];
 const RECENT = 8;  // boards listed straight in the menu
 
 chrome.runtime.onInstalled.addListener(() => buildMenus());
@@ -46,7 +46,7 @@ function buildMenus() {
     menu({ id: 'save-pick', parentId: 'save', title: boards.length > RECENT ? `Choose a board… (all ${boards.length})` : 'Choose a board…', contexts: ['image'] });
     menu({ id: 'save-new', parentId: 'save', title: 'New board…', contexts: ['image'] });
     menu({ id: 'capture-area', title: 'Capture part of this page…', contexts: ['page', 'selection', 'link', 'image', 'video'] });
-  }).catch((err) => console.warn('Reference Board: menu', err));
+  }).catch((err) => console.warn('Melti: menu', err));
   return building;
 }
 
@@ -91,7 +91,7 @@ async function saveImage(url, tab, target) {
     if (!where) return;  // cancelled
     await deliver({ dataUrl, name: nameFromUrl(url), sourceUrl: tab?.url || url, ...where }, tab);
   } catch (err) {
-    console.warn('Reference Board: could not save image', err);
+    console.warn('Melti: could not save image', err);
     flash('!', '#d64545');
     note(tab, "Couldn't save that image", true);
   }
@@ -105,7 +105,7 @@ async function startAreaCapture(tab) {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture.js'] });
   } catch (err) {
     // Chrome's own pages (settings, the Web Store) can't be captured by extensions.
-    console.warn('Reference Board: this page cannot be captured', err);
+    console.warn('Melti: this page cannot be captured', err);
     flash('!', '#d64545');
   }
 }
@@ -131,7 +131,7 @@ async function captureArea(tab, rect, ratio) {
     const host = (() => { try { return new URL(tab.url).hostname; } catch { return 'page'; } })();
     await deliver({ dataUrl, name: `Capture from ${host}`, sourceUrl: tab.url || '', ...where }, tab);
   } catch (err) {
-    console.warn('Reference Board: capture failed', err);
+    console.warn('Melti: capture failed', err);
     flash('!', '#d64545');
   }
 }
@@ -153,7 +153,7 @@ async function pickBoard(tab, dataUrl, startNew) {
     return result || null;
   } catch (err) {
     // Pages that don't allow it (Chrome's own pages): the board you used last.
-    console.warn('Reference Board: picker unavailable here', err);
+    console.warn('Melti: picker unavailable here', err);
     return boards[0] ? { boardId: boards[0].id } : { boardId: null };
   }
 }
