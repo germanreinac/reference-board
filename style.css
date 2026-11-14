@@ -639,18 +639,19 @@ body[data-mode="board"] #home { display: none; }
 .brand {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   color: var(--text-strong);
 }
 .wordmark {
   font-family: "Space Grotesk", Inter, system-ui, sans-serif;
-  font-size: clamp(24px, 2.4vw, 36px);
-  font-weight: 500;
-  line-height: 0.95;
-  letter-spacing: -0.035em;
+  font-size: clamp(56px, 8vw, 128px);
+  font-weight: 700;
+  line-height: 0.85;
+  letter-spacing: -0.045em;
+  margin-left: -0.04em;   /* line the M's stem up with the text below */
 }
 .wordmark span { color: inherit; }
-.brand-sub { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--text); }
+.brand-sub { font-size: clamp(14px, 1.3vw, 20px); font-weight: 500; color: var(--text); }
 .home-header { align-items: flex-start; }
 
 .text-button {
@@ -2006,3 +2007,10 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff;
 }
 .board-card .cloud svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Narrow screens: the big name gets its own row, with the buttons underneath. */
+@media (max-width: 760px) {
+  .home-header { flex-direction: column; gap: 18px; }
+  .home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .home-actions .text-button { white-space: nowrap; }
+}

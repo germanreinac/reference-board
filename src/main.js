@@ -203,7 +203,7 @@ const nameInput = document.getElementById('board-name');
 function updateTitle() {
   const main = mainDoc?.meta;
   if (document.activeElement !== nameInput) nameInput.value = main?.name || '';
-  document.title = main ? `${main.name} – Melti` : 'Melti · Art direction boards';
+  document.title = main ? `${main.name} – Melti` : 'Melti · Your art direction tool';
   renderTabs();
 }
 
