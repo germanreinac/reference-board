@@ -203,7 +203,7 @@ const nameInput = document.getElementById('board-name');
 function updateTitle() {
   const main = mainDoc?.meta;
   if (document.activeElement !== nameInput) nameInput.value = main?.name || '';
-  document.title = main ? `${main.name} – artdirection.io` : 'artdirection.io · Reference Board';
+  document.title = main ? `${main.name} – Melti` : 'Melti · Art direction boards';
   renderTabs();
 }
 
@@ -2712,7 +2712,7 @@ async function backupAllBoards() {
       boards.push({ name: r.name, blob: await packBoard(full.board, (item) => store.loadImage(r.id, item.id), customFontBlob) });
     }
     const day = new Date().toISOString().slice(0, 10);
-    downloadBlob(await packBackup(boards), `Reference Board backup ${day}${BACKUP_EXT}`);
+    downloadBlob(await packBackup(boards), `Melti backup ${day}${BACKUP_EXT}`);
     try { localStorage.setItem(BACKUP_KEY, String(Date.now())); } catch {}
     toast(`Backed up ${records.length} board${records.length > 1 ? 's' : ''}. Keep the file somewhere safe, like Google Drive.`, 4000);
     showSafetyNote();
@@ -2766,7 +2766,7 @@ async function installApp() {
   if (outcome === 'accepted') { installPrompt = null; installButton.hidden = true; }
 }
 installButton.addEventListener('click', installApp);
-window.addEventListener('appinstalled', () => { installButton.hidden = true; askToKeepStorage(); toast('Installed. Reference Board now has its own window and icon.', 3000); });
+window.addEventListener('appinstalled', () => { installButton.hidden = true; askToKeepStorage(); toast('Installed. Melti now has its own window and icon.', 3000); });
 const isInstalled = () => matchMedia('(display-mode: standalone)').matches;
 
 // Once installed, double-clicking a .refboard file on your computer opens it here.

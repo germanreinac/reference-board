@@ -407,7 +407,7 @@ export async function sendPhoto(boardId, file) {
     const local = await store.getBoard(boardId);
     folderId = local?.drive?.folderId;
   }
-  if (!folderId) throw new Error('That board isn\'t in Drive yet. Open Art Direction on your computer once so it syncs.');
+  if (!folderId) throw new Error('That board isn\'t in Drive yet. Open Melti on your computer once so it syncs.');
   const name = safeName(file.name.replace(/\.[a-z0-9]+$/i, '')) || 'photo';
   await upload(file, { name: `${name}.${extOf(file.type)}`, parents: [folderId], appProperties: { refboard: 'incoming', name } });
 }
