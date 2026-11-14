@@ -644,7 +644,7 @@ body[data-mode="board"] #home { display: none; }
 }
 .wordmark {
   font-family: "Space Grotesk", Inter, system-ui, sans-serif;
-  font-size: clamp(56px, 8vw, 128px);
+  font-size: clamp(96px, 8vw, 128px);   /* (never so small that the line under it gets hard to read) */
   font-weight: 700;
   line-height: 0.85;
   letter-spacing: -0.045em;
@@ -652,7 +652,7 @@ body[data-mode="board"] #home { display: none; }
   width: fit-content;
 }
 .wordmark span { color: inherit; }
-/* The one-liner sits under the name in two lines, exactly as wide as the name (its size is
+/* The one-liner sits under the name on one line, exactly as wide as the name (its size is
    set to fit by fitBrand in main.js). */
 .brand { width: fit-content; }
 .brand-sub { font-size: 16px; font-weight: 500; line-height: 1.12; color: var(--text); white-space: nowrap; }
