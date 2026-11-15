@@ -4348,10 +4348,35 @@ panesEl.addEventListener('dblclick', (e) => {
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
   else if (hit?.kind === 'image' && hit.sketch) { board.selection = [hit]; editSketch(hit); }
   else if (hit?.kind === 'image') { board.selection = [hit]; editCaption(hit, pane); }
+  // Empty space: start writing there.
+  else if (!hit && toolbar.tool === 'select') addNoteAt(pane, w.x, w.y, 'text');
 });
 
 // Stop the middle button from starting Chrome's auto-scroll.
 panesEl.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
+
+// Mouse or trackpad? Chosen in the board menu (Scrolling), or worked out from the scroll
+// itself: a mouse wheel turns in whole clicks, straight up and down; a trackpad sends
+// small, smooth moves, often a little sideways. Once a trackpad is seen, the rest of
+// that swipe is treated the same.
+const SCROLL_KEY = 'refboard.scroll';   // 'mouse' | 'trackpad' | nothing (work it out)
+let scrollMode = null;
+try { scrollMode = localStorage.getItem(SCROLL_KEY); } catch {}
+let trackpadUntil = 0;
+function onTrackpad(e) {
+  if (scrollMode === 'mouse') return false;
+  if (scrollMode === 'trackpad') return true;
+  if (e.deltaMode !== 0) return false;
+  const now = performance.now();
+  const clicks = e.wheelDeltaY !== undefined && e.wheelDeltaY !== 0 && e.wheelDeltaY % 120 === 0 && e.deltaX === 0;
+  if (!clicks || now < trackpadUntil) { trackpadUntil = now + 400; return true; }
+  return false;
+}
+function setScrollMode(m) {
+  scrollMode = m;
+  try { if (m) localStorage.setItem(SCROLL_KEY, m); else localStorage.removeItem(SCROLL_KEY); } catch {}
+  toast(m === 'trackpad' ? 'Two fingers move the view, pinch zooms.' : m === 'mouse' ? 'The wheel zooms.' : 'Melti works out if you use a mouse or a trackpad.', 2500);
+}
 
 // Scroll wheel / trackpad: zoom the pane under the mouse, towards the mouse.
 panesEl.addEventListener('wheel', (e) => {
@@ -4360,6 +4385,14 @@ panesEl.addEventListener('wheel', (e) => {
   e.preventDefault();
   let delta = e.deltaY;
   if (e.deltaMode === 1) delta *= 16;   // some mice report "lines" instead of pixels
+  // On a trackpad, two fingers move the view and a pinch zooms (as in other board apps).
+  // A mouse wheel zooms.
+  if (!e.ctrlKey && !e.metaKey && onTrackpad(e)) {
+    pane.camera.panBy(-e.deltaX, -e.deltaY);
+    viewChanged();
+    requestRender();
+    return;
+  }
   // Trackpad pinch arrives as a wheel event with Ctrl held; it needs a stronger factor.
   const speed = e.ctrlKey ? 0.01 : 0.0015;
   const p = localPoint(pane, e);
@@ -4423,6 +4456,11 @@ function openMenu(x, y, pane) {
     { label: { light: 'Light mode', colour: 'Colour mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
     { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
+    { label: 'Scrolling', submenu: [
+      { label: `Work it out for me${scrollMode ? '' : ' ✓'}`, action: () => setScrollMode(null) },
+      { label: `Mouse: the wheel zooms${scrollMode === 'mouse' ? ' ✓' : ''}`, action: () => setScrollMode('mouse') },
+      { label: `Trackpad: two fingers move, pinch zooms${scrollMode === 'trackpad' ? ' ✓' : ''}`, action: () => setScrollMode('trackpad') },
+    ] },
     { label: drive.isConnected() ? 'Google Drive: connected ✓' : 'Connect Google Drive…', action: () => (drive.isConnected() ? driveMenu(x, y) : connectDrive()) },
     { label: motionOn() ? 'Liquid motion: on ✓' : 'Liquid motion: off', action: () => { setMotion(!motionOn()); toast(motionOn() ? 'Liquid motion on' : 'Liquid motion off: everything moves instantly', 1800); } },
     '-',
@@ -4736,6 +4774,21 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     nudge({ ArrowLeft: -1, ArrowRight: 1 }[e.key] || 0, { ArrowUp: -1, ArrowDown: 1 }[e.key] || 0, e.shiftKey);
     return;
+  }
+  // Zoom with the keyboard: + and − (with or without Ctrl/⌘), Ctrl/⌘+0 for 100%,
+  // Shift+1 to see everything, Shift+2 to see the selection.
+  if (!e.altKey && !e.target.closest?.('input, textarea, select')) {
+    const bp = targetBoardPane();
+    const zoomBy = (k) => { bp.camera.zoomAt(bp.rect.w / 2, bp.rect.h / 2, k); viewChanged(); requestRender(); };
+    const plus = e.code === 'Equal' || e.code === 'NumpadAdd', minus = e.code === 'Minus' || e.code === 'NumpadSubtract';
+    if (bp && (plus || minus) && !(e.shiftKey && minus)) { e.preventDefault(); zoomBy(plus ? 1.25 : 0.8); return; }
+    if (bp && mod && (e.code === 'Digit0' || e.code === 'Numpad0')) { e.preventDefault(); zoomBy(1 / bp.camera.zoom); return; }
+    if (bp && !mod && e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) {
+      e.preventDefault();
+      fitPane(bp, e.code === 'Digit2' && board.selection.length ? board.selection : null);
+      requestRender();
+      return;
+    }
   }
   if (mod && e.code === 'KeyA') { e.preventDefault(); board.selection = [...board.items, ...board.notes, ...board.shapes].filter((x) => !x.locked); requestRender(); return; }
 
