@@ -129,6 +129,7 @@ function setMode(m) {
 // whenever something changes. Several requests in the same frame become one.
 let renderQueued = false;
 function requestRender() {
+  mapSoon();
   if (renderQueued) return;
   renderQueued = true;
   requestAnimationFrame(() => {
@@ -1588,11 +1589,9 @@ const storyboards = new Storyboards({
 
 const EXPORT_LONG = 3508;   // pixels on the longest side of a page (A4 at 300 dpi)
 
-async function framePicture(f) {
-  const bounds = { x: f.sprite.x - f.w / 2, y: f.sprite.y - f.h / 2, width: f.w, height: f.h };
-  const k = EXPORT_LONG / Math.max(f.w, f.h);
-  const W = Math.round(f.w * k), H = Math.round(f.h * k);
-  // Sharpen the images inside first, to the size they'll be drawn at.
+// Sharpen the images inside a part of the board, to the size they'll be drawn at
+// (k = picture pixels per board unit).
+async function sharpenInside(bounds, k, board = activeDoc.board) {
   const inside = board.items.filter((it) => {
     const s = it.sprite;
     return s.x > bounds.x && s.x < bounds.x + bounds.width && s.y > bounds.y && s.y < bounds.y + bounds.height;
@@ -1608,6 +1607,13 @@ async function framePicture(f) {
       if (old !== it.preview) old?.close?.();
     } catch {}
   });
+}
+
+async function framePicture(f) {
+  const bounds = { x: f.sprite.x - f.w / 2, y: f.sprite.y - f.h / 2, width: f.w, height: f.h };
+  const k = EXPORT_LONG / Math.max(f.w, f.h);
+  const W = Math.round(f.w * k), H = Math.round(f.h * k);
+  await sharpenInside(bounds, k, board);
   const bg = f.fill ? parseInt(f.fill.slice(1), 16) : parseInt(themeColours().board.slice(1), 16);
   const canvas = viewports.renderRegion(board, bounds, W, H, bg);
   detailSoon();   // back to the usual sizes afterwards
@@ -2036,11 +2042,30 @@ async function updateDetail() {
 // ---------- Opening and closing boards ----------
 
 // Put a saved board on screen. `getBlob(item)` fetches each image's file.
+// A small "Opening… 120 of 1,000 images" pill, for boards that take a moment.
+// It only appears if opening takes longer than a blink.
+const progressEl = Object.assign(document.createElement('div'), { id: 'load-progress', hidden: true });
+progressEl.innerHTML = '<span></span><i><b></b></i>';
+document.body.appendChild(progressEl);
+let progressStart = 0, progressShown = 0;
+function showProgress(done, total) {
+  const now = performance.now();
+  if (!progressStart) progressStart = now;
+  if (now - progressStart < 350 || now - progressShown < 80) return;   // quick boards never show it
+  progressShown = now;
+  progressEl.hidden = false;
+  progressEl.firstChild.textContent = `Opening… ${done.toLocaleString()} of ${total.toLocaleString()} images`;
+  progressEl.querySelector('b').style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
+}
+function hideProgress() { progressStart = 0; progressEl.hidden = true; }
+
 async function loadBoard(data, getBlob, board, { withLayout = true, boardId = null, previews = null } = {}) {
   loading = true;
+  let opened = 0;
   try {
     board.clear();
     const items = data?.items || [];
+    showProgress(0, items.length);
     const blobs = await Promise.all(items.map((item) => Promise.resolve(getBlob(item)).catch(() => null)));
     // Images open from their saved previews (quick), and the ones on screen sharpen right
     // after (see updateDetail). The first time, each big image is read once to make its
@@ -2048,6 +2073,7 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     let fullPixels = 0;
     const pictures = new Array(items.length).fill(null);
     await inParallel(items.map((_, i) => i), 8, async (i) => {
+      showProgress(opened++, items.length);
       const blob = blobs[i];
       if (!blob) return;
       const saved = previews ? previews.get(String(items[i].id)) : boardId ? await store.loadPreview(boardId, items[i].id).catch(() => null) : null;
@@ -2102,6 +2128,7 @@ async function loadBoard(data, getBlob, board, { withLayout = true, boardId = nu
     if (missing) toast(`${missing} image${missing > 1 ? 's' : ''} couldn't be loaded.`);
   } finally {
     loading = false;
+    hideProgress();
   }
 }
 
@@ -2865,6 +2892,7 @@ function layoutsMenu(button) {
     } },
     ...(mine.length ? [{ label: 'Remove a favourite', submenu: mine.map((l) => ({ label: l.name, action: () => { storeLayouts(savedLayouts().filter((x) => x.name !== l.name)); toast(`Removed "${l.name}".`, 2000); } })) }] : []),
     '-',
+    { label: 'Float this view (stays on top)', action: () => floatView() },
     { label: 'New boards start with', submenu: all.map(([label, shape]) => ({
       label: label + (sameShape(shape, start || P) ? ' ✓' : ''),
       action: () => {
@@ -2875,6 +2903,237 @@ function layoutsMenu(button) {
   ]);
 }
 document.getElementById('layouts-button').addEventListener('click', (e) => layoutsMenu(e.currentTarget));
+
+// ---------- Map of the board ----------
+//
+// A small overview in the corner: everything on the board as little blocks, and a box
+// for what you're looking at. Click or drag in it to go there; the frames are listed
+// underneath to jump to. Drawn with plain rectangles a few times a second, only while open.
+
+var mapPanel = null, mapTimer = 0;
+const mapPane = () => (activePane && boardPanes().includes(activePane) ? activePane : boardPanes()[0]);
+function mapSoon() {
+  if (!mapPanel || mapTimer) return;
+  mapTimer = setTimeout(() => { mapTimer = 0; drawMap(); }, 120);
+}
+function toggleMap() {
+  if (mapPanel) { mapPanel.remove(); mapPanel = null; document.getElementById('map-button').classList.remove('on'); return; }
+  mapPanel = document.createElement('div');
+  mapPanel.id = 'map-panel';
+  mapPanel.innerHTML = '<canvas width="440" height="300"></canvas><div class="map-frames"></div>';
+  document.body.appendChild(mapPanel);
+  document.getElementById('map-button').classList.add('on');
+  const cv = mapPanel.querySelector('canvas');
+  const go = (e) => {
+    const pane = mapPane(), t = mapPanel.t;
+    if (!pane || !t) return;
+    const r = cv.getBoundingClientRect();
+    const wx = ((e.clientX - r.left) * (cv.width / r.width) - t.ox) / t.k, wy = ((e.clientY - r.top) * (cv.height / r.height) - t.oy) / t.k;
+    pane.camera.x = pane.rect.w / 2 - wx * pane.camera.zoom;
+    pane.camera.y = pane.rect.h / 2 - wy * pane.camera.zoom;
+    viewChanged();
+    requestRender();
+  };
+  cv.addEventListener('pointerdown', (e) => { e.stopPropagation(); cv.setPointerCapture(e.pointerId); mapPanel.held = true; go(e); });
+  cv.addEventListener('pointermove', (e) => { if (mapPanel?.held) go(e); });
+  cv.addEventListener('pointerup', () => { if (mapPanel) mapPanel.held = false; });
+  mapPanel.addEventListener('pointerdown', (e) => e.stopPropagation());
+  mapPanel.addEventListener('wheel', (e) => e.stopPropagation());
+  drawMap();
+}
+function drawMap() {
+  if (!mapPanel) return;
+  if (mode !== 'board') { mapPanel.hidden = true; return; }
+  mapPanel.hidden = false;
+  const cv = mapPanel.querySelector('canvas'), g = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  const pane = mapPane();
+  if (!pane) return;
+  const b = docOfPane(pane)?.board || board;
+  const cam = pane.camera;
+  const view = { x: -cam.x / cam.zoom, y: -cam.y / cam.zoom, width: pane.rect.w / cam.zoom, height: pane.rect.h / cam.zoom };
+  // The map shows everything on the board. (If you're far away from it all, the view box sits at the edge.)
+  const all = b.bounds(null) || view;
+  const k = Math.min((W - 24) / all.width, (H - 24) / all.height);
+  const ox = W / 2 - (all.x + all.width / 2) * k, oy = H / 2 - (all.y + all.height / 2) * k;
+  mapPanel.t = { k, ox, oy };
+  const css = getComputedStyle(document.body);
+  const text = css.getPropertyValue('--text-strong').trim() || '#ccc', accent = css.getPropertyValue('--accent').trim() || '#4da3ff';
+  const box = (x) => { const r = b.bounds([x]); return r && [r.x * k + ox, r.y * k + oy, Math.max(2, r.width * k), Math.max(2, r.height * k)]; };
+  g.lineWidth = 2;
+  g.strokeStyle = text; g.globalAlpha = 0.45;
+  for (const f of b.frames) { const r = box(f); if (r) g.strokeRect(...r); }
+  g.fillStyle = text; g.globalAlpha = 0.5;
+  for (const it of b.items) { const r = box(it); if (r) g.fillRect(...r); }
+  g.fillStyle = '#e9c46a'; g.globalAlpha = 0.8;
+  for (const n of b.notes) { const r = box(n); if (r) g.fillRect(...r); }
+  // What you're looking at.
+  g.globalAlpha = 1; g.strokeStyle = accent; g.lineWidth = 3;
+  const vx = Math.max(2, Math.min(W - 2, view.x * k + ox)), vy = Math.max(2, Math.min(H - 2, view.y * k + oy));
+  const vx1 = Math.max(2, Math.min(W - 2, (view.x + view.width) * k + ox)), vy1 = Math.max(2, Math.min(H - 2, (view.y + view.height) * k + oy));
+  g.strokeRect(vx, vy, Math.max(4, vx1 - vx), Math.max(4, vy1 - vy));
+  g.fillStyle = accent; g.globalAlpha = 0.12;
+  g.fillRect(vx, vy, Math.max(4, vx1 - vx), Math.max(4, vy1 - vy));
+  g.globalAlpha = 1;
+  // The frames, to jump to (rebuilt only when they change).
+  const frames = b.frames.filter((f) => f.name);
+  const key = frames.map((f) => `${f.id}:${f.name}`).join('|');
+  if (key !== mapPanel.frameKey) {
+    mapPanel.frameKey = key;
+    const list = mapPanel.querySelector('.map-frames');
+    list.replaceChildren(...frames.map((f) => {
+      const btn = document.createElement('button');
+      btn.textContent = f.name;
+      btn.title = `Go to "${f.name}"`;
+      btn.addEventListener('click', () => {
+        const p = mapPane();
+        if (!p) return;
+        p.camera.frame({ x: f.sprite.x - f.w / 2, y: f.sprite.y - f.h / 2, width: f.w, height: f.h }, p.rect.w, p.rect.h, 60);
+        viewChanged();
+        requestRender();
+      });
+      return btn;
+    }));
+    list.hidden = !frames.length;
+  }
+}
+document.getElementById('map-button').addEventListener('click', toggleMap);
+
+// ---------- A floating view that stays on top ----------
+//
+// A small window with a view of the board that stays above your other apps (while you
+// paint in another program, say). Scroll to zoom, drag to move, double-click to see
+// everything. It's a picture of the board, redrawn only when you move it, so it costs
+// nothing while it just sits there.
+
+let floatWin = null;
+async function floatView(pane) {
+  if (!('documentPictureInPicture' in window)) { toast('A floating window needs Chrome or Edge on a computer.'); return; }
+  pane = pane?.type === 'board' ? pane : mapPane();
+  if (!pane) return;
+  const b = docOfPane(pane)?.board || board;
+  const width = 480, height = Math.round(Math.min(640, Math.max(240, (480 * pane.rect.h) / pane.rect.w)));
+  let w;
+  try { floatWin?.close(); w = await window.documentPictureInPicture.requestWindow({ width, height }); } catch { return; }
+  floatWin = w;
+  const bg = themeColours().board;
+  w.document.title = `${current?.name || 'Board'} · Melti`;
+  w.document.body.style.cssText = `margin:0;overflow:hidden;background:${bg};cursor:grab;touch-action:none;font:12px system-ui,sans-serif`;
+  const cv = w.document.createElement('canvas');
+  cv.style.cssText = 'display:block;width:100vw;height:100vh';
+  const hint = w.document.createElement('div');
+  hint.textContent = 'Scroll to zoom · drag to move · double-click to see everything';
+  hint.style.cssText = 'position:fixed;left:0;right:0;bottom:8px;text-align:center;color:#fff;text-shadow:0 1px 3px #000;opacity:.85;transition:opacity .6s;pointer-events:none';
+  w.document.body.append(cv, hint);
+  setTimeout(() => { hint.style.opacity = '0'; }, 4000);
+  // The view: its middle on the board, and its zoom (window pixels per board unit).
+  const c = pane.centre();
+  const v = { cx: c.x, cy: c.y, z: (w.innerWidth || width) / (pane.rect.w / pane.camera.zoom) };
+  let queued = false, sharpTimer = 0;
+  const size = () => ({ W: Math.max(50, w.innerWidth), H: Math.max(50, w.innerHeight), dpr: Math.min(2, w.devicePixelRatio || 1) });
+  const boundsNow = () => { const { W, H } = size(); return { x: v.cx - W / 2 / v.z, y: v.cy - H / 2 / v.z, width: W / v.z, height: H / v.z }; };
+  const paint = () => {
+    queued = false;
+    if (w.closed) return;
+    try {
+      const { W, H, dpr } = size();
+      const pic = viewports.renderRegion(b, boundsNow(), Math.round(W * dpr), Math.round(H * dpr), parseInt(bg.slice(1), 16));
+      cv.width = pic.width; cv.height = pic.height;
+      cv.getContext('2d').drawImage(pic, 0, 0);
+      requestRender();
+    } catch { w.close(); }
+  };
+  const draw = () => {
+    if (!queued) { queued = true; w.requestAnimationFrame(paint); }
+    // Once you stop moving, sharpen the images in view and draw once more.
+    clearTimeout(sharpTimer);
+    sharpTimer = setTimeout(async () => {
+      if (w.closed) return;
+      try { await sharpenInside(boundsNow(), v.z * size().dpr, b); } catch {}
+      if (!queued) { queued = true; w.requestAnimationFrame(paint); }
+      detailSoon();
+    }, 350);
+  };
+  w.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const { W, H } = size();
+    const px = e.clientX - W / 2, py = e.clientY - H / 2;
+    const wx = v.cx + px / v.z, wy = v.cy + py / v.z;
+    v.z = Math.min(64, Math.max(0.005, v.z * Math.exp(-(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) * (e.ctrlKey ? 0.01 : 0.0015))));
+    v.cx = wx - px / v.z; v.cy = wy - py / v.z;
+    draw();
+  }, { passive: false });
+  let held = null;
+  w.addEventListener('pointerdown', (e) => { held = { x: e.clientX, y: e.clientY }; w.document.body.style.cursor = 'grabbing'; });
+  w.addEventListener('pointermove', (e) => {
+    if (!held) return;
+    v.cx -= (e.clientX - held.x) / v.z; v.cy -= (e.clientY - held.y) / v.z;
+    held = { x: e.clientX, y: e.clientY };
+    draw();
+  });
+  w.addEventListener('pointerup', () => { held = null; w.document.body.style.cursor = 'grab'; });
+  w.addEventListener('dblclick', () => {
+    const all = b.bounds(null);
+    if (!all) return;
+    const { W, H } = size();
+    v.z = Math.min(W / all.width, H / all.height) * 0.94;
+    v.cx = all.x + all.width / 2; v.cy = all.y + all.height / 2;
+    draw();
+  });
+  w.addEventListener('resize', draw);
+  w.addEventListener('pagehide', () => { clearTimeout(sharpTimer); if (floatWin === w) floatWin = null; });
+  draw();
+}
+
+// ---------- Touch: fingers on a tablet or phone ----------
+//
+// One finger works like the mouse (on empty space it moves the view). Two fingers move
+// and pinch-zoom the view, whatever tool is chosen.
+
+{
+  const fingers = new Map();
+  let pinch = null;
+  const spread = () => {
+    const [a, b] = [...fingers.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+  };
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !panesEl.contains(e.target) || mode !== 'board') return;
+    const pane = viewports.paneAt(e.clientX, e.clientY);
+    if (pane?.type !== 'board') return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size < 2) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (fingers.size === 2) {
+      // A second finger: whatever the first one started is put down.
+      const was = drag?.kind;
+      if (drag) endDrag();
+      if (was === 'draw') undo();
+      board.marquee = null;
+      pinch = { pane, ...spread() };
+    }
+  }, true);
+  window.addEventListener('pointermove', (e) => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pinch || fingers.size < 2) return;
+    e.stopImmediatePropagation();
+    const now = spread(), cam = pinch.pane.camera, r = pinch.pane.rect;
+    cam.panBy(now.x - pinch.x, now.y - pinch.y);
+    cam.zoomAt(now.x - r.x, now.y - r.y, now.d / pinch.d);
+    Object.assign(pinch, now);
+    viewChanged();
+    requestRender();
+  }, true);
+  const lift = (e) => {
+    if (!fingers.delete(e.pointerId)) return;
+    if (pinch) { e.stopImmediatePropagation(); if (fingers.size < 2) pinch = fingers.size ? pinch : null; }
+  };
+  window.addEventListener('pointerup', lift, true);
+  window.addEventListener('pointercancel', lift, true);
+}
 
 // ---------- Home screen ----------
 
@@ -3006,17 +3265,22 @@ updateThemeButtons();
 
 const HELP = [
   ['Getting around', [
-    ['Zoom', 'Scroll'], ['Pan', 'Drag empty space, middle mouse, or Space + drag'], ['Fit everything (or the selection)', 'F'], ['Actual size', '1'],
+    ['Zoom', 'Scroll, pinch, or + / −'], ['Move around', 'Space + drag, middle mouse, the Hand (H), or two fingers on a trackpad'],
+    ['See everything / the selection', 'Shift + 1 / Shift + 2 (or F)'], ['Actual size', '1 or Ctrl/⌘ + 0'],
+    ['Map of the board', 'Map button, top right'], ['Split views and favourites', 'Layouts button, top right'],
+    ['Floating window that stays on top', 'Layouts button → Float this view'],
   ]],
   ['Adding', [
     ['Images', 'Drop them in, or paste with Ctrl/⌘ + V'], ['From any website', 'Right-click → Save image to board (browser extension)'],
-    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'],
+    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'], ['Write text', 'Double-click empty space'],
   ]],
   ['Tools', [
     ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
+    ['Advanced drawing (over the selected image, or a new canvas)', 'D'], ['Storyboard', 'Clapperboard button'], ['Palettes', 'Palette button'],
+    ['Brush size', '[ and ]'],
   ]],
   ['Selection', [
-    ['Select several', 'Shift-click, or Shift-drag a box'], ['Select all', 'Ctrl/⌘ + A'], ['Duplicate / copy', 'Ctrl/⌘ + D / C'],
+    ['Select several', 'Drag a box on empty space, or Shift-click'], ['Select all', 'Ctrl/⌘ + A'], ['Duplicate / copy', 'Ctrl/⌘ + D / C'],
     ['Group / ungroup', 'Ctrl/⌘ + G / Shift + G'], ['Nudge', 'Arrow keys (Shift: more)'], ['Delete', 'Delete'],
     ['Star a favourite / focus on stars', 'M / Shift + M'], ['Caption', 'Enter, or double-click an image'], ['Lock', 'L'],
   ]],
@@ -3769,7 +4033,23 @@ const SEL_ACTIONS = [
   ['duplicate', 'Duplicate (Ctrl/⌘+D)', duplicateSelection],
   ['delete', 'Delete (Del)', removeSelected],
 ];
+// Less-used actions live under the ⋯ button, so the bar stays short.
+const SEL_MORE = { lock: 'Lock', flipY: 'Flip upside down', grey: 'Greyscale on / off', colours: 'Extract colours as a palette', script: 'Colour script of these shots', frame: 'Put a frame around' };
 for (const [id, title, action] of SEL_ACTIONS) {
+  if (id === 'duplicate') {
+    const more = document.createElement('button');
+    more.dataset.action = 'more';
+    more.title = 'More';
+    more.innerHTML = '<svg viewBox="0 0 16 16"><circle cx="3.500" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="12.500" cy="8" r="1" fill="currentColor"/></svg>';
+    more.addEventListener('pointerdown', (e) => e.stopPropagation());
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const r = more.getBoundingClientRect();
+      const sel = board.selection;
+      showMenu(r.left, r.bottom + 6, SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })));
+    });
+    selectionBar.appendChild(more);
+  }
   const b = document.createElement('button');
   b.dataset.action = id;
   b.title = title;
@@ -4004,7 +4284,7 @@ function placeSelectionBar() {
   const show = mode === 'board' && sel.length > 0 && !drag && !cropping && pane && !noteEditor.editing;
   selectionBar.hidden = !show;
   if (!show) return;
-  for (const [id, , , when] of SEL_ACTIONS) selectionBar.querySelector(`[data-action="${id}"]`).hidden = when ? !when(sel) : false;
+  for (const [id, , , when] of SEL_ACTIONS) selectionBar.querySelector(`[data-action="${id}"]`).hidden = !!SEL_MORE[id] || (when ? !when(sel) : false);
   selectionBar.querySelector('[data-action="star"]').classList.toggle('on', sel.some((x) => x.kind === 'image') && sel.filter((x) => x.kind === 'image').every((x) => x.star));
   // Just above the top of the selection, kept inside the pane.
   const b = board.bounds(sel);
@@ -4210,9 +4490,14 @@ panesEl.addEventListener('pointerdown', (e) => {
       }
       drag = { kind: 'move', pane, items, before: items.map(stateOf), start: w, moved: false };
     } else {
-      // Clicked empty space: deselect and pan.
+      // Empty space: deselect, and dragging draws a selection box (as in other board
+      // apps). The view moves with Space + drag, the middle button, the Hand or a trackpad.
       board.selected = null;
-      drag = { kind: 'pan', pane };
+      if (e.pointerType === 'touch') drag = { kind: 'pan', pane };   // a finger moves the view
+      else {
+        board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
+        drag = { kind: 'marquee', pane, base: [] };
+      }
     }
   }
   activePane = pane;
@@ -4292,6 +4577,7 @@ function endDrag() {
     recordChange(rest, d.before.filter((st) => rest.some((x) => x.kind === st.kind && x.id === st.id)));
   } else if (d.kind === 'marquee') {
     board.marquee = null;
+    requestRender();
   } else if (d.kind === 'crop') {
     const m = board.marquee;
     board.marquee = null;
@@ -4448,6 +4734,8 @@ function openMenu(x, y, pane) {
     { label: 'New storyboard…', action: () => { board.selection = []; storyboardDialog(); } },
     ...(board.storyboards.length ? [{ label: 'Storyboards', submenu: board.storyboards.map((sb) => ({ label: sb.name, action: () => { storyboards.edit(sb); storyboards.api.focus(storyboards.bounds(sb)); } })) }] : []),
     { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
+    { label: 'Map of the board', action: toggleMap },
+    { label: 'Float this view (stays on top)', action: () => floatView(pane) },
     { label: 'Capture screen…', action: captureScreen },
     { label: 'Lock everything', action: () => setLocked('all', true) },
     { label: 'Unlock everything', action: () => setLocked('all', false) },

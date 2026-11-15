@@ -574,7 +574,7 @@ body[data-mode="board"] #home { display: none; }
   background: var(--input);
 }
 
-#home-button, #board-menu-button, #bar-theme-button, #present-button, #layouts-button {
+#home-button, #board-menu-button, #bar-theme-button, #present-button, #layouts-button, #map-button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -586,7 +586,7 @@ body[data-mode="board"] #home { display: none; }
   font-size: 12px;
   cursor: pointer;
 }
-#home-button:hover, #board-menu-button:hover, #bar-theme-button:hover, #present-button:hover, #layouts-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
+#home-button:hover, #board-menu-button:hover, #bar-theme-button:hover, #present-button:hover, #layouts-button:hover, #map-button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-strong); }
 #home-button svg, #board-menu-button svg, #present-button svg, .brand svg, .board-card.new svg, .board-card .more svg {
   width: 16px;
   height: 16px;
@@ -1072,7 +1072,7 @@ body.drag-over::after {
 .home-version { margin-top: 10px; font-size: 11px; opacity: 0.5; }
 
 /* Light/dark switch in the top bar: shows the sun in dark mode, the moon in light mode */
-#layouts-button svg, #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+#map-button svg, #layouts-button svg, #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
 
 /* Folded toolbar: a single, clear "show" button */
 #toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
@@ -1208,6 +1208,7 @@ body.presenting .pane-edges { display: none; }
 body[data-tone="light"] #present-button:hover,
 body[data-tone="light"] #home-button:hover,
 body[data-tone="light"] #board-menu-button:hover,
+body[data-tone="light"] #map-button:hover,
 body[data-tone="light"] #layouts-button:hover,
 body[data-tone="light"] #bar-theme-button:hover { background: rgba(0, 0, 0, 0.06); }
 
@@ -2019,4 +2020,44 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   .home-header { flex-direction: column; gap: 18px; }
   .home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .home-actions .text-button { white-space: nowrap; }
+}
+
+/* Opening a big board: a small progress pill */
+#load-progress {
+  position: fixed; left: 50%; top: 50%; z-index: 30; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; gap: 8px; min-width: 240px;
+  padding: 12px 16px; border-radius: var(--radius-l);
+  background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-strong);
+  font-size: 13px; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+#load-progress[hidden] { display: none; }
+#load-progress i { display: block; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+#load-progress b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+
+/* Map of the board */
+#map-button.on { color: var(--accent); }
+#map-panel {
+  position: fixed; right: 12px; bottom: 30px; z-index: 6; width: 220px;
+  padding: 6px; border-radius: var(--radius-l);
+  background: var(--overlay); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(8px);
+}
+#map-panel[hidden] { display: none; }
+#map-panel canvas { display: block; width: 100%; height: 150px; border-radius: var(--radius-s); cursor: pointer; touch-action: none; }
+.map-frames { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-height: 84px; overflow: auto; }
+.map-frames[hidden] { display: none; }
+.map-frames button {
+  max-width: 100%; padding: 2px 8px; border: 0; border-radius: var(--radius-s);
+  background: var(--card); color: var(--text-strong); font-size: 11px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.map-frames button:hover { color: var(--accent); }
+body.presenting #map-panel { display: none; }
+
+/* Narrow screens (phones): the drawing toolbar wraps onto two rows instead of running off the side */
+@media (max-width: 560px) {
+  #toolbar { flex-wrap: wrap; justify-content: center; row-gap: 2px; left: 8px; right: 8px; transform: none; max-width: none; }
+  #toolbar > .tool-sep, #toolbar > .sep { display: none; }
+  #map-panel { bottom: 110px; width: 170px; }
+  #map-panel canvas { height: 116px; }
 }

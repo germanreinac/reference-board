@@ -20,7 +20,7 @@
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=b325569b2f",
+    "./src/main.js": "./src/main.js?v=44f865a75e",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -36,7 +36,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=ae33a12320",
     "./src/theme.js": "./src/theme.js?v=9764224160",
     "./src/tools.js": "./src/tools.js?v=cb381455f1",
-    "./src/version.js": "./src/version.js?v=5b22edd8fe",
+    "./src/version.js": "./src/version.js?v=2daa060515",
     "./src/viewports.js": "./src/viewports.js?v=24b175da35",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -54,7 +54,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#1b1b1d">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=d1d7deae18">
+  <link rel="stylesheet" href="style.css?v=bd4f0de7ce">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -162,6 +162,9 @@
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>
       <span class="count"></span>
     </button>
+    <button id="map-button" title="Map of the board: see everything and jump around">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><rect x="8.500" y="8" width="4.500" height="4" rx="0.500"/></svg>
+    </button>
     <button id="layouts-button" title="Layouts: split views to pick from, and your saved favourites">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><path d="M8 2.500v11M8 8h6.500"/></svg>
     </button>
@@ -192,12 +195,12 @@
   <!-- Shown only while the board is empty -->
   <div id="empty-hint">
     <p><strong>Drop images here</strong> or paste with <kbd class="mod-key">Ctrl</kbd> + <kbd>V</kbd></p>
-    <p class="small">Scroll to zoom · drag to move around · <kbd>Shift</kbd> + drag to select several · double-click to write · <kbd>?</kbd> for all shortcuts</p>
+    <p class="small">Scroll to zoom · <kbd>Space</kbd> + drag to move around · double-click to write · <kbd>?</kbd> for all shortcuts</p>
   </div>
 
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=b325569b2f"></script>
+  <script type="module" src="src/main.js?v=44f865a75e"></script>
 </body>
 </html>
