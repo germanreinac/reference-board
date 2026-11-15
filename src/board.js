@@ -80,7 +80,7 @@ export class Board {
     this.strokes = [];     // pen strokes
     this.notes = [];       // text notes, back to front
     this.shapes = [];      // shapes, back to front
-    this.frames = [];      // frames, in the order they're presented
+    this.frames = [];      // frames, in the order they were made
     this.ink = 0xffffff;   // the colour frame outlines and titles are drawn in (changes with the theme)
     this.palettes = [];    // colour sets kept with the board: [{ id, name, colours: ['#rrggbb'…] }]
     this.storyboards = []; // storyboards (src/storyboard.js); their pages and texts are drawn from these

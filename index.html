@@ -8,7 +8,7 @@
 {
   "imports": {
     "./src/ai-pose.js": "./src/ai-pose.js?v=56ec6eaecf",
-    "./src/board.js": "./src/board.js?v=8564c92995",
+    "./src/board.js": "./src/board.js?v=84f4d2af94",
     "./src/camera.js": "./src/camera.js?v=1a9d003b41",
     "./src/colour-match.js": "./src/colour-match.js?v=606d6ed8b2",
     "./src/compare.js": "./src/compare.js?v=9b24dca94d",
@@ -20,7 +20,7 @@
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=44f865a75e",
+    "./src/main.js": "./src/main.js?v=aca74520de",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -35,8 +35,8 @@
     "./src/storage.js": "./src/storage.js?v=ec0cc2d830",
     "./src/storyboard.js": "./src/storyboard.js?v=ae33a12320",
     "./src/theme.js": "./src/theme.js?v=9764224160",
-    "./src/tools.js": "./src/tools.js?v=cb381455f1",
-    "./src/version.js": "./src/version.js?v=2daa060515",
+    "./src/tools.js": "./src/tools.js?v=42304c6945",
+    "./src/version.js": "./src/version.js?v=363691caa8",
     "./src/viewports.js": "./src/viewports.js?v=24b175da35",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -54,7 +54,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#1b1b1d">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=bd4f0de7ce">
+  <link rel="stylesheet" href="style.css?v=8085e69b25">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -168,10 +168,6 @@
     <button id="layouts-button" title="Layouts: split views to pick from, and your saved favourites">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><path d="M8 2.500v11M8 8h6.500"/></svg>
     </button>
-    <button id="present-button" title="Present: show each frame full screen, like slides (Ctrl+Enter)">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z"/></svg>
-      <span>Present</span>
-    </button>
     <button id="bar-theme-button" class="theme-cycle" title="Switch the look">
       <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 10.2A5.5 5.5 0 015.8 2.8a5.5 5.5 0 107.4 7.4z"/></svg><svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg><svg class="icon-colour" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8c-3 0-5.3 2.2-5.3 5 0 3.4 3 6.9 5.3 7.4 2.3-.5 5.3-4 5.3-7.4 0-2.8-2.3-5-5.3-5z"/><path class="eye" d="M4.6 7.4c.6-.2 2 .1 2.5 1.2-.7.4-2.1.2-2.5-1.2zM11.4 7.4c-.6-.2-2 .1-2.5 1.2.7.4 2.1.2 2.5-1.2z"/></svg>
     </button>
@@ -201,6 +197,6 @@
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=44f865a75e"></script>
+  <script type="module" src="src/main.js?v=aca74520de"></script>
 </body>
 </html>

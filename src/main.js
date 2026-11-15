@@ -623,7 +623,7 @@ function frameSelection() {
   board.selected = f;
   contentChanged();
   requestRender();
-  toast('Frame added. Double-click its name to rename it. Frames are the slides of Present mode.', 3200);
+  toast('Frame added. Double-click its name to rename it.', 3200);
 }
 
 // Rename a frame: a text box over its name.
@@ -1127,6 +1127,25 @@ function updateStarButton() {
   starButton.title = `Starred images${n ? ` (${n})` : ''}. Shift+M: focus on them`;
 }
 
+// A new board with a copy of the starred images, laid out in tidy rows. The board you
+// were on stays as it is. (Images you drew over arrive as one flat picture.)
+async function boardFromStarred() {
+  const starred = [...board.starred];
+  if (!starred.length) { toast('Nothing is starred yet: select images and press M.', 2400); return; }
+  const things = starred.map((it) => { const t = thingData(it); delete t.data.star; delete t.data.sketch; delete t.data.group; return t; });
+  const box = board.bounds(starred);
+  const id = await createBoard({ name: `${current?.name || 'Board'} favourites`, group: current?.group || '' });
+  await openBoardNow(id);
+  await pasteThings({ things, box }, { x: 0, y: 0 });
+  arrangeSelection();
+  history.clear?.();
+  board.selected = null;
+  fitPane(null, null);
+  contentChanged();
+  requestRender();
+  toast(`New board with your ${things.length} starred image${things.length > 1 ? 's' : ''}.`, 3000);
+}
+
 // The list of starred images, under the ★ button.
 let starPanel = null;
 function closeStarPanel() {
@@ -1147,6 +1166,7 @@ function openStarPanel() {
     <div class="star-actions">
       <button data-a="focus" class="${board.focus ? 'on' : ''}">Focus on starred</button>
       <button data-a="select" ${list.length ? '' : 'disabled'}>Select them</button>
+      <button data-a="board" ${list.length ? '' : 'disabled'} title="Start a new board with a copy of your starred images">New board from these</button>
     </div>
     <div class="star-grid"></div>
     ${list.length ? '' : '<p class="star-empty">Nothing starred yet. Select images and press <kbd>M</kbd> or ★ in the bar above them.</p>'}`;
@@ -1162,6 +1182,7 @@ function openStarPanel() {
   }
   el.querySelector('[data-a="focus"]').addEventListener('click', (e) => { setFocus(!board.focus); e.currentTarget.classList.toggle('on', board.focus); });
   el.querySelector('[data-a="select"]').addEventListener('click', () => { board.selection = [...board.starred]; requestRender(); closeStarPanel(); });
+  el.querySelector('[data-a="board"]').addEventListener('click', () => { closeStarPanel(); boardFromStarred(); });
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   document.body.appendChild(el);
   const r = starButton.getBoundingClientRect();
@@ -3286,7 +3307,7 @@ const HELP = [
   ]],
   ['Panes and boards', [
     ['Split side by side / top and bottom', 'Alt + V / H'], ['Close pane', 'Alt + W'], ['Maximize pane', 'Ctrl + Space'],
-    ['Move several dividers', 'Drag where they meet'], ['Switch board tab', 'Alt + 1…9'], ['Present', 'Ctrl/⌘ + Enter'],
+    ['Move several dividers', 'Drag where they meet'], ['Switch board tab', 'Alt + 1…9'],
     ['Undo / redo', 'Ctrl/⌘ + Z / Shift + Z'], ['Save to file / open', 'Ctrl/⌘ + S / O'],
   ]],
 ];
@@ -4515,7 +4536,7 @@ panesEl.addEventListener('pointermove', (e) => {
     // Show which handle the mouse is over.
     const pane = viewports.paneFromElement(e.target);
     // Stir the dotted background a little (see viewports.stir).
-    if (pane?.type === 'board' && !presenting) viewports.stir(pane, e.clientX - pane.rect.x, e.clientY - pane.rect.y);
+    if (pane?.type === 'board') viewports.stir(pane, e.clientX - pane.rect.x, e.clientY - pane.rect.y);
     let over = null;
     if (pane?.type === 'board' && toolbar.tool === 'select' && docOfPane(pane) === activeDoc) {
       const p = localPoint(pane, e);
@@ -4720,8 +4741,6 @@ function openMenu(x, y, pane) {
   const n = sel.length;
 
   const boardMenu = [
-    { label: board.frames.length ? `Present (${board.frames.length} frame${board.frames.length > 1 ? 's' : ''})` : 'Present', shortcut: `${MOD}Enter`, disabled: board.isEmpty(), action: startPresent },
-    '-',
     { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
     { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
@@ -4734,6 +4753,7 @@ function openMenu(x, y, pane) {
     { label: 'New storyboard…', action: () => { board.selection = []; storyboardDialog(); } },
     ...(board.storyboards.length ? [{ label: 'Storyboards', submenu: board.storyboards.map((sb) => ({ label: sb.name, action: () => { storyboards.edit(sb); storyboards.api.focus(storyboards.bounds(sb)); } })) }] : []),
     { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
+    { label: 'New board from starred images', disabled: !board.starred.length, action: boardFromStarred },
     { label: 'Map of the board', action: toggleMap },
     { label: 'Float this view (stays on top)', action: () => floatView(pane) },
     { label: 'Capture screen…', action: captureScreen },
@@ -4870,176 +4890,13 @@ panesEl.addEventListener('contextmenu', (e) => {
   openMenu(e.clientX, e.clientY, pane);
 });
 
-// ---------- Present mode ----------
-//
-// Shows the board full screen, one frame at a time, like slides. With no frames,
-// the whole board is the one slide. → / Space / click: next. ← / right-click: back.
-// Esc: stop. The frames are shown in the order they were made.
-
-let presenting = null;  // { pane, slides, index, before, anim }
-
-// While presenting frames, everything outside the current frame is covered with the
-// background colour, so each frame reads as a clean slide.
-const presentCover = new Graphics();
-function coverOutside(slide) {
-  presentCover.clear();
-  if (!board.frames.length) return;
-  const { x, y, width: w, height: h } = slide;
-  const far = 1e6;
-  presentCover
-    .rect(x - far, y - far, far * 2 + w, far).rect(x - far, y + h, far * 2 + w, far)
-    .rect(x - far, y, far, h).rect(x + w, y, far, h)
-    .fill(themeColours().board);
-}
-
-function slideBounds(f) {
-  return { x: f.sprite.x - f.w / 2, y: f.sprite.y - f.h / 2, width: f.w, height: f.h, name: f.name };
-}
-
-function startPresent() {
-  if (mode !== 'board' || presenting) return;
-  if (board.isEmpty()) { toast('Add something to the board first.', 1800); return; }
-  const l = layout();
-  const pane = targetBoardPane() || l.panes().find((p) => p.type === 'board');
-  if (!pane) { toast('Present needs a board pane. Switch a pane back to Board first.', 2600); return; }
-  hideMenu();
-  if (noteEditor.editing) noteEditor.finish();
-  cropping = null;
-  const slides = board.frames.length ? board.frames.map(slideBounds) : [{ ...board.bounds(null), name: current?.name || '' }];
-  presenting = {
-    pane, slides, index: 0, anim: 0,
-    before: { maximized: l.maximized, camera: { x: pane.camera.x, y: pane.camera.y, zoom: pane.camera.zoom }, selection: [...board.selection] },
-  };
-  board.selection = [];
-  board.frameLayer.visible = false;   // just the content, no frame outlines or names
-  board.world.addChild(presentCover);
-  viewports.hideDots = true;
-  l.maximized = l.panes().length > 1 ? pane : null;
-  document.body.classList.add('presenting');
-  hud.hidden = false;
-  document.documentElement.requestFullscreen?.().catch(() => {});
-  viewports.rebuild();
-  showSlide(0, false);
-}
-
-function stopPresent() {
-  if (!presenting) return;
-  const { pane, before } = presenting;
-  cancelAnimationFrame(presenting.anim);
-  presenting = null;
-  document.body.classList.remove('presenting');
-  hud.hidden = true;
-  board.frameLayer.visible = true;
-  presentCover.clear();
-  presentCover.removeFromParent();
-  viewports.hideDots = false;
-  layout().maximized = before.maximized;
-  Object.assign(pane.camera, before.camera);
-  board.selection = before.selection.filter((x) => board.find(x.kind, x.id));
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  viewports.rebuild();
-  requestRender();
-}
-
-// Move the camera to a slide: a short, smooth glide (or a jump).
-function showSlide(i, animate = true) {
-  const P = presenting;
-  if (!P) return;
-  P.index = Math.max(0, Math.min(P.slides.length - 1, i));
-  const slide = P.slides[P.index];
-  const cam = P.pane.camera;
-  const { w, h } = P.pane.rect;
-  const target = new Camera();
-  target.frame(slide, w, h, Math.min(w, h) * 0.04);
-  coverOutside(slide);
-  hudText.textContent = `${P.index + 1} / ${P.slides.length}${slide.name ? ` · ${slide.name}` : ''}`;
-  hud.classList.remove('faded');
-  clearTimeout(hudTimer);
-  hudTimer = setTimeout(() => hud.classList.add('faded'), 2200);
-  cancelAnimationFrame(P.anim);
-  if (!animate) { Object.assign(cam, { x: target.x, y: target.y, zoom: target.zoom }); requestRender(); return; }
-  // Glide the middle of the view and the zoom (zoom in steps that feel even: log scale).
-  const from = { c: cam.toWorld(w / 2, h / 2), z: Math.log(cam.zoom) };
-  const to = { c: target.toWorld(w / 2, h / 2), z: Math.log(target.zoom) };
-  const start = performance.now();
-  const ms = 520;
-  const step = (now) => {
-    if (presenting !== P) return;
-    const t = Math.min(1, (now - start) / ms);
-    const k = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;   // ease in and out
-    const zoom = Math.exp(from.z + (to.z - from.z) * k);
-    const cx = from.c.x + (to.c.x - from.c.x) * k, cy = from.c.y + (to.c.y - from.c.y) * k;
-    Object.assign(cam, { zoom, x: w / 2 - cx * zoom, y: h / 2 - cy * zoom });
-    requestRender();
-    if (t < 1) P.anim = requestAnimationFrame(step);
-  };
-  P.anim = requestAnimationFrame(step);
-}
-
-// The little bar at the bottom while presenting: back, "2 / 5 · name", next, stop.
-const hud = document.createElement('div');
-hud.id = 'present-hud';
-hud.hidden = true;
-hud.innerHTML = `
-  <button data-go="-1" title="Back (←)"><svg viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></svg></button>
-  <span class="present-where"></span>
-  <button data-go="1" title="Next (→ or Space)"><svg viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></button>
-  <button data-go="stop" title="Stop presenting (Esc)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>`;
-document.body.appendChild(hud);
-const hudText = hud.querySelector('.present-where');
-let hudTimer;
-hud.addEventListener('pointerdown', (e) => e.stopPropagation());
-hud.addEventListener('click', (e) => {
-  const go = e.target.closest('button')?.dataset.go;
-  if (go === 'stop') stopPresent();
-  else if (go) showSlide(presenting.index + Number(go));
-});
-// Moving the mouse brings the bar back for a moment.
-window.addEventListener('pointermove', () => {
-  if (!presenting) return;
-  hud.classList.remove('faded');
-  clearTimeout(hudTimer);
-  hudTimer = setTimeout(() => hud.classList.add('faded'), 2200);
-});
-
-// While presenting, a click moves on (right-click goes back) instead of editing.
-panesEl.addEventListener('pointerdown', (e) => {
-  if (!presenting) return;
-  e.stopImmediatePropagation();
-  e.preventDefault();
-  if (e.button === 0) showSlide(presenting.index + (e.shiftKey ? -1 : 1));
-  else if (e.button === 2) showSlide(presenting.index - 1);
-}, true);
-panesEl.addEventListener('contextmenu', (e) => { if (presenting) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
-panesEl.addEventListener('dblclick', (e) => { if (presenting) e.stopImmediatePropagation(); }, true);
-// Leaving full screen (Chrome uses Esc for that itself) ends the presentation too.
-document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && presenting) stopPresent(); });
-// The window changes size when it goes full screen: fit the slide again.
-window.addEventListener('resize', () => { if (presenting) requestAnimationFrame(() => showSlide(presenting.index, false)); });
-
-function presentKey(e) {
-  const P = presenting;
-  const k = e.key;
-  if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(k)) showSlide(P.index + 1);
-  else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(k)) showSlide(P.index - 1);
-  else if (k === 'Home') showSlide(0);
-  else if (k === 'End') showSlide(P.slides.length - 1);
-  else if (k === 'Escape') stopPresent();
-  else return;
-  e.preventDefault();
-}
-
-document.getElementById('present-button').addEventListener('click', startPresent);
-
 // ---------- Keyboard ----------
 
 window.addEventListener('keydown', (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
-  if (presenting) { presentKey(e); return; }
   if (compareOpen()) return;
   if (!helpPanel.hidden && e.key === 'Escape') { toggleHelp(false); return; }
   if (e.key === '?' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); toggleHelp(); return; }
-  if (mod && e.key === 'Enter' && mode === 'board' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); startPresent(); return; }
   if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
   if (e.target.closest?.('input, textarea, select')) return;
 

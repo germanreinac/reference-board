@@ -1212,52 +1212,6 @@ body[data-tone="light"] #map-button:hover,
 body[data-tone="light"] #layouts-button:hover,
 body[data-tone="light"] #bar-theme-button:hover { background: rgba(0, 0, 0, 0.06); }
 
-/* Everything but the board goes away while presenting. */
-body.presenting #board-bar,
-body.presenting #toolbar,
-body.presenting #selection-bar,
-body.presenting #brush-cursor,
-body.presenting #empty-hint,
-body.presenting .pane-tools,
-body.presenting .pane-zoom,
-body.presenting .divider { display: none !important; }
-body.presenting .pane { border-radius: 0; }
-body.presenting #panes { cursor: pointer; }
-
-#present-hud {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  z-index: 20;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--overlay);
-  color: var(--text-strong);
-  font-size: 12px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-  transition: opacity 0.4s;
-}
-#present-hud[hidden] { display: none; }
-#present-hud.faded:not(:hover) { opacity: 0; }
-#present-hud button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-#present-hud button:hover { background: rgba(128, 128, 128, 0.18); }
-#present-hud svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.present-where { padding: 0 8px; min-width: 60px; text-align: center; white-space: nowrap; max-width: 50vw; overflow: hidden; text-overflow: ellipsis; }
 
 /* The box for renaming a frame, right over its name */
 .frame-rename {
@@ -2052,7 +2006,6 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .map-frames button:hover { color: var(--accent); }
-body.presenting #map-panel { display: none; }
 
 /* Narrow screens (phones): the drawing toolbar wraps onto two rows instead of running off the side */
 @media (max-width: 560px) {

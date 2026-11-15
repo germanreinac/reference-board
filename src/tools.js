@@ -38,7 +38,7 @@ const TITLES = {
   text: 'Text (T): click to write. Start a line with # , ## or ### for headings',
   note: 'Sticky note (N): click to add a note',
   shape: 'Shape (S): drag to draw. Click again to choose rectangle, ellipse, star, line or arrow',
-  frame: 'Frame (A): drag to mark an area. Frames are the slides of Present mode',
+  frame: 'Frame (A): drag to mark an area. Frames group things, and export as PDF pages',
 };
 
 export class Toolbar {
