@@ -2304,7 +2304,7 @@ async function createBoard({ name, data = null, group = '' } = {}) {
   const id = newBoardId();
   await store.putBoard({
     id, name: await freeName(name || 'Untitled board'), created: now, updated: now, handle: null,
-    board: data || { items: [], layout: null }, look: defaultLook(), ...(group ? { group } : {}),
+    board: data || { items: [], layout: defaultLayoutShape() }, look: defaultLook(), ...(group ? { group } : {}),
   });
   askToKeepStorage();
   return id;
@@ -2792,6 +2792,89 @@ function fitBrand() {
 window.addEventListener('resize', fitBrand);
 document.fonts?.ready.then(fitBrand);
 fitBrand();
+
+// ---------- Layouts: split views to reuse ----------
+//
+// A layout is how the window is split into panes (and what kind each pane is), without
+// what's in them. The Layouts button offers a few ready-made ones and your own saved
+// favourites, to use on any board; one of them can be what new boards start with.
+// Saved in this browser.
+
+const LAYOUTS_KEY = 'refboard.layouts';         // [{ name, shape }]
+const LAYOUT_DEFAULT_KEY = 'refboard.layoutDefault';   // a shape, or nothing (one pane)
+const P = { pane: { type: 'board' } };
+const READY_LAYOUTS = [
+  ['One pane', P],
+  ['Two side by side', { dir: 'row', ratio: 0.5, a: P, b: P }],
+  ['Two stacked', { dir: 'col', ratio: 0.5, a: P, b: P }],
+  ['Three columns', { dir: 'row', ratio: 1 / 3, a: P, b: { dir: 'row', ratio: 0.5, a: P, b: P } }],
+  ['Big left, two right', { dir: 'row', ratio: 0.62, a: P, b: { dir: 'col', ratio: 0.5, a: P, b: P } }],
+  ['Four (2 × 2)', { dir: 'col', ratio: 0.5, a: { dir: 'row', ratio: 0.5, a: P, b: P }, b: { dir: 'row', ratio: 0.5, a: P, b: P } }],
+  ['Board and image search', { dir: 'row', ratio: 0.68, a: P, b: { pane: { type: 'search' } } }],
+];
+function savedLayouts() {
+  try { const l = JSON.parse(localStorage.getItem(LAYOUTS_KEY) || '[]'); return Array.isArray(l) ? l : []; } catch { return []; }
+}
+function storeLayouts(list) {
+  try { localStorage.setItem(LAYOUTS_KEY, JSON.stringify(list)); } catch {}
+}
+function defaultLayoutShape() {
+  try { return JSON.parse(localStorage.getItem(LAYOUT_DEFAULT_KEY) || 'null'); } catch { return null; }
+}
+// Just the splits and the kind of each pane (no views, no contents).
+function shapeOf(node) {
+  if (node.pane) return { pane: { type: node.pane.type || 'board' } };
+  return { dir: node.dir, ratio: Math.round(node.ratio * 1000) / 1000, a: shapeOf(node.a), b: shapeOf(node.b) };
+}
+const sameShape = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// Use a layout on the open board. Every board pane starts on the view you're looking at now.
+async function applyLayout(shape) {
+  if (!mainDoc) return;
+  noteEditor.finish();
+  const from = (activePane && boardPanes().includes(activePane) ? activePane : boardPanes()[0]) || layout().panes()[0];
+  const c = from.centre();
+  const view = { cx: c.x, cy: c.y, zoom: from.camera.zoom };
+  const withViews = (n) => (n.pane ? { pane: { ...n.pane, ...view } } : { ...n, a: withViews(n.a), b: withViews(n.b) });
+  activate(mainDoc);
+  activePane = null;
+  viewports.setLayout(Layout.fromJSON(withViews(shape)));
+  await releaseUnusedBoards();
+  viewports.position();
+  viewports.wobble?.(4);
+  viewChanged();
+  requestRender();
+}
+
+function layoutsMenu(button) {
+  const r = button.getBoundingClientRect();
+  const now = shapeOf(layout().toJSON());
+  const mine = savedLayouts();
+  const start = defaultLayoutShape();
+  const tick = (shape) => (sameShape(shape, now) ? ' ✓' : '');
+  const all = [...READY_LAYOUTS, ...mine.map((l) => [l.name, l.shape])];
+  showMenu(r.left, r.bottom + 4, [
+    ...READY_LAYOUTS.map(([label, shape]) => ({ label: label + tick(shape), action: () => applyLayout(shape) })),
+    '-',
+    ...mine.map((l) => ({ label: `★ ${l.name}${tick(l.shape)}`, action: () => applyLayout(l.shape) })),
+    { label: 'Save this layout as a favourite…', disabled: layout().panes().length < 2, action: () => {
+      const name = prompt('Name this layout:', `Layout ${mine.length + 1}`)?.trim();
+      if (!name) return;
+      storeLayouts([...mine.filter((l) => l.name !== name), { name, shape: now }]);
+      toast(`Saved "${name}". It's in the Layouts menu on every board.`, 3000);
+    } },
+    ...(mine.length ? [{ label: 'Remove a favourite', submenu: mine.map((l) => ({ label: l.name, action: () => { storeLayouts(savedLayouts().filter((x) => x.name !== l.name)); toast(`Removed "${l.name}".`, 2000); } })) }] : []),
+    '-',
+    { label: 'New boards start with', submenu: all.map(([label, shape]) => ({
+      label: label + (sameShape(shape, start || P) ? ' ✓' : ''),
+      action: () => {
+        try { if (sameShape(shape, P)) localStorage.removeItem(LAYOUT_DEFAULT_KEY); else localStorage.setItem(LAYOUT_DEFAULT_KEY, JSON.stringify(shape)); } catch {}
+        toast(`New boards will start with "${label}".`, 2500);
+      },
+    })) },
+  ]);
+}
+document.getElementById('layouts-button').addEventListener('click', (e) => layoutsMenu(e.currentTarget));
 
 // ---------- Home screen ----------
 
