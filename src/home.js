@@ -14,6 +14,7 @@ import { lookBackground } from './theme.js';
 const timeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 const DRAG_TYPE = 'application/x-refboard-boards';
 const FOLDED = 'refboard.foldedProjects';
+const PROJECTS = 'refboard.projects';   // projects you made, kept even while they're empty
 
 // "just now", "5 minutes ago", "yesterday", ...
 function timeAgo(ts) {
@@ -45,6 +46,9 @@ export class Home {
     this.bar = element.querySelector('.select-bar');
     element.querySelector('[data-action="new"]').addEventListener('click', () => actions.create());
     element.querySelector('[data-action="open-file"]').addEventListener('click', () => actions.importFile());
+    try { this.made = JSON.parse(localStorage.getItem(PROJECTS) || '[]'); } catch { this.made = []; }
+    if (!Array.isArray(this.made)) this.made = [];
+    element.querySelector('[data-action="new-project"]').addEventListener('click', () => this.newProject());
     element.querySelector('[data-action="select"]').addEventListener('click', () => this.setSelecting(!this.selecting));
 
     this.bar.querySelector('[data-select="all"]').addEventListener('click', () => {
@@ -69,11 +73,32 @@ export class Home {
     this.dropTarget(this.loose, '');
   }
 
-  // Projects in use, most recently edited first.
+  // Projects, most recently edited first; the ones with no boards yet come first of all
+  // (newest at the top), so a project you just made is right there.
   projects() {
     const latest = new Map();
     for (const b of this.boards) if (b.group) latest.set(b.group, Math.max(latest.get(b.group) || 0, b.updated));
-    return [...latest.keys()].sort((a, b) => latest.get(b) - latest.get(a));
+    const empty = this.made.filter((n) => !latest.has(n)).reverse();
+    return [...empty, ...[...latest.keys()].sort((a, b) => latest.get(b) - latest.get(a))];
+  }
+
+  _keepProjects(list) {
+    this.made = [...new Set(list.filter(Boolean))];
+    try { localStorage.setItem(PROJECTS, JSON.stringify(this.made)); } catch {}
+  }
+
+  // The "New project" button: a new, empty project appears with its name ready to type.
+  async newProject() {
+    const taken = new Set([...this.made, ...this.boards.map((b) => b.group)]);
+    let name = 'New project';
+    for (let n = 2; taken.has(name); n++) name = `New project ${n}`;
+    this._keepProjects([...this.made, name]);
+    this.folded.delete(name);
+    await this.refresh();
+    const section = [...this.sections.querySelectorAll('.project')].find((el) => el.dataset.name === name);
+    if (!section) return;
+    section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    this._renameProject(section.querySelector('.project-fold'), name, []);
   }
 
   async refresh() {
@@ -99,6 +124,7 @@ export class Home {
   _project(name, boards, thumbs) {
     const section = document.createElement('section');
     section.className = 'project';
+    section.dataset.name = name;
     section.classList.toggle('folded', this.folded.has(name));
     const head = document.createElement('div');
     head.className = 'project-head';
@@ -124,13 +150,23 @@ export class Home {
         { label: 'Rename project', action: () => this._renameProject(fold, name, boards) },
         { label: 'Select its boards', action: () => { this.selected = new Set(boards.map((b) => b.id)); this.setSelecting(true); } },
         '-',
-        { label: 'Remove project (keep its boards)', action: () => this.actions.setGroup(boards.map((b) => b.id), '') },
+        { label: boards.length ? 'Remove project (keep its boards)' : 'Remove project', action: async () => {
+          this._keepProjects(this.made.filter((n) => n !== name));
+          if (boards.length) await this.actions.setGroup(boards.map((b) => b.id), ''); else await this.refresh();
+        } },
       ]);
       e.stopPropagation();
     });
     head.append(fold, more);
     const grid = document.createElement('div');
     grid.className = 'board-grid';
+    // A "new board" card in every project, so starting one there is one click.
+    const add = document.createElement('button');
+    add.className = 'board-card new';
+    add.innerHTML = '<div class="thumb"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></div><div class="meta"><div class="name">New board</div><div class="when"></div></div>';
+    add.querySelector('.when').textContent = boards.length ? `In ${name}` : 'Or drag boards here';
+    add.addEventListener('click', () => this.actions.create({ group: name }));
+    grid.appendChild(add);
     for (const b of boards) grid.appendChild(this._card(b, thumbs.get(b.id)));
     section.append(head, grid);
     this.dropTarget(section, name);
@@ -152,7 +188,8 @@ export class Home {
       const value = input.value.trim();
       if (save && value && value !== name) {
         if (this.folded.delete(name)) this.folded.add(value);
-        await this.actions.setGroup(boards.map((b) => b.id), value);
+        if (this.made.includes(name)) this._keepProjects(this.made.map((n) => (n === name ? value : n)));
+        if (boards.length) await this.actions.setGroup(boards.map((b) => b.id), value); else await this.refresh();
       } else await this.refresh();
     };
     input.addEventListener('click', (e) => e.stopPropagation());
@@ -180,7 +217,9 @@ export class Home {
 
   async _newProject(ids) {
     const name = prompt('Name the new project:', '')?.trim();
-    if (name) await this.actions.setGroup(ids, name);
+    if (!name) return;
+    this._keepProjects([...this.made, name]);
+    await this.actions.setGroup(ids, name);
   }
 
   // Let boards be dragged onto this element, to move them to the project `name`.
