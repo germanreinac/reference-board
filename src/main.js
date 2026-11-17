@@ -434,7 +434,7 @@ function removeThing(kind, id) {
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
 const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'titleBase'];
-const IMAGE_PROPS = ['caption', 'star'];
+const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
@@ -484,13 +484,32 @@ function editSelection(fn, items = board.selection) {
 function flipSelection(axis) {
   const box = board.selectionBox();
   if (!box) return;
-  const group = board.selection.length > 1;
+  // A frame flips with everything inside it.
+  const items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])];
+  const group = items.length > 1;
   editSelection((item) => {
     const s = item.sprite;
     if (item.kind === 'image') { if (axis === 'x') s.scale.x *= -1; else s.scale.y *= -1; s.rotation = -s.rotation; }
     if (group) { if (axis === 'x') s.x = 2 * box.cx - s.x; else s.y = 2 * box.cy - s.y; }
-  });
+  }, items);
 }
+
+// How see-through the selected images are (to overlay or trace), and composition guides.
+function setOpacity(v) {
+  editSelection((item) => { item.opacity = v; }, board.selection.filter((i) => i.kind === 'image'));
+}
+function setGuide(g) {
+  editSelection((item) => { item.guide = g; }, board.selection.filter((i) => i.kind === 'image'));
+}
+const opacityItems = () => {
+  const now = board.selection.find((i) => i.kind === 'image')?.opacity ?? 1;
+  return [1, 0.75, 0.5, 0.25].map((v) => ({ label: `${v * 100}%${Math.abs(now - v) < 0.01 ? ' ✓' : ''}`, action: () => setOpacity(v) }));
+};
+const guideItems = () => {
+  const now = board.selection.find((i) => i.kind === 'image')?.guide || null;
+  return [[null, 'None'], ['thirds', 'Thirds'], ['grid', 'Grid'], ['centre', 'Centre lines'], ['diagonals', 'Diagonals']]
+    .map(([g, label]) => ({ label: label + (now === g ? ' ✓' : ''), action: () => setGuide(g) }));
+};
 
 function toggleGrey() {
   const images = board.selection.filter((i) => i.kind === 'image');
@@ -2957,6 +2976,82 @@ function layoutsMenu(button) {
 }
 document.getElementById('layouts-button').addEventListener('click', (e) => layoutsMenu(e.currentTarget));
 
+// ---------- An empty board: three ways to start ----------
+{
+  const pick = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+  document.body.appendChild(pick);
+  pick.addEventListener('change', async () => {
+    const list = [...pick.files].map((f) => ({ blob: f, name: f.name }));
+    pick.value = '';
+    const pane = targetBoardPane();
+    if (list.length && pane) { const w = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2); await addImages(list, w.x, w.y, pane); }
+  });
+  emptyHint.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-start]')?.dataset.start;
+    if (a === 'files') pick.click();
+    if (a === 'search') openToolPane('search');
+    if (a === 'paste') {
+      try {
+        const list = [];
+        for (const it of await navigator.clipboard.read()) {
+          const type = it.types.find((t) => t.startsWith('image/'));
+          if (type) list.push({ blob: await it.getType(type), name: 'Pasted image' });
+        }
+        const pane = targetBoardPane();
+        if (!list.length) toast(`No image on the clipboard. Copy one, then press ${MOD}V here.`);
+        else if (pane) { const w = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2); await addImages(list, w.x, w.y, pane); }
+      } catch { toast(`Press ${MOD}V to paste.`); }
+    }
+  });
+  emptyHint.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-start]')) e.stopPropagation(); });
+}
+
+// ---------- Find on the board ----------
+//
+// Ctrl/⌘+F: type a word to find it in your notes, text, captions, frame titles and image
+// names. Enter goes to the next one, Shift+Enter to the one before, Esc closes.
+
+let findBox = null;
+function findOnBoard() {
+  if (findBox) { findBox.querySelector('input').select(); return; }
+  findBox = document.createElement('div');
+  findBox.id = 'find-box';
+  findBox.innerHTML = '<input type="text" placeholder="Find on this board…" spellcheck="false"><span></span><button title="Close (Esc)">✕</button>';
+  document.body.appendChild(findBox);
+  const input = findBox.querySelector('input'), count = findBox.querySelector('span');
+  let hits = [], at = -1;
+  const search = () => {
+    const q = input.value.trim().toLowerCase();
+    const has = (t) => !!t && String(t).toLowerCase().includes(q);
+    hits = !q ? [] : [
+      ...board.notes.filter((n) => has(n.text)),
+      ...board.frames.filter((f) => has(f.name)),
+      ...board.items.filter((i) => has(i.caption) || has(i.name)),
+    ];
+    at = -1;
+    count.textContent = q ? (hits.length ? `${hits.length} found` : 'Nothing found') : '';
+  };
+  const go = (step) => {
+    if (!hits.length) return;
+    at = (at + step + hits.length) % hits.length;
+    count.textContent = `${at + 1} of ${hits.length}`;
+    goToThing(hits[at]);
+    // Don't dive in closer than 150%: you want to see what's around it.
+    const pane = boardPanes().find((q) => docOfPane(q) === activeDoc) || boardPanes()[0];
+    if (pane && pane.camera.zoom > 1.5) { pane.camera.zoomAt(pane.rect.w / 2, pane.rect.h / 2, 1.5 / pane.camera.zoom); viewChanged(); requestRender(); }
+  };
+  const close = () => { findBox?.remove(); findBox = null; };
+  input.addEventListener('input', () => { search(); if (hits.length) go(1); });
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+    if (e.key === 'Escape') close();
+  });
+  findBox.querySelector('button').addEventListener('click', close);
+  findBox.addEventListener('pointerdown', (e) => e.stopPropagation());
+  input.focus();
+}
+
 // ---------- Map of the board ----------
 //
 // A small overview in the corner: everything on the board as little blocks, and a box
@@ -3315,7 +3410,7 @@ const HELP = [
   ]],
   ['Adding', [
     ['Images', 'Drop them in, or paste with Ctrl/⌘ + V'], ['From any website', 'Right-click → Save image to board (browser extension)'],
-    ['Search for images', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'], ['Write text', 'Double-click empty space'],
+    ['Search for images', 'Magnifier in the dock on the right, or Ctrl/⌘ + Shift + F'], ['Find on this board (notes, captions, titles)', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'], ['Write text', 'Double-click empty space'],
   ]],
   ['Tools', [
     ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
@@ -3836,7 +3931,7 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
     return b;
   };
   dock.append(
-    extra('<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3.5 3.5"/></svg>', `Image search (${MOD}F): find references and drop them on the board`, 'search-button', () => openToolPane('search')),
+    extra('<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3.5 3.5"/></svg>', `Image search (${MOD}Shift+F): find references and drop them on the board`, 'search-button', () => openToolPane('search')),
     extra('<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>', 'Mannequin: a poseable 3D figure to draw from', 'mannequin-button', () => openToolPane('mannequin')),
     Object.assign(document.createElement('i'), { className: 'dock-sep' }),
     ...Object.values(toolbar.extraButtons),
@@ -4087,8 +4182,8 @@ const SEL_ACTIONS = [
   ['title', 'Write the frame\'s title (Enter, or double-click the title)', () => renameFrame(board.selected, activePane || targetBoardPane()), (sel) => sel.length === 1 && sel[0].kind === 'frame' && !sel[0].sbGen],
   ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
   ['lock', 'Lock (L)', () => setLocked(null, true)],
-  ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image')],
-  ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image')],
+  ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image' || x.kind === 'frame')],
+  ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image' || x.kind === 'frame')],
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
   ['paint', 'Draw over this image (D): Advanced drawing with brushes and layers. The image itself stays as it is', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
@@ -4115,7 +4210,11 @@ for (const [id, title, action] of SEL_ACTIONS) {
       e.stopPropagation();
       const r = more.getBoundingClientRect();
       const sel = board.selection;
-      showMenu(r.left, r.bottom + 6, SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })));
+      const hasImage = sel.some((x) => x.kind === 'image');
+      showMenu(r.left, r.bottom + 6, [
+        ...SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })),
+        ...(hasImage ? ['-', { label: 'Opacity', submenu: opacityItems() }, { label: 'Composition guide', submenu: guideItems() }] : []),
+      ]);
     });
     selectionBar.appendChild(more);
   }
@@ -4805,6 +4904,7 @@ function openMenu(x, y, pane) {
     { label: 'New board from starred images', disabled: !board.starred.length, action: boardFromStarred },
     { label: 'All boards', action: goHome },
     '-',
+    { label: 'Find on this board…', shortcut: `${MOD}F`, action: findOnBoard },
     { label: 'Map of the board', action: toggleMap },
     { label: 'Float this view (stays on top)', action: () => floatView(pane) },
     { label: greyView ? 'Greyscale view: on ✓' : 'Greyscale view (check values)', shortcut: 'G', action: toggleGreyView },
@@ -4868,6 +4968,8 @@ function openMenu(x, y, pane) {
     { label: 'Flip left to right', action: () => flipSelection('x') },
     { label: 'Flip upside down', action: () => flipSelection('y') },
     { label: 'Greyscale on / off', action: toggleGrey },
+    { label: 'Opacity', submenu: opacityItems() },
+    { label: 'Composition guide', submenu: guideItems() },
     ...(one?.kind === 'image' ? [
       one.sketch ? { label: 'Keep drawing on it', shortcut: 'D', action: () => editSketch(one) } : { label: 'Draw over it (Advanced drawing)', shortcut: 'D', action: () => paintOver(one) },
       { label: 'Crop…', action: startCrop },
@@ -4945,7 +5047,7 @@ window.addEventListener('keydown', (e) => {
   if (compareOpen()) return;
   if (!helpPanel.hidden && e.key === 'Escape') { toggleHelp(false); return; }
   if (e.key === '?' && !e.target.closest?.('input, textarea, select')) { e.preventDefault(); toggleHelp(); return; }
-  if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); openSearch(); return; }
+  if (mod && e.code === 'KeyF' && mode === 'board') { e.preventDefault(); hideMenu(); if (e.shiftKey) openSearch(); else findOnBoard(); return; }
   if (e.target.closest?.('input, textarea, select')) return;
 
   if (mod && e.code === 'KeyO') { e.preventDefault(); hideMenu(); openFile(); return; }

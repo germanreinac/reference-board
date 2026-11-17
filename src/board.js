@@ -461,7 +461,7 @@ export class Board {
   // `index` puts it at a given place in the stack (used by undo).
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null } = {}) {
     const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
@@ -493,6 +493,7 @@ export class Board {
       caption: '',           // text shown under the image, that moves with it
       captionText: null,
       star: !!star,          // starred as a favourite
+      guide: guide || null,  // composition lines drawn over it: 'thirds', 'grid', 'centre' or 'diagonals'
     };
     if (crop) this.setCrop(item, crop, { keepPlace: false });
     if (grey) this.setGrey(item, true);
@@ -514,6 +515,7 @@ export class Board {
       ...(item.group ? { group: item.group } : {}),
       ...(item.caption ? { caption: item.caption } : {}),
       ...(item.star ? { star: true } : {}),
+      ...(item.guide ? { guide: item.guide } : {}),
       ...(item.sketch ? { sketch: item.sketch } : {}),
     };
   }
@@ -1310,6 +1312,20 @@ export class Board {
     this._drawTitleBand(now);
     this.syncImages();
     this._drawSplashes(o, zoom, now);
+    // Composition guides over images that have them (thirds, a grid, centre lines, diagonals).
+    for (const item of this.items) {
+      if (!item.guide || !item.sprite.visible) continue;
+      const [tl, tr, br, bl] = this.corners(item);
+      const at = (u, v) => ({ x: tl.x + (tr.x - tl.x) * u + (bl.x - tl.x) * v, y: tl.y + (tr.y - tl.y) * u + (bl.y - tl.y) * v });
+      const line = (u0, v0, u1, v1) => { const a = at(u0, v0), b = at(u1, v1); o.moveTo(a.x, a.y).lineTo(b.x, b.y); };
+      const cuts = item.guide === 'thirds' ? [1 / 3, 2 / 3] : item.guide === 'grid' ? [0.25, 0.5, 0.75] : item.guide === 'centre' ? [0.5] : [];
+      for (const t of cuts) { line(t, 0, t, 1); line(0, t, 1, t); }
+      if (item.guide === 'diagonals') { line(0, 0, 1, 1); line(1, 0, 0, 1); }
+      o.stroke({ width: 3 / zoom, color: 0x000000, alpha: 0.35 });
+      for (const t of cuts) { line(t, 0, t, 1); line(0, t, 1, t); }
+      if (item.guide === 'diagonals') { line(0, 0, 1, 1); line(1, 0, 0, 1); }
+      o.stroke({ width: 1.2 / zoom, color: 0xffffff, alpha: 0.9 });
+    }
     // A small star at the top-right corner of starred images (the same size at any zoom).
     for (const item of this.items) {
       if (!item.star || !item.sprite.visible) continue;

@@ -2115,3 +2115,25 @@ body[data-tone="light"] #studio-dock { box-shadow: 0 10px 30px rgba(60, 40, 80, 
 #studio-dock .dock-sep { width: 18px; height: 1px; margin: 3px 0; background: var(--panel-border); }
 body:not([data-mode="board"]) #studio-dock { display: none; }
 @media (max-width: 560px) { #studio-dock { top: 96px; transform: none; } }
+
+/* An empty board: three ways to start (quiet, and gone as soon as there's something on it) */
+#empty-hint .starts { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; pointer-events: auto; }
+#empty-hint .starts button {
+  padding: 7px 14px; border: 1px solid var(--panel-border); border-radius: var(--blob-s);
+  background: var(--card); color: var(--text-strong); font: 600 13px var(--font-second); cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+#empty-hint .starts button:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--card)); }
+
+/* Find on the board */
+#find-box {
+  position: fixed; top: 44px; left: 50%; transform: translateX(-50%); z-index: 12;
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--panel-border); border-radius: var(--blob);
+  background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+#find-box input { width: 240px; border: 0; outline: 0; background: none; color: var(--text-strong); font: 14px var(--font-body); }
+#find-box span { font-size: 12px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+#find-box button { border: 0; background: none; color: var(--text); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+#find-box button:hover { color: var(--text-strong); }
+body:not([data-mode="board"]) #find-box { display: none; }
