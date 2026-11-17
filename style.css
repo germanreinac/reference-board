@@ -2032,7 +2032,7 @@ html:has(body:not([data-mode="board"])) { background: #16151c; }
    Slow and small. Still if motion is off. */
 body .wordmark {
   font-family: var(--font-display);
-  letter-spacing: 0.03em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
+  letter-spacing: -0.005em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
   color: var(--accent);
   filter: url(#melt-goo);
 }
