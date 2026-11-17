@@ -2032,28 +2032,28 @@ html:has(body:not([data-mode="board"])) { background: #16151c; }
    Slow and small. Still if motion is off. */
 body .wordmark {
   font-family: var(--font-display);
-  letter-spacing: 0.012em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
+  letter-spacing: 0.03em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
   color: var(--accent);
   filter: url(#melt-goo);
 }
 .wordmark span { display: inline-block; transform-origin: 50% 60%; will-change: transform; }
 /* Even out the spaces between the letters (the L leaves a hole before the T). */
-.wordmark span:nth-child(4) { margin-left: -0.088em; }
+.wordmark span:nth-child(2) { margin-left: 0.012em; }
+.wordmark span:nth-child(4) { margin-left: -0.15em; }
 .wordmark span:nth-child(5) { margin-left: -0.012em; }
 @keyframes melt-lava-a {
-  0%, 100% { transform: translate(-0.018em, 0.006em) scale(0.985, 1.02); }
-  50% { transform: translate(0.022em, -0.008em) scale(1.03, 0.975); }
+  0%, 100% { transform: translate(-0.034em, 0.012em) scale(0.97, 1.04); }
+  50% { transform: translate(0.04em, -0.014em) scale(1.06, 0.955); }
 }
 @keyframes melt-lava-b {
-  0%, 100% { transform: translate(0.02em, -0.006em) scale(1.03, 0.98); }
-  50% { transform: translate(-0.022em, 0.008em) scale(0.98, 1.025); }
+  0%, 100% { transform: translate(0.036em, -0.012em) scale(1.055, 0.96); }
+  50% { transform: translate(-0.038em, 0.014em) scale(0.965, 1.045); }
 }
-body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-lava-a 7s ease-in-out infinite; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(2) { animation: melt-lava-b 9s ease-in-out -2s infinite; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(3) { animation-duration: 11s; animation-delay: -5s; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(4) { animation: melt-lava-b 8s ease-in-out -3.5s infinite; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(5) { animation-duration: 10s; animation-delay: -1.5s; }
-@media (prefers-reduced-motion: reduce) { .wordmark span { animation: none !important; } }
+body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-lava-a 5s ease-in-out infinite; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(2) { animation: melt-lava-b 6.5s ease-in-out -2s infinite; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(3) { animation-duration: 7.5s; animation-delay: -5s; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(4) { animation: melt-lava-b 5.5s ease-in-out -3.5s infinite; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(5) { animation-duration: 7s; animation-delay: -1.5s; }
 
 /* Soft shapes: corners that are gently uneven, thin outlines and soft shadows. Colour is
    kept for what's active (the chosen tool, what you point at), so it reads as an accent. */
