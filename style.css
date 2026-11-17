@@ -2,39 +2,46 @@
    Dark mode is the default; light mode swaps these colours (body[data-theme="light"]). */
 
 :root, body[data-theme="dark"] {
-  --bg: #1b1b1d;            /* board and pane background */
-  --gap: #08080a;           /* the lines between panes */
-  --line: #26262b;          /* thin separators */
-  --input: #141416;         /* text boxes and the top bar */
-  --card: #222226;          /* cards and chips */
-  --panel: #2a2a2f;         /* menus */
-  --panel-2: #202024;       /* settings panels */
-  --panel-border: #3a3a40;
-  --border-strong: #4a4a52;
-  --overlay: rgba(24, 24, 27, 0.9);  /* floating bars over a pane */
-  --dot: #34343a;           /* background dots */
-  --text: #8a8a90;
-  --text-strong: #c8c8cc;
-  --accent: #4da3ff;
+  --bg: #16151c;            /* board and pane background */
+  --gap: #ff3fa9;           /* the lines between panes: fluor pink */
+  --line: #2a2838;          /* thin separators */
+  --input: #100f16;         /* text boxes and the top bar */
+  --card: #1f1d2a;          /* cards and chips */
+  --panel: #262336;         /* menus */
+  --panel-2: #1c1a27;       /* settings panels */
+  --panel-border: #3d3a5c;
+  --border-strong: #5a55a0;
+  --overlay: rgba(22, 21, 30, 0.94);  /* floating bars over a pane */
+  --dot: #3d3a5c;           /* background dots */
+  --text: #a39ec8;
+  --text-strong: #f6f3ff;
+  --accent: #ff3fa9;        /* fluor pink */
+  --accent-2: #3d7bff;      /* electric blue */
+  --melt: linear-gradient(115deg, var(--accent), #b14dff 52%, var(--accent-2));
+  --blob: 18px 26px 16px 24px / 24px 16px 26px 18px;       /* soft, uneven corners */
+  --blob-s: 10px 14px 9px 13px / 13px 9px 14px 10px;
   color-scheme: dark;
 }
 body[data-theme="light"] {
-  --bg: #f1f1ef;
-  --gap: #c9c9c6;
-  --line: #dcdcd8;
+  --bg: #f3f1f4;
+  --gap: #ff8fcb;
+  --line: #e2dde6;
   --input: #ffffff;
   --card: #ffffff;
   --panel: #ffffff;
-  --panel-2: #f7f7f5;
-  --panel-border: #d6d6d2;
-  --border-strong: #b5b5b0;
-  --overlay: rgba(255, 255, 255, 0.92);
-  --dot: #c4c4c0;
-  --text: #6c6c70;
-  --text-strong: #1f1f22;
-  --accent: #2f86e8;
+  --panel-2: #f8f6fa;
+  --panel-border: #d9d2e0;
+  --border-strong: #b3a8c9;
+  --overlay: rgba(255, 255, 255, 0.94);
+  --dot: #cbc5d3;
+  --text: #6f6a7c;
+  --text-strong: #1f1d26;
+  --accent: #e8279a;
+  --accent-2: #2f6bff;
   color-scheme: light;
 }
+/* Colour mode keeps its own soft palette: the second colour follows it. */
+body[data-theme="pastel"] { --accent-2: var(--border-strong); --melt: linear-gradient(115deg, var(--accent), var(--border-strong)); }
 
 html, body {
   margin: 0;
@@ -1747,7 +1754,6 @@ body[data-motion="on"] #help-panel:not([hidden]) .help-box { animation: liquid-i
 .theme-cycle .eye { fill: currentColor; stroke: none; }
 .theme-cycle[data-next="light"] .icon-sun,
 .theme-cycle[data-next="colour"] .icon-colour,
-.theme-cycle[data-next="melti"] .icon-melti,
 .theme-cycle[data-next="dark"] .icon-moon { display: block; }
 body[data-motion="on"] .theme-cycle:hover svg { animation: alien-wobble 0.6s var(--soft); }
 
@@ -2016,48 +2022,37 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   #map-panel canvas { height: 116px; }
 }
 
-/* ---------- The Melti look (the brand) ----------
+/* ---------- The Melti brand (every look) ----------
    Fluor pink and electric blue around a calm, dark board; soft, uneven shapes instead of
    straight boxes; chunky outlines. The images, selection boxes and text stay straight. */
-body[data-theme="melti"] {
-  --bg: #16151c; --gap: #ff3fa9; --line: #2a2838; --input: #100f16; --card: #1f1d2a;
-  --panel: #262336; --panel-2: #1c1a27; --panel-border: #3d3a5c; --border-strong: #5a55a0;
-  --overlay: rgba(22, 21, 30, 0.94); --dot: #3d3a5c; --text: #a39ec8; --text-strong: #f6f3ff;
-  --accent: #ff3fa9; --accent-2: #3d7bff;
-  --melt: linear-gradient(115deg, #ff3fa9, #b14dff 52%, #3d7bff);
-  --blob: 18px 26px 16px 24px / 24px 16px 26px 18px;
-  --blob-s: 10px 14px 9px 13px / 13px 9px 14px 10px;
-  color-scheme: dark;
-}
-body[data-theme="melti"][data-mode="home"], body[data-theme="melti"][data-mode="add"] { background: var(--bg); }
-html:has(body[data-theme="melti"]:not([data-mode="board"])) { background: #16151c; }
+html:has(body:not([data-mode="board"])) { background: #16151c; }
 
 /* The name: poured, in the two colours */
-body[data-theme="melti"] .wordmark {
+body .wordmark {
   background: var(--melt); -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: url(#melt-ripple);
   padding: 0.06em 0.04em 0.1em 0;
 }
 
 /* Soft shapes with chunky outlines */
-body[data-theme="melti"] :is(.text-button, .tab, .name-input, .search-input, .mood-input) { border-radius: var(--blob-s); }
-body[data-theme="melti"] .text-button { border: 2px solid var(--panel-border); padding: 5px 13px; font-weight: 600; }
-body[data-theme="melti"] .text-button:hover { background: var(--melt); border-color: transparent; color: #fff; }
-body[data-theme="melti"] :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) {
+body :is(.text-button, .tab, .name-input, .search-input, .mood-input) { border-radius: var(--blob-s); }
+body .text-button { border: 2px solid var(--panel-border); padding: 5px 13px; font-weight: 600; }
+body .text-button:hover { background: var(--melt); border-color: transparent; color: #fff; }
+body :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) {
   border: 2px solid var(--border-strong); border-radius: var(--blob);
   box-shadow: 4px 5px 0 rgba(61, 123, 255, 0.55);
 }
-body[data-theme="melti"] :is(.tool, #selection-bar button, .pane-tools button, #board-bar > button, .menu-item) { border-radius: var(--blob-s); }
-body[data-theme="melti"] .tool.active { background: var(--melt); color: #fff; }
-body[data-theme="melti"] .menu-item:hover { background: var(--melt); color: #fff; }
-body[data-theme="melti"] .board-card { border: 2px solid var(--panel-border); border-radius: 22px 30px 20px 28px / 28px 20px 30px 22px; overflow: hidden; }
-body[data-theme="melti"] .board-card:hover { border-color: var(--accent); box-shadow: 5px 6px 0 var(--accent-2); transform: translate(-2px, -3px); }
-body[data-theme="melti"] .board-card.new .thumb svg { stroke: var(--accent); }
-body[data-theme="melti"] .project-fold span, body[data-theme="melti"] .home-main h1 { letter-spacing: -0.01em; }
-body[data-theme="melti"] #load-progress b { background: var(--melt); }
-body[data-theme="melti"] .pane-tools { border-radius: var(--blob-s); }
-body[data-theme="melti"] a { color: var(--accent); }
-body[data-theme="melti"] ::selection { background: #ff3fa9; color: #fff; }
+body :is(.tool, #selection-bar button, .pane-tools button, #board-bar > button, .menu-item) { border-radius: var(--blob-s); }
+body .tool.active { background: var(--melt); color: #fff; }
+body .menu-item:hover { background: var(--melt); color: #fff; }
+body .board-card { border: 2px solid var(--panel-border); border-radius: 22px 30px 20px 28px / 28px 20px 30px 22px; overflow: hidden; }
+body .board-card:hover { border-color: var(--accent); box-shadow: 5px 6px 0 var(--accent-2); transform: translate(-2px, -3px); }
+body .board-card.new .thumb svg { stroke: var(--accent); }
+body .project-fold span, body .home-main h1 { letter-spacing: -0.01em; }
+body #load-progress b { background: var(--melt); }
+body .pane-tools { border-radius: var(--blob-s); }
+body a { color: var(--accent); }
+body ::selection { background: #ff3fa9; color: #fff; }
 
 /* A little squish when you point at things (once, then still) */
 @keyframes melt-squish {
@@ -2065,4 +2060,4 @@ body[data-theme="melti"] ::selection { background: #ff3fa9; color: #fff; }
   45% { border-radius: 15px 9px 14px 8px / 8px 14px 9px 15px; }
   100% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
 }
-body[data-theme="melti"][data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }
+body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }

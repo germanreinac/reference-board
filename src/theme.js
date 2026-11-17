@@ -10,11 +10,10 @@
 // panes, the 3D scene) read their colours from here, and redraw on 'themechange'.
 
 export const THEMES = {
-  dark: { text: '#f2f2f4', board: '#1b1b1d', gap: '#08080a', dot: '#4a4a52', scene: 0x232327, floor: 0x2e2e33, grid: [0x3a3a40, 0x323237] },
-  // Melti: the brand look. A calm, dark board (so references read true) with fluor pink
-  // and electric blue around it, and soft, uneven shapes.
-  melti: { text: '#f6f3ff', board: '#16151c', gap: '#ff3fa9', dot: '#3d3a5c', scene: 0x1f1d2a, floor: 0x2a2740, grid: [0x3d3a5c, 0x322f4b] },
-  light: { text: '#1f1f22', board: '#f1f1ef', gap: '#c9c9c6', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
+  // The Melti brand: a calm board (so references read true) with fluor pink between the
+  // panes. Dark is the main look; light is the same idea, softer.
+  dark: { text: '#f6f3ff', board: '#16151c', gap: '#ff3fa9', dot: '#3d3a5c', scene: 0x1f1d2a, floor: 0x2a2740, grid: [0x3d3a5c, 0x322f4b] },
+  light: { text: '#1f1f22', board: '#f3f1f4', gap: '#ff8fcb', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
 };
 
 // Colour mode palettes: soft and muted, never loud. [name, background, gap between panes,
@@ -53,7 +52,7 @@ function pastelColours(i) {
 }
 
 let pastel = 0;
-const NAMES = ['dark', 'light', 'pastel', 'melti'];
+const NAMES = ['dark', 'light', 'pastel'];
 const named = (n) => (NAMES.includes(n) ? n : 'dark');
 
 export function currentTheme() {
@@ -73,7 +72,7 @@ export function themeColours() {
 function apply(name) {
   const body = document.body;
   body.dataset.theme = name;
-  body.dataset.tone = name === 'dark' || name === 'melti' ? 'dark' : 'light';
+  body.dataset.tone = name === 'dark' ? 'dark' : 'light';
   const vars = pastelColours(pastel).css;
   for (const k of Object.keys(vars)) {
     if (name === 'pastel') body.style.setProperty(k, vars[k]);
@@ -88,16 +87,15 @@ export function setTheme(name) {
   window.dispatchEvent(new CustomEvent('themechange', { detail: themeColours() }));
 }
 
-// The theme button goes round: dark → light → colour → Melti → dark… Each time it reaches colour,
+// The theme button goes round: dark → light → colour → dark… Each time it reaches colour,
 // it picks one of the palettes at random (never the same one twice in a row).
 export function toggleTheme() {
   const t = currentTheme();
   if (t === 'dark') setTheme('light');
   else if (t === 'light') randomColours();
-  else if (t === 'pastel') setTheme('melti');
   else setTheme('dark');
 }
-export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'melti', melti: 'dark' }[currentTheme()]);
+export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'dark' }[currentTheme()]);
 
 // Colour mode: a different random palette each time.
 export function randomColours() {
@@ -131,7 +129,7 @@ export function applyLook(look = defaultLook()) {
 // The background colour of a board with this look (for its preview on the home screen).
 export function lookBackground(look) {
   if (look?.theme === 'pastel') return pastelColours(Number(look.pastel) || 0).drawn.board;
-  return THEMES[look?.theme === 'light' || look?.theme === 'melti' ? look.theme : 'dark'].board;
+  return THEMES[look?.theme === 'light' ? 'light' : 'dark'].board;
 }
 
 // Call once at start-up.

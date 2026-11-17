@@ -581,7 +581,7 @@ export class Board {
 
   // The image grows in from smaller, overshoots a touch and settles (like a drop
   // landing in water), with a ring and droplets in its own colour. `delay` in ms.
-  popIn(item, colour = 0x4da3ff, delay = 0) {
+  popIn(item, colour = 0x3d7bff, delay = 0) {
     const s = item.sprite;
     item.anim = { start: performance.now() + delay, sx: s.scale.x, sy: s.scale.y };
     const b = this.bounds([item]);
@@ -1325,16 +1325,16 @@ export class Board {
     }
     const line = 1.5 / zoom;
     for (const item of this.selection) {
-      o.poly(this.corners(item).flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x4da3ff, alignment: 0.5 });
+      o.poly(this.corners(item).flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x3d7bff, alignment: 0.5 });
     }
     const h = handles && this.handles(zoom);
     if (h) {
-      if (this.selection.length > 1) o.poly(h.corners.flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x4da3ff, alpha: 0.6 });
+      if (this.selection.length > 1) o.poly(h.corners.flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x3d7bff, alpha: 0.6 });
       if (!this.selection.some((x) => x.locked)) {
-        o.moveTo(h.topMid.x, h.topMid.y).lineTo(h.rotate.x, h.rotate.y).stroke({ width: line, color: 0x4da3ff });
-        o.circle(h.rotate.x, h.rotate.y, 5 / zoom).fill(0xffffff).stroke({ width: line, color: 0x4da3ff });
+        o.moveTo(h.topMid.x, h.topMid.y).lineTo(h.rotate.x, h.rotate.y).stroke({ width: line, color: 0x3d7bff });
+        o.circle(h.rotate.x, h.rotate.y, 5 / zoom).fill(0xffffff).stroke({ width: line, color: 0x3d7bff });
         const r = 4.5 / zoom;
-        for (const c of h.corners) o.roundRect(c.x - r, c.y - r, r * 2, r * 2, r * 0.5).fill(0xffffff).stroke({ width: line, color: 0x4da3ff });
+        for (const c of h.corners) o.roundRect(c.x - r, c.y - r, r * 2, r * 2, r * 0.5).fill(0xffffff).stroke({ width: line, color: 0x3d7bff });
       }
     }
     // Snapping guides: thin pink lines where edges or middles line up.
@@ -1346,7 +1346,7 @@ export class Board {
     if (this.marquee) {
       const m = this.marquee;
       o.rect(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1), Math.abs(m.x1 - m.x0), Math.abs(m.y1 - m.y0))
-        .fill({ color: 0x4da3ff, alpha: 0.08 }).stroke({ width: 1 / zoom, color: 0x4da3ff });
+        .fill({ color: 0x3d7bff, alpha: 0.08 }).stroke({ width: 1 / zoom, color: 0x3d7bff });
     }
   }
 
