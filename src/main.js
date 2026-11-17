@@ -29,7 +29,7 @@ import { RESULT_DRAG_TYPE } from './search-pane.js';
 import { SOURCES, loadKeys, downloadResult } from './sources.js';
 import { TYPE_ICONS, TYPE_NAMES } from './viewports.js';
 import { PANE_TYPES } from './layout.js';
-import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, nextTheme, pastelName, applyLook, currentLook, defaultLook } from './theme.js';
+import { loadTheme, themeColours, toggleTheme, currentTheme, themeInk, nextTheme, applyLook, currentLook, defaultLook } from './theme.js';
 import { VERSION } from './version.js';
 import { LEVELS } from './board.js';
 import { BRAND_FONTS, customFonts, customFontBlob, loadCustomFonts, addFontFile, uploadFont, ensureFont, isFontFile, isBrandFont } from './fonts.js';
@@ -602,8 +602,6 @@ function alignItems() {
     { label: 'Spread evenly down', action: () => alignSelection('spread-y') },
     '-',
     { label: 'Arrange in a grid', action: arrangeSelection },
-    { label: 'Lay out as a storyboard', action: storyboardSelection },
-    { label: 'Colour script (main colours under each image)', action: colourScript },
   ];
 }
 
@@ -1664,6 +1662,40 @@ async function exportFrames(frames, kind = 'pdf') {
     console.warn(err);
     toast("Couldn't make the file.");
   }
+}
+
+// A picture of the selection (or of the whole board, if nothing is selected), to send to
+// someone: a PNG, as sharp as the images allow up to 6000 pixels on its longest side.
+async function exportImage() {
+  const sel = board.selection.length ? board.selection : null;
+  const b = board.bounds(sel);
+  if (!b) { toast('There is nothing to export yet.'); return; }
+  const pad = Math.max(b.width, b.height) * 0.03;
+  const bounds = { x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 };
+  const k = Math.min(2, 6000 / Math.max(bounds.width, bounds.height), maxTexture / Math.max(bounds.width, bounds.height));
+  const W = Math.max(1, Math.round(bounds.width * k)), H = Math.max(1, Math.round(bounds.height * k));
+  toast('Making the image…', 30000);
+  try {
+    await sharpenInside(bounds, k, board);
+    const canvas = viewports.renderRegion(board, bounds, W, H, parseInt(themeColours().board.slice(1), 16));
+    detailSoon();
+    requestRender();
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    downloadBlob(blob, `${current?.name || 'Board'}${sel ? ' - selection' : ''}.png`);
+    toast(`Saved a ${W} × ${H} image.`, 2400);
+  } catch (err) {
+    console.warn(err);
+    toast("Couldn't make the image.");
+  }
+}
+
+// Greyscale view: see the whole board without colour, to judge values (light and dark).
+// It only changes what you see; the images keep their colour.
+let greyView = false;
+function toggleGreyView() {
+  greyView = !greyView;
+  document.body.classList.toggle('grey-view', greyView);
+  toast(greyView ? 'Greyscale view: values only. Press G to see colour again.' : 'Colour is back.', 2200);
 }
 
 // The main colours of an image (what's visible of it), biggest share first.
@@ -3258,7 +3290,6 @@ document.getElementById('home-button').addEventListener('click', goHome);
 // The look belongs to the board that's open (its preview on the home screen matches).
 function cycleTheme() {
   toggleTheme();
-  if (currentTheme() === 'pastel') toast(`Colour mode: ${pastelName()}`, 1400);
   updateThemeButtons();
   if (mainDoc) {
     mainDoc.meta.look = currentLook();
@@ -3273,7 +3304,7 @@ function updateThemeButtons() {
   for (const id of ['bar-theme-button']) {
     const b = document.getElementById(id);
     b.dataset.next = next;
-    b.title = `Switch to ${next === 'colour' ? 'colour mode (a random soft palette)' : `${next} mode`}`;
+    b.title = `Switch to ${next} mode`;
   }
 }
 document.getElementById('bar-theme-button').addEventListener('click', cycleTheme);
@@ -3288,7 +3319,7 @@ const HELP = [
   ['Getting around', [
     ['Zoom', 'Scroll, pinch, or + / −'], ['Move around', 'Space + drag, middle mouse, the Hand (H), or two fingers on a trackpad'],
     ['See everything / the selection', 'Shift + 1 / Shift + 2 (or F)'], ['Actual size', '1 or Ctrl/⌘ + 0'],
-    ['Map of the board', 'Map button, top right'], ['Split views and favourites', 'Layouts button, top right'],
+    ['Map of the board', 'Map button, top right'], ['Greyscale view (check values)', 'G'], ['Split views and favourites', 'Layouts button, top right'],
     ['Floating window that stays on top', 'Layouts button → Float this view'],
   ]],
   ['Adding', [
@@ -3308,7 +3339,7 @@ const HELP = [
   ['Panes and boards', [
     ['Split side by side / top and bottom', 'Alt + V / H'], ['Close pane', 'Alt + W'], ['Maximize pane', 'Ctrl + Space'],
     ['Move several dividers', 'Drag where they meet'], ['Switch board tab', 'Alt + 1…9'],
-    ['Undo / redo', 'Ctrl/⌘ + Z / Shift + Z'], ['Save to file / open', 'Ctrl/⌘ + S / O'],
+    ['Undo / redo', 'Ctrl/⌘ + Z / Shift + Z'], ['Save to file / open', 'Ctrl/⌘ + S / O'], ['Export as an image or PDF', '⋯ menu, top right'],
   ]],
 ];
 const helpPanel = document.createElement('div');
@@ -3320,7 +3351,7 @@ helpPanel.innerHTML = `
     <div class="help-cols">${HELP.map(([title, rows]) => `
       <section><h3>${title}</h3>${rows.map(([what, how]) => `<div class="help-row"><span>${what}</span><kbd>${how}</kbd></div>`).join('')}</section>`).join('')}
     </div>
-    <p class="help-foot">Right-click anything for more. Settings (light, dark, colour mode, snapping, liquid motion) are in the right-click menu and the ⋯ button.</p>
+    <p class="help-foot">Right-click anything for what you can do with it. The board's menu and the settings (light or dark, snapping, scrolling, liquid motion) are under the ⋯ button, top right.</p>
   </div>`;
 document.body.appendChild(helpPanel);
 function toggleHelp(open = helpPanel.hidden) {
@@ -4740,28 +4771,30 @@ function openMenu(x, y, pane) {
   const one = board.selected;
   const n = sel.length;
 
+  // The board's own menu, in groups: files, sharing a picture of it, boards, views.
+  // (Palettes and storyboards have their buttons in the toolbar; they aren't repeated here.)
+  const anyLocked = [...board.items, ...board.notes, ...board.shapes, ...board.frames].some((x) => x.locked);
   const boardMenu = [
     { label: 'Save to file', shortcut: `${MOD}S`, action: () => saveToFile() },
     { label: 'Save to file as…', shortcut: `${MOD}Shift+S`, action: () => saveToFile({ saveAs: true }) },
     { label: 'Open file…', shortcut: `${MOD}O`, action: openFile },
-    { label: 'Back up all boards', action: backupAllBoards },
+    '-',
+    { label: n ? 'Export the selection as an image' : 'Export the board as an image', disabled: board.isEmpty(), action: exportImage },
+    { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
     '-',
     { label: 'New board', action: newBoard },
+    { label: 'New board from starred images', disabled: !board.starred.length, action: boardFromStarred },
     { label: 'All boards', action: goHome },
     '-',
-    { label: 'Palettes', action: () => palettePanel.toggle() },
-    { label: 'New storyboard…', action: () => { board.selection = []; storyboardDialog(); } },
-    ...(board.storyboards.length ? [{ label: 'Storyboards', submenu: board.storyboards.map((sb) => ({ label: sb.name, action: () => { storyboards.edit(sb); storyboards.api.focus(storyboards.bounds(sb)); } })) }] : []),
-    { label: 'Export frames as PDF', disabled: !board.frames.length, action: () => exportFrames([...board.frames]) },
-    { label: 'New board from starred images', disabled: !board.starred.length, action: boardFromStarred },
     { label: 'Map of the board', action: toggleMap },
     { label: 'Float this view (stays on top)', action: () => floatView(pane) },
+    { label: greyView ? 'Greyscale view: on ✓' : 'Greyscale view (check values)', shortcut: 'G', action: toggleGreyView },
+    '-',
     { label: 'Capture screen…', action: captureScreen },
-    { label: 'Lock everything', action: () => setLocked('all', true) },
-    { label: 'Unlock everything', action: () => setLocked('all', false) },
+    anyLocked ? { label: 'Unlock everything', action: () => setLocked('all', false) } : { label: 'Lock everything', disabled: board.isEmpty(), action: () => setLocked('all', true) },
   ];
   const settingsMenu = [
-    { label: { light: 'Light mode', colour: 'Colour mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
+    { label: { light: 'Light mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
     { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
     { label: 'Scrolling', submenu: [
@@ -4788,11 +4821,8 @@ function openMenu(x, y, pane) {
     { label: l.maximized ? 'Restore panes' : 'Maximize pane', shortcut: 'Ctrl+Space', disabled: !several, action: () => paneAction('maximize', pane) },
     { label: 'Close pane', shortcut: 'Alt+W', disabled: !several, action: () => paneAction('close', pane) },
   ];
-  const groups = ['-',
-    { label: 'Pane', submenu: paneMenu },
-    { label: 'Board', submenu: boardMenu },
-    { label: 'Settings', submenu: settingsMenu },
-  ];
+  // (The board's menu and the settings live under the ⋯ button, top right.)
+  const groups = ['-', { label: 'Pane', submenu: paneMenu }];
 
   // Nothing selected: everyday things, then the groups.
   if (!n) {
@@ -4825,8 +4855,7 @@ function openMenu(x, y, pane) {
     ] : []),
     '-',
     ...(one?.kind === 'image' ? [{ label: 'Extract colours', action: extractColours }] : []),
-    { label: 'Colour script strip…', action: colourStripPanel },
-    { label: 'Colour strips under each image', action: colourScript },
+    ...(imgs.length > 1 ? [{ label: 'Colour script…', action: colourStripPanel }] : []),
     '-',
     ...(one?.kind === 'image' ? [
       { label: 'Copy image', action: () => copyImage(one) },
@@ -4836,8 +4865,7 @@ function openMenu(x, y, pane) {
   ];
   const arrangeMenu = [
     ...(n > 1 ? [{ label: 'Align and spread', submenu: alignItems() }] : []),
-    ...(imgs.length > 1 ? [{ label: 'Lay out as a storyboard', action: storyboardSelection }] : []),
-    ...(imgs.length ? [{ label: 'Make a storyboard sheet…', action: storyboardDialog }] : []),
+    ...(imgs.length > 1 ? [{ label: 'Make a storyboard from these…', action: storyboardDialog }] : []),
     '-',
     ...(n > 1 ? [{ label: 'Group', shortcut: `${MOD}G`, action: groupSelection }] : []),
     ...(sel.some((s) => s.group) ? [{ label: 'Ungroup', shortcut: `${MOD}Shift+G`, action: ungroupSelection }] : []),
@@ -4975,6 +5003,8 @@ window.addEventListener('keydown', (e) => {
     if (cropping) { cropping = null; toast('Crop cancelled', 1200); }
     else board.selected = null;
     requestRender();
+  } else if (e.code === 'KeyG') {
+    toggleGreyView();
   } else if (e.code === 'KeyD' && !e.shiftKey) {
     advancedDrawing();
   } else if (TOOL_KEYS[e.code]) {

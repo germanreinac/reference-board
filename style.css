@@ -2100,3 +2100,6 @@ body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { ani
 .brand-sub { font-weight: 500; }
 .project-fold span { font-weight: 700; font-size: 17px; }
 .board-card .name { font-weight: 600; }
+
+/* Greyscale view: the board without colour, to judge values. Only the board, not the buttons. */
+body.grey-view #stage { filter: grayscale(1); }

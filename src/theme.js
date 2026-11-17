@@ -52,8 +52,9 @@ function pastelColours(i) {
 }
 
 let pastel = 0;
-const NAMES = ['dark', 'light', 'pastel'];
-const named = (n) => (NAMES.includes(n) ? n : 'dark');
+const NAMES = ['dark', 'light'];
+// (Boards saved in the old colour mode open in light.)
+const named = (n) => (n === 'pastel' ? 'light' : NAMES.includes(n) ? n : 'dark');
 
 export function currentTheme() {
   const t = document.body.dataset.theme;
@@ -87,30 +88,17 @@ export function setTheme(name) {
   window.dispatchEvent(new CustomEvent('themechange', { detail: themeColours() }));
 }
 
-// The theme button goes round: dark → light → colour → dark… Each time it reaches colour,
-// it picks one of the palettes at random (never the same one twice in a row).
+// The theme button switches between dark and light.
 export function toggleTheme() {
-  const t = currentTheme();
-  if (t === 'dark') setTheme('light');
-  else if (t === 'light') randomColours();
-  else setTheme('dark');
+  setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
 }
-export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'dark' }[currentTheme()]);
-
-// Colour mode: a different random palette each time.
-export function randomColours() {
-  let next = pastel;
-  while (PASTELS.length > 1 && next === pastel) next = Math.floor(Math.random() * PASTELS.length);
-  pastel = next;
-  setTheme('pastel');
-  return pastelName();
-}
+export const nextTheme = () => (currentTheme() === 'dark' ? 'light' : 'dark');
 
 // A board's look, and the look new boards start with (the last one picked).
 export const currentLook = () => ({ theme: currentTheme(), pastel });
 export function defaultLook() {
   try {
-    return { theme: localStorage.getItem(STORAGE) || 'dark', pastel: Number(localStorage.getItem(PASTEL_STORAGE)) || 0 };
+    return { theme: named(localStorage.getItem(STORAGE)), pastel: Number(localStorage.getItem(PASTEL_STORAGE)) || 0 };
   } catch {
     return { theme: 'dark', pastel: 0 };
   }
@@ -129,7 +117,7 @@ export function applyLook(look = defaultLook()) {
 // The background colour of a board with this look (for its preview on the home screen).
 export function lookBackground(look) {
   if (look?.theme === 'pastel') return pastelColours(Number(look.pastel) || 0).drawn.board;
-  return THEMES[look?.theme === 'light' ? 'light' : 'dark'].board;
+  return THEMES[look?.theme === 'light' || look?.theme === 'pastel' ? 'light' : 'dark'].board;
 }
 
 // Call once at start-up.
