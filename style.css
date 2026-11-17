@@ -2059,7 +2059,9 @@ body :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .s
 body[data-tone="light"] :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) { box-shadow: 0 10px 30px rgba(60, 40, 80, 0.16); }
 body :is(.tool, #selection-bar button, .pane-tools button, #board-bar > button, .menu-item) { border-radius: var(--blob-s); }
 body .tool.active { background: var(--melt); color: #fff; }
-body .menu-item:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-strong); }
+body .menu-item:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-strong); }
+.star-actions { flex-wrap: wrap; }
+.star-actions button { white-space: nowrap; flex: 1 1 auto; }
 body .board-card { border: 1px solid var(--panel-border); border-radius: 18px 22px 17px 21px / 21px 17px 22px 18px; overflow: hidden; transition: border-color 0.15s, transform 0.2s, box-shadow 0.2s; }
 body .board-card:hover { border-color: var(--accent); box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 22%, transparent); transform: translateY(-2px); }
 body .board-card.new .thumb svg { stroke: var(--accent); }

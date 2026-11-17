@@ -1,7 +1,7 @@
 {
   "name": "Melti",
   "short_name": "Melti",
-  "description": "A reference board for artists: split views onto one infinite canvas.",
+  "description": "Where references melt into art direction: boards, split views, storyboards and palettes for artists.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
