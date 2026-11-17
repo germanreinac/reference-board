@@ -80,7 +80,10 @@ const viewports = new Viewports({
   requestRender: () => requestRender(),
   onPaneAction: (action, pane, button) => paneAction(action, pane, button),
   onLayoutChanged: () => viewChanged(),
-  createEditor: (pane, host) => createEditor(pane, host, {
+  createEditor: (pane, host) => createEditor(pane, host, editorActions),
+});
+// What the tools in panes (image search, the mannequin) can ask the app to do.
+const editorActions = {
     add: (result) => addSearchResult(result),
     fill: (results, query) => fillBoard(results, query),
     changed: () => viewChanged(),
@@ -91,8 +94,7 @@ const viewports = new Viewports({
       const it = board.selection.find((x) => x.kind === 'image' && x.blob);
       return it ? (await imageColours(it, 5)).map((c) => c.hex) : null;
     },
-  }),
-});
+  };
 const layout = () => viewports.layout;
 viewports.setColours(themeColours());
 board.setInk(themeInk());
@@ -3019,6 +3021,65 @@ function layoutsMenu(button) {
 }
 document.getElementById('layouts-button').addEventListener('click', (e) => layoutsMenu(e.currentTarget));
 
+// ---------- The mannequin, floating over the board ----------
+//
+// A small window with the 3D figure that sits on top of the board, so you can pose it and
+// look at your references at the same time. Drag it by its bar, resize it from its corner,
+// "Dock" puts it in a pane of its own instead. Its pose and place are remembered.
+
+const MQ_KEY = 'refboard.mannequinWindow';
+let mqWin = null;
+function toggleMannequin() {
+  if (mqWin) { closeMannequin(); return; }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(MQ_KEY) || '{}') || {}; } catch {}
+  const el = document.createElement('div');
+  el.id = 'mannequin-window';
+  el.innerHTML = '<div class="mqw-bar"><strong>Mannequin</strong><span></span><button data-a="dock" title="Put it in a pane beside the board">Dock</button><button data-a="close" title="Close">✕</button></div><div class="mqw-host pane-editor"></div>';
+  const w = Math.min(saved.w || 440, window.innerWidth - 24), h = Math.min(saved.h || 520, window.innerHeight - 80);
+  Object.assign(el.style, { width: `${w}px`, height: `${h}px`, left: `${Math.max(8, Math.min(saved.x ?? window.innerWidth - w - 70, window.innerWidth - w - 8))}px`, top: `${Math.max(40, Math.min(saved.y ?? 70, window.innerHeight - h - 8))}px` });
+  document.body.appendChild(el);
+  const host = el.querySelector('.mqw-host');
+  const pane = { type: 'mannequin', state: saved.state || {} };
+  const editor = createEditor(pane, host, { ...editorActions, changed: () => remember() });
+  const fit = () => editor.layout({ x: 0, y: 0, w: host.clientWidth, h: host.clientHeight });
+  const remember = () => {
+    const r = el.getBoundingClientRect();
+    try { localStorage.setItem(MQ_KEY, JSON.stringify({ x: r.left, y: r.top, w: r.width, h: r.height, state: pane.state })); } catch {}
+  };
+  const watch = new ResizeObserver(() => { fit(); remember(); });
+  watch.observe(host);
+  // Drag it by its bar.
+  const bar = el.querySelector('.mqw-bar');
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    const r = el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    bar.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      el.style.left = `${Math.max(-r.width + 80, Math.min(window.innerWidth - 80, ev.clientX - dx))}px`;
+      el.style.top = `${Math.max(36, Math.min(window.innerHeight - 40, ev.clientY - dy))}px`;
+    };
+    const up = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); remember(); };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up);
+  });
+  for (const t of ['pointerdown', 'wheel', 'dblclick', 'contextmenu']) el.addEventListener(t, (e) => e.stopPropagation());
+  el.querySelector('[data-a="close"]').addEventListener('click', closeMannequin);
+  el.querySelector('[data-a="dock"]').addEventListener('click', () => { closeMannequin(); openToolPane('mannequin'); });
+  mqWin = { el, editor, watch, remember };
+  document.querySelector('.mannequin-button')?.classList.add('active');
+  fit();
+}
+function closeMannequin() {
+  if (!mqWin) return;
+  mqWin.watch.disconnect();
+  mqWin.editor.destroy();   // (saves its pose into the window's state first)
+  mqWin.remember();
+  mqWin.el.remove();
+  mqWin = null;
+  document.querySelector('.mannequin-button')?.classList.remove('active');
+}
+
 // ---------- An empty board: three ways to start ----------
 {
   const pick = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
@@ -3979,7 +4040,7 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
   };
   dock.append(
     extra('<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3.5 3.5"/></svg>', `Image search (${MOD}Shift+F): find references and drop them on the board`, 'search-button', () => openToolPane('search')),
-    extra('<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>', 'Mannequin: a poseable 3D figure to draw from', 'mannequin-button', () => openToolPane('mannequin')),
+    extra('<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>', 'Mannequin: a poseable 3D figure in a small window over the board', 'mannequin-button', () => toggleMannequin()),
     Object.assign(document.createElement('i'), { className: 'dock-sep' }),
     ...Object.values(toolbar.extraButtons),
   );
