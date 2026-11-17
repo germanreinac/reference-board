@@ -209,9 +209,9 @@ export class Board {
       .fill(f.fill ? { color: f.fill, alpha: 1 } : { color: this.ink, alpha: 0.035 })
       .stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: f.fill ? 0.1 : 0.22 });
     f.titleSize = f.titleBase * (LEVELS[f.level]?.size ?? 1);
-    f.title.text = f.name || 'Frame';
+    f.title.text = f.name || 'Add a title';
     Object.assign(f.title.style, { fontFamily: fontStack(f.font || 'Inter'), fontWeight: String(f.weight || 600), fontStyle: f.italic ? 'italic' : 'normal', fontSize: f.titleSize, fill: f.color || this.ink });
-    f.title.alpha = 0.7;
+    f.title.alpha = f.name ? 0.7 : 0.32;
     f.title.position.set(-f.w / 2, -f.h / 2 - f.titleSize * 1.5);
     this._wrapTitle(f);
   }
@@ -221,7 +221,7 @@ export class Board {
   // where it started. Each corner is a small curved gap (no letters). If even one lap
   // isn't enough room, the letters get smaller so it all fits.
   _wrapTitle(f) {
-    const text = f.name || 'Frame';
+    const text = f.name || 'Add a title';
     const style = f.title.style;
     const full = CanvasTextMetrics.measureText(text, style).width;
     const wrapped = full > f.w;
@@ -1041,7 +1041,8 @@ export class Board {
   // Lay a note or text out again after any change to its words or style.
   layoutNote(note) {
     const text = note.style === 'text';
-    if (text) note.fontSize = note.base * LEVELS[note.level].size;
+    // (Sticky notes have sizes too: Body is the size they were made at.)
+    if (text || (note.level && note.level !== 'body') || note.levelled) { note.fontSize = note.base * LEVELS[note.level].size; note.levelled = true; }
     const fs = note.fontSize;
     const boxed = text && note.box && note.box !== 'none';
     const pad = text ? (boxed ? fs * 0.45 : fs * 0.12) : fs * 0.55;
@@ -1088,7 +1089,7 @@ export class Board {
     const s = n.sprite;
     return {
       id: n.id, x: s.x, y: s.y, text: n.text, color: n.color, fontSize: n.fontSize,
-      ...(n.style === 'text' ? { style: 'text', level: n.level, base: n.base } : {}),
+      ...(n.style === 'text' ? { style: 'text', level: n.level, base: n.base } : n.level && n.level !== 'body' ? { level: n.level, base: n.base } : {}),
       ...(n.font && n.font !== 'Inter' ? { font: n.font } : {}),
       ...(n.weight && n.weight !== (n.style === 'text' ? LEVELS[n.level].weight : 400) ? { weight: n.weight } : {}),
       ...(n.italic ? { italic: true } : {}),

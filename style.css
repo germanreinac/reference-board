@@ -2103,3 +2103,15 @@ body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { ani
 
 /* Greyscale view: the board without colour, to judge values. Only the board, not the buttons. */
 body.grey-view #stage { filter: grayscale(1); }
+
+/* The studio dock: the bigger tools, on the right, apart from the everyday toolbar */
+#studio-dock {
+  position: fixed; right: 10px; top: 50%; z-index: 4; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px;
+  border: 1px solid var(--panel-border); border-radius: var(--blob);
+  background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+body[data-tone="light"] #studio-dock { box-shadow: 0 10px 30px rgba(60, 40, 80, 0.16); }
+#studio-dock .dock-sep { width: 18px; height: 1px; margin: 3px 0; background: var(--panel-border); }
+body:not([data-mode="board"]) #studio-dock { display: none; }
+@media (max-width: 560px) { #studio-dock { top: 96px; transform: none; } }

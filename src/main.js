@@ -3299,16 +3299,7 @@ function cycleTheme() {
     syncSoon();
   }
 }
-function updateThemeButtons() {
-  const next = nextTheme();
-  for (const id of ['bar-theme-button']) {
-    const b = document.getElementById(id);
-    b.dataset.next = next;
-    b.title = `Switch to ${next} mode`;
-  }
-}
-document.getElementById('bar-theme-button').addEventListener('click', cycleTheme);
-updateThemeButtons();
+function updateThemeButtons() {}   // (the look is switched from the ⋯ menu now)
 
 // ---------- Shortcuts and help ----------
 //
@@ -3359,7 +3350,6 @@ function toggleHelp(open = helpPanel.hidden) {
 }
 helpPanel.addEventListener('pointerdown', (e) => { if (e.target === helpPanel) toggleHelp(false); });
 helpPanel.querySelector('.help-close').addEventListener('click', () => toggleHelp(false));
-document.getElementById('help-button').addEventListener('click', () => toggleHelp());
 document.getElementById('board-menu-button').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   openMenu(r.right - 230, r.bottom + 4, null);
@@ -3461,13 +3451,15 @@ function setPaneType(pane, type) {
 }
 
 // Ctrl/⌘+F: go to the search pane, or open one next to the pane you're in.
-function openSearch() {
-  const existing = layout().visiblePanes().find((p) => p.type === 'search');
+function openSearch() { openToolPane('search'); }
+// Open image search or the mannequin in a pane next to the board (or go to it if it's open).
+function openToolPane(type) {
+  const existing = layout().visiblePanes().find((p) => p.type === type);
   if (existing) return viewports.editorOf(existing)?.focus();
   const pane = hoverPane() || layout().visiblePanes()[0];
   const copy = layout().split(pane, pane.rect.w >= pane.rect.h ? 'row' : 'col');
-  if (!copy) return toast('There\'s no room for a search pane here. Make a pane bigger first.');
-  copy.type = 'search';
+  if (!copy) return toast('There\'s no room for another pane here. Make a pane bigger first.');
+  copy.type = type;
   copy.state = {};
   viewports.rebuild();
   viewChanged();
@@ -3829,6 +3821,29 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
   onUndo: undo,
   onRedo: redo,
 });
+// The studio tools sit in their own dock on the right, apart from the everyday tools at
+// the bottom: image search, the mannequin, advanced drawing, storyboard and palettes.
+{
+  const dock = document.createElement('div');
+  dock.id = 'studio-dock';
+  dock.addEventListener('pointerdown', (e) => e.stopPropagation());
+  const extra = (icon, title, cls, onClick) => {
+    const b = document.createElement('button');
+    b.className = `tool ${cls}`;
+    b.title = title;
+    b.innerHTML = icon;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  dock.append(
+    extra('<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3.5 3.5"/></svg>', `Image search (${MOD}F): find references and drop them on the board`, 'search-button', () => openToolPane('search')),
+    extra('<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>', 'Mannequin: a poseable 3D figure to draw from', 'mannequin-button', () => openToolPane('mannequin')),
+    Object.assign(document.createElement('i'), { className: 'dock-sep' }),
+    ...Object.values(toolbar.extraButtons),
+  );
+  toolbar.el.querySelector('.tool-group.extras')?.remove();
+  document.body.appendChild(dock);
+}
 const brushCursor = new BrushCursor(document.getElementById('brush-cursor'));
 
 // When a note's editing ends: save the text, or remove the note if it's empty.
@@ -4062,12 +4077,14 @@ const SEL_ICONS = {
   caption: '<svg viewBox="0 0 16 16"><rect x="2" y="1.5" width="12" height="8" rx="1.5"/><path d="M2.5 12h11M2.5 14.5h7"/></svg>',
   paint: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   editSketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/><circle cx="12.5" cy="12.5" r="2" fill="currentColor" stroke="none"/></svg>',
+  title: '<svg viewBox="0 0 16 16"><path d="M3.500 4V3h9v1M8 3v10M6 13h4"/></svg>',
   script: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.2"/><path d="M5.8 3.5v9M10.2 3.5v9"/><path d="M1.5 9.5h13" opacity=".6"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
 const SEL_ACTIONS = [
   ['star', 'Star as a favourite (M)', toggleStar, (sel) => sel.some((x) => x.kind === 'image')],
   ['caption', 'Write a caption under it (Enter, or double-click the image)', () => editCaption(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['title', 'Write the frame\'s title (Enter, or double-click the title)', () => renameFrame(board.selected, activePane || targetBoardPane()), (sel) => sel.length === 1 && sel[0].kind === 'frame' && !sel[0].sbGen],
   ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
   ['lock', 'Lock (L)', () => setLocked(null, true)],
   ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image')],
@@ -4219,7 +4236,7 @@ function setTextProps(props) {
   }
   if (!notes.length) return;
   editSelection((n) => {
-    if (props.level && n.style === 'text') { n.level = props.level; n.weight = LEVELS[props.level].weight; }
+    if (props.level) { n.level = props.level; n.weight = LEVELS[props.level].weight; }
     for (const k of ['font', 'italic', 'align', 'color', 'weight', 'box']) if (k in props) n[k] = props[k];
     board.layoutNote(n);
   }, notes);
@@ -4318,10 +4335,10 @@ function updateTextControls(sel) {
   if (key === lastControls) return;
   lastControls = key;
   const allText = notes.every((x) => x.style === 'text');
-  levelSelect.hidden = !allText;
+  levelSelect.hidden = false;   // every text has sizes: text, sticky notes and frame titles
   textControls.querySelector('[data-text="box"]').hidden = !allText;
   textControls.querySelector('[data-text="box"]').classList.toggle('on', (n.box || 'none') !== 'none');
-  if (allText) levelSelect.value = n.level;
+  levelSelect.value = n.level || 'body';
   fillFontMenu(n.font);
   textControls.querySelector('[data-text="bold"]').classList.toggle('on', notes.every((x) => x.weight >= 600));
   textControls.querySelector('[data-text="italic"]').classList.toggle('on', notes.every((x) => x.italic));
@@ -4619,6 +4636,8 @@ function endDrag() {
     board.selected = it;
     toolbar.setTool('select');
     contentChanged();
+    // A new frame opens its title straight away, ready to type (Esc keeps it without one).
+    if (kind === 'frame') { const fp = d.pane; setTimeout(() => { if (board.selected === it) renameFrame(it, fp); }, 30); }
   } else if (d.kind === 'move' && d.moved && moveToOtherBoard(d)) {
     // (handled: dropped onto a pane that shows another board)
   } else if (['move', 'scale', 'rotate'].includes(d.kind)) {
@@ -4794,8 +4813,6 @@ function openMenu(x, y, pane) {
     anyLocked ? { label: 'Unlock everything', action: () => setLocked('all', false) } : { label: 'Lock everything', disabled: board.isEmpty(), action: () => setLocked('all', true) },
   ];
   const settingsMenu = [
-    { label: { light: 'Light mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
-    { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
     { label: 'Scrolling', submenu: [
       { label: `Work it out for me${scrollMode ? '' : ' ✓'}`, action: () => setScrollMode(null) },
@@ -4811,7 +4828,10 @@ function openMenu(x, y, pane) {
 
   // The ⋯ button in the top bar: the board's own menu.
   if (!pane) {
-    showMenu(x, y, [...boardMenu, '-', { label: 'Settings', submenu: settingsMenu }]);
+    showMenu(x, y, [...boardMenu, '-',
+      { label: { light: 'Light mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
+      { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
+      { label: 'Settings', submenu: settingsMenu }]);
     return;
   }
 
@@ -4996,6 +5016,9 @@ window.addEventListener('keydown', (e) => {
     setLocked(null, true);
   } else if (e.code === 'KeyM') {
     if (e.shiftKey) setFocus(!board.focus); else toggleStar();
+  } else if (e.key === 'Enter' && board.selected?.kind === 'frame' && !board.selected.sbGen) {
+    e.preventDefault();
+    renameFrame(board.selected, targetBoardPane());
   } else if (e.key === 'Enter' && board.selected?.kind === 'image') {
     e.preventDefault();
     editCaption(board.selected, targetBoardPane());

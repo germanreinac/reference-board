@@ -53,7 +53,7 @@ export class Toolbar {
 
     // Moving around, then making things, then the bigger tools.
     this.toolButtons = {};
-    for (const tools of [['select', 'hand'], ['pen', 'eraser', 'text', 'note', 'shape', 'frame']]) {
+    for (const tools of [['select', 'hand'], ['pen', 'eraser'], ['text', 'note'], ['shape'], ['frame']]) {
       const toolGroup = this.group();
       for (const tool of tools) {
         const b = this.button(ICONS[tool] || ICONS.rect, TITLES[tool], () => {
