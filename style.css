@@ -1747,6 +1747,7 @@ body[data-motion="on"] #help-panel:not([hidden]) .help-box { animation: liquid-i
 .theme-cycle .eye { fill: currentColor; stroke: none; }
 .theme-cycle[data-next="light"] .icon-sun,
 .theme-cycle[data-next="colour"] .icon-colour,
+.theme-cycle[data-next="melti"] .icon-melti,
 .theme-cycle[data-next="dark"] .icon-moon { display: block; }
 body[data-motion="on"] .theme-cycle:hover svg { animation: alien-wobble 0.6s var(--soft); }
 
@@ -2014,3 +2015,54 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
   #map-panel { bottom: 110px; width: 170px; }
   #map-panel canvas { height: 116px; }
 }
+
+/* ---------- The Melti look (the brand) ----------
+   Fluor pink and electric blue around a calm, dark board; soft, uneven shapes instead of
+   straight boxes; chunky outlines. The images, selection boxes and text stay straight. */
+body[data-theme="melti"] {
+  --bg: #16151c; --gap: #ff3fa9; --line: #2a2838; --input: #100f16; --card: #1f1d2a;
+  --panel: #262336; --panel-2: #1c1a27; --panel-border: #3d3a5c; --border-strong: #5a55a0;
+  --overlay: rgba(22, 21, 30, 0.94); --dot: #3d3a5c; --text: #a39ec8; --text-strong: #f6f3ff;
+  --accent: #ff3fa9; --accent-2: #3d7bff;
+  --melt: linear-gradient(115deg, #ff3fa9, #b14dff 52%, #3d7bff);
+  --blob: 18px 26px 16px 24px / 24px 16px 26px 18px;
+  --blob-s: 10px 14px 9px 13px / 13px 9px 14px 10px;
+  color-scheme: dark;
+}
+body[data-theme="melti"][data-mode="home"], body[data-theme="melti"][data-mode="add"] { background: var(--bg); }
+html:has(body[data-theme="melti"]:not([data-mode="board"])) { background: #16151c; }
+
+/* The name: poured, in the two colours */
+body[data-theme="melti"] .wordmark {
+  background: var(--melt); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: url(#melt-ripple);
+  padding: 0.06em 0.04em 0.1em 0;
+}
+
+/* Soft shapes with chunky outlines */
+body[data-theme="melti"] :is(.text-button, .tab, .name-input, .search-input, .mood-input) { border-radius: var(--blob-s); }
+body[data-theme="melti"] .text-button { border: 2px solid var(--panel-border); padding: 5px 13px; font-weight: 600; }
+body[data-theme="melti"] .text-button:hover { background: var(--melt); border-color: transparent; color: #fff; }
+body[data-theme="melti"] :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) {
+  border: 2px solid var(--border-strong); border-radius: var(--blob);
+  box-shadow: 4px 5px 0 rgba(61, 123, 255, 0.55);
+}
+body[data-theme="melti"] :is(.tool, #selection-bar button, .pane-tools button, #board-bar > button, .menu-item) { border-radius: var(--blob-s); }
+body[data-theme="melti"] .tool.active { background: var(--melt); color: #fff; }
+body[data-theme="melti"] .menu-item:hover { background: var(--melt); color: #fff; }
+body[data-theme="melti"] .board-card { border: 2px solid var(--panel-border); border-radius: 22px 30px 20px 28px / 28px 20px 30px 22px; overflow: hidden; }
+body[data-theme="melti"] .board-card:hover { border-color: var(--accent); box-shadow: 5px 6px 0 var(--accent-2); transform: translate(-2px, -3px); }
+body[data-theme="melti"] .board-card.new .thumb svg { stroke: var(--accent); }
+body[data-theme="melti"] .project-fold span, body[data-theme="melti"] .home-main h1 { letter-spacing: -0.01em; }
+body[data-theme="melti"] #load-progress b { background: var(--melt); }
+body[data-theme="melti"] .pane-tools { border-radius: var(--blob-s); }
+body[data-theme="melti"] a { color: var(--accent); }
+body[data-theme="melti"] ::selection { background: #ff3fa9; color: #fff; }
+
+/* A little squish when you point at things (once, then still) */
+@keyframes melt-squish {
+  0% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
+  45% { border-radius: 15px 9px 14px 8px / 8px 14px 9px 15px; }
+  100% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
+}
+body[data-theme="melti"][data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }

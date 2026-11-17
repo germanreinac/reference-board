@@ -116,7 +116,8 @@ function setMode(m) {
   hideMenu();
   if (m === 'home') requestAnimationFrame(fitBrand);
   // The home screen is always dark; each board has its own look (set when it opens).
-  if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
+  // Outside a board the app is dark, or wears the Melti look if that's the one you last picked.
+  if (m !== 'board') { applyLook({ theme: defaultLook().theme === 'melti' ? 'melti' : 'dark' }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -3273,7 +3274,7 @@ function updateThemeButtons() {
   for (const id of ['bar-theme-button']) {
     const b = document.getElementById(id);
     b.dataset.next = next;
-    b.title = `Switch to ${next === 'colour' ? 'colour mode (a random soft palette)' : `${next} mode`}`;
+    b.title = `Switch to ${next === 'colour' ? 'colour mode (a random soft palette)' : next === 'melti' ? 'the Melti look (fluor and wobbly)' : `${next} mode`}`;
   }
 }
 document.getElementById('bar-theme-button').addEventListener('click', cycleTheme);
@@ -4761,7 +4762,7 @@ function openMenu(x, y, pane) {
     { label: 'Unlock everything', action: () => setLocked('all', false) },
   ];
   const settingsMenu = [
-    { label: { light: 'Light mode', colour: 'Colour mode', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
+    { label: { light: 'Light mode', colour: 'Colour mode', melti: 'Melti look', dark: 'Dark mode' }[nextTheme()], action: cycleTheme },
     { label: 'Shortcuts and help', shortcut: '?', action: toggleHelp },
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
     { label: 'Scrolling', submenu: [

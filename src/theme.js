@@ -11,6 +11,9 @@
 
 export const THEMES = {
   dark: { text: '#f2f2f4', board: '#1b1b1d', gap: '#08080a', dot: '#4a4a52', scene: 0x232327, floor: 0x2e2e33, grid: [0x3a3a40, 0x323237] },
+  // Melti: the brand look. A calm, dark board (so references read true) with fluor pink
+  // and electric blue around it, and soft, uneven shapes.
+  melti: { text: '#f6f3ff', board: '#16151c', gap: '#ff3fa9', dot: '#3d3a5c', scene: 0x1f1d2a, floor: 0x2a2740, grid: [0x3d3a5c, 0x322f4b] },
   light: { text: '#1f1f22', board: '#f1f1ef', gap: '#c9c9c6', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
 };
 
@@ -50,13 +53,15 @@ function pastelColours(i) {
 }
 
 let pastel = 0;
+const NAMES = ['dark', 'light', 'pastel', 'melti'];
+const named = (n) => (NAMES.includes(n) ? n : 'dark');
 
 export function currentTheme() {
   const t = document.body.dataset.theme;
-  return t === 'light' || t === 'pastel' ? t : 'dark';
+  return NAMES.includes(t) ? t : 'dark';
 }
 // Light or dark background? (Colour mode is light.)
-export const isLightTone = () => currentTheme() !== 'dark';
+export const isLightTone = () => currentTheme() === 'light' || currentTheme() === 'pastel';
 // The colour lines and text are drawn in on the board.
 export const themeInk = () => (currentTheme() === 'pastel' ? hex(pastelColours(pastel).drawn.text) : isLightTone() ? 0x1f1f22 : 0xffffff);
 export const pastelName = () => pastelColours(pastel).name;
@@ -68,7 +73,7 @@ export function themeColours() {
 function apply(name) {
   const body = document.body;
   body.dataset.theme = name;
-  body.dataset.tone = name === 'dark' ? 'dark' : 'light';
+  body.dataset.tone = name === 'dark' || name === 'melti' ? 'dark' : 'light';
   const vars = pastelColours(pastel).css;
   for (const k of Object.keys(vars)) {
     if (name === 'pastel') body.style.setProperty(k, vars[k]);
@@ -78,20 +83,21 @@ function apply(name) {
 }
 
 export function setTheme(name) {
-  apply(name === 'light' || name === 'pastel' ? name : 'dark');
+  apply(named(name));
   try { localStorage.setItem(STORAGE, currentTheme()); localStorage.setItem(PASTEL_STORAGE, String(pastel)); } catch {}
   window.dispatchEvent(new CustomEvent('themechange', { detail: themeColours() }));
 }
 
-// The theme button goes round: dark → light → colour → dark… Each time it reaches colour,
+// The theme button goes round: dark → light → colour → Melti → dark… Each time it reaches colour,
 // it picks one of the palettes at random (never the same one twice in a row).
 export function toggleTheme() {
   const t = currentTheme();
   if (t === 'dark') setTheme('light');
   else if (t === 'light') randomColours();
+  else if (t === 'pastel') setTheme('melti');
   else setTheme('dark');
 }
-export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'dark' }[currentTheme()]);
+export const nextTheme = () => ({ dark: 'light', light: 'colour', pastel: 'melti', melti: 'dark' }[currentTheme()]);
 
 // Colour mode: a different random palette each time.
 export function randomColours() {
@@ -114,7 +120,7 @@ export function defaultLook() {
 
 // Show a look (a board's, or the home screen's) without remembering it as the last pick.
 export function applyLook(look = defaultLook()) {
-  const name = look.theme === 'light' || look.theme === 'pastel' ? look.theme : 'dark';
+  const name = named(look.theme);
   const p = Number(look.pastel) || 0;
   if (name === currentTheme() && p === pastel && document.body.dataset.theme) return;
   pastel = p;
@@ -125,7 +131,7 @@ export function applyLook(look = defaultLook()) {
 // The background colour of a board with this look (for its preview on the home screen).
 export function lookBackground(look) {
   if (look?.theme === 'pastel') return pastelColours(Number(look.pastel) || 0).drawn.board;
-  return THEMES[look?.theme === 'light' ? 'light' : 'dark'].board;
+  return THEMES[look?.theme === 'light' || look?.theme === 'melti' ? look.theme : 'dark'].board;
 }
 
 // Call once at start-up.
@@ -135,5 +141,5 @@ export function loadTheme() {
     saved = localStorage.getItem(STORAGE) || 'dark';
     pastel = Number(localStorage.getItem(PASTEL_STORAGE)) || 0;
   } catch {}
-  apply(saved === 'light' || saved === 'pastel' ? saved : 'dark');
+  apply(named(saved));
 }
