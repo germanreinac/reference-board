@@ -18,8 +18,8 @@
   --accent: #ff3fa9;        /* fluor pink */
   --accent-2: #3d7bff;      /* electric blue */
   --melt: linear-gradient(115deg, var(--accent), #b14dff 52%, var(--accent-2));
-  --blob: 18px 26px 16px 24px / 24px 16px 26px 18px;       /* soft, uneven corners */
-  --blob-s: 10px 14px 9px 13px / 13px 9px 14px 10px;
+  --blob: 16px 20px 15px 19px / 19px 15px 20px 16px;       /* soft, gently uneven corners */
+  --blob-s: 9px 11px 8px 10px / 10px 8px 11px 9px;
   color-scheme: dark;
 }
 body[data-theme="light"] {
@@ -2038,36 +2038,36 @@ body .wordmark {
 }
 .wordmark span { display: inline-block; transform-origin: 50% 88%; will-change: transform; }
 @keyframes melt-jelly {
-  0%, 46%, 100% { transform: translate(0, 0) scale(1, 1); }
-  5%  { transform: translate(0, 0.03em) scale(1.07, 0.9); }
-  11% { transform: translate(0, -0.025em) scale(0.95, 1.07); }
-  17% { transform: translate(0, 0.01em) scale(1.035, 0.97); }
-  23% { transform: translate(0, -0.006em) scale(0.975, 1.03); }
-  30% { transform: translate(0, 0) scale(1.015, 0.99); }
-  38% { transform: translate(0, 0) scale(0.996, 1.004); }
+  0%, 32%, 100% { transform: translate(0, 0) scale(1, 1); }
+  3.5%  { transform: translate(0, 0.02em) scale(1.045, 0.94); }
+  7.5% { transform: translate(0, -0.015em) scale(0.97, 1.04); }
+  12% { transform: translate(0, 0.006em) scale(1.02, 0.985); }
+  16.500% { transform: translate(0, -0.003em) scale(0.99, 1.012); }
+  21% { transform: translate(0, 0) scale(1.006, 0.996); }
 }
-body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-jelly 5.2s cubic-bezier(0.36, 0.07, 0.3, 1) infinite; }
+body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-jelly 8s cubic-bezier(0.36, 0.07, 0.3, 1) infinite; }
 body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(2) { animation-delay: 0.11s; }
 body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(3) { animation-delay: 0.22s; }
 body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(4) { animation-delay: 0.33s; }
 body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(5) { animation-delay: 0.44s; }
 @media (prefers-reduced-motion: reduce) { .wordmark span { animation: none !important; } }
 
-/* Soft shapes with chunky outlines */
+/* Soft shapes: corners that are gently uneven, thin outlines and soft shadows. Colour is
+   kept for what's active (the chosen tool, what you point at), so it reads as an accent. */
 body :is(.text-button, .tab, .name-input, .search-input, .mood-input) { border-radius: var(--blob-s); }
-body .text-button { border: 2px solid var(--panel-border); padding: 5px 13px; font-weight: 600; }
-body .text-button:hover { background: var(--melt); border-color: transparent; color: #fff; }
+body .text-button { border: 1px solid var(--panel-border); padding: 5px 13px; font-weight: 600; transition: border-color 0.15s, background 0.15s, color 0.15s; }
+body .text-button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: var(--accent); color: var(--text-strong); }
 body :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) {
-  border: 2px solid var(--border-strong); border-radius: var(--blob);
-  box-shadow: 4px 5px 0 rgba(61, 123, 255, 0.55);
+  border: 1px solid var(--panel-border); border-radius: var(--blob);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
+body[data-tone="light"] :is(#toolbar, #selection-bar, .menu, #map-panel, #load-progress, #toast, .star-panel, .pal-panel, .help-box) { box-shadow: 0 10px 30px rgba(60, 40, 80, 0.16); }
 body :is(.tool, #selection-bar button, .pane-tools button, #board-bar > button, .menu-item) { border-radius: var(--blob-s); }
 body .tool.active { background: var(--melt); color: #fff; }
-body .menu-item:hover { background: var(--melt); color: #fff; }
-body .board-card { border: 2px solid var(--panel-border); border-radius: 22px 30px 20px 28px / 28px 20px 30px 22px; overflow: hidden; }
-body .board-card:hover { border-color: var(--accent); box-shadow: 5px 6px 0 var(--accent-2); transform: translate(-2px, -3px); }
+body .menu-item:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-strong); }
+body .board-card { border: 1px solid var(--panel-border); border-radius: 18px 22px 17px 21px / 21px 17px 22px 18px; overflow: hidden; transition: border-color 0.15s, transform 0.2s, box-shadow 0.2s; }
+body .board-card:hover { border-color: var(--accent); box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 22%, transparent); transform: translateY(-2px); }
 body .board-card.new .thumb svg { stroke: var(--accent); }
-body .project-fold span, body .home-main h1 { letter-spacing: -0.01em; }
 body #load-progress b { background: var(--melt); }
 body .pane-tools { border-radius: var(--blob-s); }
 body a { color: var(--accent); }
@@ -2075,15 +2075,17 @@ body ::selection { background: #ff3fa9; color: #fff; }
 
 /* A little squish when you point at things (once, then still) */
 @keyframes melt-squish {
-  0% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
-  45% { border-radius: 15px 9px 14px 8px / 8px 14px 9px 15px; }
-  100% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
+  0% { border-radius: 9px 11px 8px 10px / 10px 8px 11px 9px; }
+  45% { border-radius: 12px 8px 11px 7px / 7px 11px 8px 12px; }
+  100% { border-radius: 9px 11px 8px 10px / 10px 8px 11px 9px; }
+}
 }
 body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }
 
 /* ---------- The three typefaces ----------
-   Display (the name and headings): Fredoka, round and friendly.
-   Second (the one-liner, buttons, names of boards and projects): Bricolage Grotesque, a
+   Display (the name only): Fredoka, round and friendly. Headings use the second font,
+   so the playful part stays in the logo.
+   Second (headings, the one-liner, buttons, names of boards and projects): Bricolage Grotesque, a
    grotesque with character. Body (everything you read or type in the app's own panels):
    DM Sans, soft and plain. Text you write on a board keeps the font you pick for it. */
 :root {
@@ -2092,7 +2094,7 @@ body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { ani
   --font-body: "DM Sans", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 :is(.home-main h1, .help-head strong, .star-head strong, .pal-head strong, .sb-head strong, #add-page h1) {
-  font-family: var(--font-display); font-weight: 700; letter-spacing: 0;
+  font-family: var(--font-second); font-weight: 700; letter-spacing: -0.01em;
 }
 .home-main h1 { font-size: 26px; }
 :is(.brand-sub, .text-button, .board-card .name, .project-fold span, .tab, .help-cols h3, #board-bar > button span, .menu-item, .map-frames button) {
