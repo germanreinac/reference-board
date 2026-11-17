@@ -49,8 +49,7 @@ html, body {
   overflow: hidden;
   background: var(--gap);
   color: var(--text);
-  font: 13px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-feature-settings: "cv11", "ss01";
+  font: 13px/1.5 var(--font-body);
   user-select: none;
 }
 
@@ -1689,7 +1688,7 @@ body[data-motion="on"] .drag-ghost { animation: ghost-in 0.35s var(--soft) both;
   border-radius: 11px;
   background: var(--accent);
   color: #fff;
-  font: 600 12px/22px Inter, system-ui, sans-serif;
+  font: 600 12px/22px var(--font-body);
   text-align: center;
 }
 
@@ -2030,7 +2029,7 @@ html:has(body:not([data-mode="board"])) { background: #16151c; }
 /* The name: puffy letters in one colour, slowly leaning into each other and melting
    together where they touch, like a lava lamp. Slow and small; still if motion is off. */
 body .wordmark {
-  font-family: "DynaPuff", "Space Grotesk", Inter, system-ui, sans-serif;
+  font-family: var(--font-display);
   letter-spacing: -0.015em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
   color: var(--text-strong);
   filter: url(#melt-goo);
@@ -2072,3 +2071,24 @@ body ::selection { background: #ff3fa9; color: #fff; }
   100% { border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px; }
 }
 body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }
+
+/* ---------- The three typefaces ----------
+   Display (the name and headings): DynaPuff, puffy and poured.
+   Second (the one-liner, buttons, names of boards and projects): Bricolage Grotesque, a
+   grotesque with character. Body (everything you read or type in the app's own panels):
+   DM Sans, soft and plain. Text you write on a board keeps the font you pick for it. */
+:root {
+  --font-display: "DynaPuff", "Bricolage Grotesque", system-ui, sans-serif;
+  --font-second: "Bricolage Grotesque", "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+:is(.home-main h1, .help-head strong, .star-head strong, .pal-head strong, .sb-head strong, #add-page h1) {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: 0;
+}
+.home-main h1 { font-size: 26px; }
+:is(.brand-sub, .text-button, .board-card .name, .project-fold span, .tab, .help-cols h3, #board-bar > button span, .menu-item, .map-frames button) {
+  font-family: var(--font-second);
+}
+.brand-sub { font-weight: 500; }
+.project-fold span { font-weight: 700; font-size: 17px; }
+.board-card .name { font-weight: 600; }
