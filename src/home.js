@@ -102,7 +102,10 @@ export class Home {
   }
 
   async refresh() {
-    this.boards = (await store.listBoards()).sort((a, b) => b.updated - a.updated);
+    // Boards you've put in order by hand keep that order; new ones come first.
+    const placed = (b) => typeof b.order === 'number';
+    this.boards = (await store.listBoards()).sort((a, b) => (placed(a) - placed(b)) || (placed(a) ? a.order - b.order : b.updated - a.updated));
+    this._showTrash();
     const thumbs = new Map(await Promise.all(this.boards.map(async (b) => [b.id, await store.loadThumb(b.id).catch(() => null)])));
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls = [];
@@ -117,6 +120,57 @@ export class Home {
     }
     this.el.classList.toggle('no-boards', this.boards.length === 0);
     this.updateSelection();
+  }
+
+  // The trash: deleted boards, kept for 30 days. A quiet link at the bottom of the page.
+  async _showTrash() {
+    const link = this.el.querySelector('.trash-link');
+    const list = (await this.actions.trashed().catch(() => [])).sort((a, b) => b.trashed - a.trashed);
+    link.hidden = !list.length;
+    link.textContent = `Trash (${list.length})`;
+    link.onclick = () => {
+      const r = link.getBoundingClientRect();
+      const left = (b) => Math.max(0, 30 - Math.floor((Date.now() - b.trashed) / 864e5));
+      showMenu(r.left, r.top - 4, [
+        ...list.map((b) => ({ label: `${b.name}  ·  ${left(b)} days left`, submenu: [
+          { label: 'Bring it back', action: () => this.actions.restore([b.id]) },
+          { label: 'Delete for good', action: () => this.actions.purge([b.id]) },
+        ] })),
+        '-',
+        { label: 'Bring everything back', action: () => this.actions.restore(list.map((b) => b.id)) },
+        { label: 'Empty the trash', action: () => this.actions.purge(list.map((b) => b.id)) },
+      ]);
+    };
+  }
+
+  // Dropped on a card: the dragged boards go right before or after it (in its project).
+  _dropOnCard(card, record) {
+    const ok = (e) => e.dataTransfer?.types?.includes(DRAG_TYPE);
+    const side = (e) => { const r = card.getBoundingClientRect(); return e.clientX > r.left + r.width / 2 ? 'after' : 'before'; };
+    const clear = () => card.classList.remove('drop-before', 'drop-after');
+    card.addEventListener('dragover', (e) => {
+      if (!ok(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      clear();
+      card.classList.add(`drop-${side(e)}`);
+    });
+    card.addEventListener('dragleave', clear);
+    card.addEventListener('drop', (e) => {
+      if (!ok(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const where = side(e);
+      clear();
+      card.closest('.drop-here')?.classList.remove('drop-here');
+      const ids = JSON.parse(e.dataTransfer.getData(DRAG_TYPE) || '[]').filter((id) => id !== record.id);
+      if (!ids.length) return;
+      const group = record.group || '';
+      const order = this.boards.filter((b) => (b.group || '') === group && !ids.includes(b.id)).map((b) => b.id);
+      order.splice(order.indexOf(record.id) + (where === 'after' ? 1 : 0), 0, ...ids);
+      this.actions.arrange(ids, group, order);
+    });
   }
 
   // ---------- Projects ----------
@@ -353,6 +407,7 @@ export class Home {
       document.body.classList.add('dragging-boards');
     });
     card.addEventListener('dragend', () => document.body.classList.remove('dragging-boards'));
+    this._dropOnCard(card, record);
     return card;
   }
 

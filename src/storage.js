@@ -296,7 +296,10 @@ async function allOf(storeName, boardId) {
 }
 
 export const store = {
-  listBoards: () => run('boards', 'readonly', (tx) => tx.objectStore('boards').getAll()),
+  // Your boards (not the ones in the trash).
+  listBoards: async () => (await run('boards', 'readonly', (tx) => tx.objectStore('boards').getAll())).filter((b) => !b.trashed),
+  // Boards in the trash: deleted, but kept for 30 days in case you want them back.
+  listTrashed: async () => (await run('boards', 'readonly', (tx) => tx.objectStore('boards').getAll())).filter((b) => b.trashed),
   getBoard: (id) => run('boards', 'readonly', (tx) => tx.objectStore('boards').get(id)),
   putBoard: (record) => run('boards', 'readwrite', (tx) => tx.objectStore('boards').put(record)),
   // Delete a board with all its images and its preview.

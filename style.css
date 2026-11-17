@@ -2137,3 +2137,11 @@ body:not([data-mode="board"]) #studio-dock { display: none; }
 #find-box button { border: 0; background: none; color: var(--text); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 #find-box button:hover { color: var(--text-strong); }
 body:not([data-mode="board"]) #find-box { display: none; }
+
+/* Dragging boards into an order: a pink line shows where they'll land */
+.board-card.drop-before { box-shadow: -4px 0 0 0 var(--accent) !important; }
+.board-card.drop-after { box-shadow: 4px 0 0 0 var(--accent) !important; }
+/* The trash: a quiet link under the boards */
+.trash-link { display: block; margin: 28px 0 0; padding: 4px 0; border: 0; background: none; color: var(--text); font: 13px var(--font-second); cursor: pointer; }
+.trash-link[hidden] { display: none; }
+.trash-link:hover { color: var(--accent); }

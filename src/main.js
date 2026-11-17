@@ -2430,22 +2430,65 @@ async function renameBoard(id, name) {
   syncSoon();
 }
 
-// Delete boards (one or several, after asking once). Returns true if they were deleted.
+// Deleting a board moves it to the trash, where it's kept for 30 days (then it's deleted
+// for good). Its copy in Google Drive goes to Drive's own bin. Returns true if done.
+const TRASH_DAYS = 30;
 async function deleteBoards(ids) {
   const records = (await Promise.all(ids.map((id) => store.getBoard(id)))).filter(Boolean);
   if (!records.length) return false;
-  const what = records.length === 1 ? `"${records[0].name}"` : `these ${records.length} boards`;
-  if (!confirm(`Delete ${what}? This can't be undone.`)) return false;
   for (const rec of records) {
     drive.removeBoard(rec);
-    await store.deleteBoard(rec.id);
+    const { drive: gone, ...rest } = rec;   // (restoring it uploads it afresh)
+    await store.putBoard({ ...rest, trashed: Date.now() });
   }
   const gone = new Set(records.map((r) => r.id));
   tabIds = tabIds.filter((t) => !gone.has(t));
   saveTabs();
   announceBoards();
   await home.refresh();
+  toast(`${records.length === 1 ? `"${records[0].name}" is` : `${records.length} boards are`} in the trash, at the bottom of this page, for ${TRASH_DAYS} days.`, 4500);
   return true;
+}
+async function restoreBoards(ids) {
+  for (const id of ids) {
+    const rec = await store.getBoard(id);
+    if (!rec?.trashed) continue;
+    const { trashed, ...rest } = rec;
+    await store.putBoard({ ...rest, changed: Date.now() });
+  }
+  announceBoards();
+  await home.refresh();
+  syncSoon();
+}
+// Delete for good (asks first, unless they are simply too old).
+async function purgeBoards(ids, { ask = true } = {}) {
+  const records = (await Promise.all(ids.map((id) => store.getBoard(id)))).filter((r) => r?.trashed);
+  if (!records.length) return false;
+  const what = records.length === 1 ? `"${records[0].name}"` : `these ${records.length} boards`;
+  if (ask && !confirm(`Delete ${what} for good? This can't be undone.`)) return false;
+  for (const rec of records) await store.deleteBoard(rec.id);
+  await home.refresh();
+  return true;
+}
+store.listTrashed().then((list) => purgeBoards(list.filter((b) => Date.now() - b.trashed > TRASH_DAYS * 864e5).map((b) => b.id), { ask: false })).catch(() => {});
+
+// Put boards in a project and in a chosen order (dragging them around on the home screen).
+async function arrangeBoards(ids, group, ordered) {
+  const now = Date.now();
+  for (const [i, id] of ordered.entries()) {
+    const rec = await store.getBoard(id);
+    if (!rec) continue;
+    const moved = ids.includes(id) && (rec.group || '') !== group;
+    if (rec.order === i && !moved) continue;
+    const next = { ...rec, order: i, ...(moved ? { changed: now } : {}) };
+    if (moved) { if (group) next.group = group; else delete next.group; }
+    await store.putBoard(next);
+    const doc = docs.get(id);
+    if (doc) { doc.meta.order = i; if (moved) { doc.meta.group = group || undefined; doc.meta.changed = now; } }
+  }
+  announceBoards();
+  await home.refresh();
+  syncSoon();
 }
 
 // Put boards in a project ('' = no project).
@@ -3292,6 +3335,10 @@ const home = new Home(document.getElementById('home'), {
   rename: renameBoard,
   exportFile: exportBoard,
   remove: deleteBoards,
+  trashed: () => store.listTrashed(),
+  restore: restoreBoards,
+  purge: purgeBoards,
+  arrange: arrangeBoards,
   setGroup: setBoardsGroup,
   offload: offloadBoard,
   driveConnected: () => drive.isConnected(),
@@ -4107,7 +4154,7 @@ function dragTo(d, w, e) {
     d.items.forEach((item, i) => {
       const b = d.before[i];
       item.sprite.position.set(d.anchor.x + (b.x - d.anchor.x) * f, d.anchor.y + (b.y - d.anchor.y) * f);
-      if (item.kind === 'image' || item.style === 'text' || item.kind === 'shape') item.sprite.scale.set(b.sx * f, b.sy * f);
+      if (item.kind === 'image' || item.kind === 'note' || item.kind === 'shape') item.sprite.scale.set(b.sx * f, b.sy * f);
       if (item.kind === 'frame') { item.w = b.w * f; item.h = b.h * f; board.drawFrame(item); }
     });
   } else if (d.kind === 'rotate') {
@@ -4123,7 +4170,7 @@ function dragTo(d, w, e) {
       const b = d.before[i];
       const rx = b.x - d.cx, ry = b.y - d.cy;
       item.sprite.position.set(d.cx + rx * cos - ry * sin, d.cy + rx * sin + ry * cos);
-      if (item.kind === 'image' || item.style === 'text' || item.kind === 'shape') item.sprite.rotation = b.r + a;
+      if (item.kind === 'image' || item.kind === 'note' || item.kind === 'shape') item.sprite.rotation = b.r + a;
     });
   } else if (d.kind === 'create') {
     d.moved = true;
