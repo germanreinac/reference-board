@@ -2026,22 +2026,31 @@ body.sketching #toolbar, body.sketching #selection-bar, body.sketching .pane-too
    straight boxes; chunky outlines. The images, selection boxes and text stay straight. */
 html:has(body:not([data-mode="board"])) { background: #16151c; }
 
-/* The name: puffy letters in one colour, slowly leaning into each other and melting
-   together where they touch, like a lava lamp. Slow and small; still if motion is off. */
+/* The name: round letters in fluor pink, with corners filled in as if the ink had bled on
+   paper. The letters are jelly: every few seconds a wobble runs through them (squash,
+   stretch, settle), and where two letters press together they fuse for a moment.
+   Still if motion is off. */
 body .wordmark {
   font-family: var(--font-display);
-  letter-spacing: -0.015em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
-  color: var(--text-strong);
+  letter-spacing: -0.01em; margin-left: 0; line-height: 1; padding: 0.04em 0 0.08em;
+  color: var(--accent);
   filter: url(#melt-goo);
 }
-.wordmark span { display: inline-block; will-change: transform; }
-@keyframes melt-lean-r { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(0.045em, 0.012em) scale(1.03, 0.98); } }
-@keyframes melt-lean-l { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-0.045em, -0.012em) scale(0.98, 1.03); } }
-body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-lean-r 9s ease-in-out infinite; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(2n) { animation-name: melt-lean-l; animation-duration: 11s; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(3) { animation-duration: 13s; animation-delay: -4s; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(4) { animation-delay: -6s; }
-body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(5) { animation-duration: 10s; animation-delay: -2s; }
+.wordmark span { display: inline-block; transform-origin: 50% 88%; will-change: transform; }
+@keyframes melt-jelly {
+  0%, 46%, 100% { transform: translate(0, 0) scale(1, 1); }
+  5%  { transform: translate(0, 0.03em) scale(1.07, 0.9); }
+  11% { transform: translate(0, -0.025em) scale(0.95, 1.07); }
+  17% { transform: translate(0, 0.01em) scale(1.035, 0.97); }
+  23% { transform: translate(0, -0.006em) scale(0.975, 1.03); }
+  30% { transform: translate(0, 0) scale(1.015, 0.99); }
+  38% { transform: translate(0, 0) scale(0.996, 1.004); }
+}
+body[data-motion="on"][data-mode="home"] .wordmark span { animation: melt-jelly 5.2s cubic-bezier(0.36, 0.07, 0.3, 1) infinite; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(2) { animation-delay: 0.11s; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(3) { animation-delay: 0.22s; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(4) { animation-delay: 0.33s; }
+body[data-motion="on"][data-mode="home"] .wordmark span:nth-child(5) { animation-delay: 0.44s; }
 @media (prefers-reduced-motion: reduce) { .wordmark span { animation: none !important; } }
 
 /* Soft shapes with chunky outlines */
@@ -2073,12 +2082,12 @@ body ::selection { background: #ff3fa9; color: #fff; }
 body[data-motion="on"] :is(.text-button, .tool, #board-bar > button):hover { animation: melt-squish 0.5s var(--soft, ease) 1; }
 
 /* ---------- The three typefaces ----------
-   Display (the name and headings): DynaPuff, puffy and poured.
+   Display (the name and headings): Fredoka, round and friendly.
    Second (the one-liner, buttons, names of boards and projects): Bricolage Grotesque, a
    grotesque with character. Body (everything you read or type in the app's own panels):
    DM Sans, soft and plain. Text you write on a board keeps the font you pick for it. */
 :root {
-  --font-display: "DynaPuff", "Bricolage Grotesque", system-ui, sans-serif;
+  --font-display: "Fredoka", "Bricolage Grotesque", system-ui, sans-serif;
   --font-second: "Bricolage Grotesque", "DM Sans", system-ui, sans-serif;
   --font-body: "DM Sans", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
