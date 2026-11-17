@@ -36,7 +36,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=ae33a12320",
     "./src/theme.js": "./src/theme.js?v=18d3c84054",
     "./src/tools.js": "./src/tools.js?v=42304c6945",
-    "./src/version.js": "./src/version.js?v=e9a58cdf6c",
+    "./src/version.js": "./src/version.js?v=12c3fa3e77",
     "./src/viewports.js": "./src/viewports.js?v=24b175da35",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -54,22 +54,22 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=e707f0c4cf">
+  <link rel="stylesheet" href="style.css?v=26b898f523">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
-  <!-- The Melti look: a gentle, still ripple for the name (like poured liquid) -->
+  <!-- The name's letters melt into each other where they touch (like a lava lamp) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-    <filter id="melt-ripple" x="-5%" y="-15%" width="110%" height="140%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.007 0.011" numOctaves="1" seed="4" result="n"/>
-      <feDisplacementMap in="SourceGraphic" in2="n" scale="18" xChannelSelector="R" yChannelSelector="G"/>
+    <filter id="melt-goo" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="b"/>
+      <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -8"/>
     </filter>
   </defs></svg>
   <div id="home">
     <header class="home-header">
       <!-- The name, big, and what the app is underneath -->
       <div class="brand">
-        <div class="wordmark">MELTI</div>
+        <div class="wordmark" aria-label="Melti"><span>M</span><span>E</span><span>L</span><span>T</span><span>I</span></div>
         <div class="brand-sub"><span>Where references melt into art direction</span></div>
       </div>
       <div class="home-actions">
