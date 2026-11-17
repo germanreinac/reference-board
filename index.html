@@ -20,7 +20,7 @@
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=e7a71b1be0",
+    "./src/main.js": "./src/main.js?v=aca74520de",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -36,7 +36,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=ae33a12320",
     "./src/theme.js": "./src/theme.js?v=18d3c84054",
     "./src/tools.js": "./src/tools.js?v=42304c6945",
-    "./src/version.js": "./src/version.js?v=c0286b5c65",
+    "./src/version.js": "./src/version.js?v=c5e2ead47e",
     "./src/viewports.js": "./src/viewports.js?v=24b175da35",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -54,22 +54,29 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=b751bab7f2">
+  <link rel="stylesheet" href="style.css?v=ba77458667">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
-  <!-- The name's letters melt into each other where they touch (like a lava lamp) -->
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-    <filter id="melt-goo" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="2.8" result="b"/>
-      <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11"/>
-    </filter>
-  </defs></svg>
   <div id="home">
     <header class="home-header">
       <!-- The name, big, and what the app is underneath -->
       <div class="brand">
-        <div class="wordmark" aria-label="Melti"><span>M</span><span>E</span><span>L</span><span>T</span><span>I</span></div>
+        <!-- The name, drawn as one picture so its letters can melt into each other where they
+             touch (the blur-and-sharpen filter fuses whatever comes close). -->
+        <div class="wordmark">
+          <svg viewBox="0 0 268.500 100" role="img" aria-label="Melti">
+            <defs>
+              <filter id="melt-goo" filterUnits="userSpaceOnUse" x="-30" y="-30" width="330" height="160" color-interpolation-filters="sRGB">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="4.500" result="b"/>
+                <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11"/>
+              </filter>
+            </defs>
+            <g filter="url(#melt-goo)" font-size="100" font-weight="700">
+              <text x="0" y="83">M</text><text x="81.600" y="83">E</text><text x="141.400" y="83">L</text><text x="182.800" y="83">T</text><text x="245.100" y="83">I</text>
+            </g>
+          </svg>
+        </div>
         <div class="brand-sub"><span>Where references melt into art direction</span></div>
       </div>
       <div class="home-actions">
@@ -205,6 +212,6 @@
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=e7a71b1be0"></script>
+  <script type="module" src="src/main.js?v=aca74520de"></script>
 </body>
 </html>

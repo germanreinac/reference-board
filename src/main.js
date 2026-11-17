@@ -2831,9 +2831,6 @@ window.launchQueue?.setConsumer(async ({ files }) => {
 function fitBrand() {
   const mark = document.querySelector('.wordmark'), sub = document.querySelector('.brand-sub');
   if (!mark || !sub || !mark.offsetWidth) return;
-  // The melt between the letters grows with the size of the name, so it blends the same
-  // on a small window and a big screen.
-  document.querySelector('#melt-goo feGaussianBlur')?.setAttribute('stdDeviation', (parseFloat(getComputedStyle(mark).fontSize) * 0.045).toFixed(2));
   // (The name is pulled a hair to the left to line up its M; allow for that.)
   const target = mark.getBoundingClientRect().width + parseFloat(getComputedStyle(mark).marginLeft || 0);
   sub.style.fontSize = '100px';
