@@ -2224,3 +2224,12 @@ html:has(body[data-theme="light"]:not([data-mode="board"])) { background: #f3f1f
 
 /* The storyboard editor settings wrap onto a second line when they need to */
 .sb-settings { flex-wrap: wrap; row-gap: 6px; }
+
+/* The open board's tab looks selected (a soft tint with a pink line under it), not like a
+   text box. The name only turns into a box while you're renaming it (double-click). */
+.tab { position: relative; border-radius: var(--blob-s); }
+.tab.active { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: none; color: var(--text-strong); }
+.tab.active::after { content: ""; position: absolute; left: 9px; right: 9px; bottom: 1px; height: 2px; border-radius: 2px; background: var(--accent); }
+.tab #board-name { font-weight: 600; }
+.tab #board-name:read-only, .tab #board-name:read-only:hover, .tab #board-name:read-only:focus { border-color: transparent; background: none; }
+.tab #board-name:not(:read-only) { border-color: var(--accent); background: var(--input); cursor: text; }
