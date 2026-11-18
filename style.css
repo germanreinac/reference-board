@@ -2198,3 +2198,19 @@ body:not([data-mode="board"]) #split-tip { display: none; }
 /* The tab's name is a label until you double-click it */
 #board-name:read-only { cursor: default; user-select: none; }
 #board-name:read-only:hover { border-color: transparent; }
+
+/* The map button sits in the bottom-left corner of the window; its panel opens above it */
+#map-button { position: fixed; left: 10px; bottom: 10px; z-index: 4; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--panel-border); border-radius: var(--blob-s); background: var(--overlay); color: var(--text); cursor: pointer; }
+#map-button:hover, #map-button.on { color: var(--accent); border-color: var(--accent); }
+body:not([data-mode="board"]) #map-button { display: none; }
+#map-panel { left: 10px; right: auto; bottom: 52px; }
+/* The zoom figure in a pane's corner is a button: click it to pick a zoom */
+.pane-zoom { pointer-events: auto; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.pane-zoom:hover { opacity: 1; color: var(--accent); background: var(--overlay); }
+/* Light/dark switch on the home screen */
+#home-theme-button { display: inline-flex; align-items: center; padding: 6px 9px; }
+#home-theme-button svg { width: 16px; height: 16px; }
+html:has(body[data-theme="light"]:not([data-mode="board"])) { background: #f3f1f4; }
+/* A title above an image, while typing it */
+.caption-editor.title-editor { font-weight: 600; transform-origin: 0 0; }
+.sel-text button:disabled { opacity: 0.35; cursor: default; }

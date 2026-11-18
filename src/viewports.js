@@ -130,6 +130,9 @@ export class Viewports {
     }
     const zoomEl = document.createElement('div');
     zoomEl.className = 'pane-zoom';
+    zoomEl.title = 'Zoom: click to pick one';
+    zoomEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+    zoomEl.addEventListener('click', (e) => { e.stopPropagation(); this.onPaneAction('zoom', pane, zoomEl); });
     // Which board this pane shows, when there's more than one on screen. Click it to change.
     const label = document.createElement('button');
     label.className = 'pane-label';

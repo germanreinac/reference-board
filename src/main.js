@@ -118,7 +118,8 @@ function setMode(m) {
   hideMenu();
   if (m === 'home') requestAnimationFrame(fitBrand);
   // The home screen is always dark; each board has its own look (set when it opens).
-  if (m !== 'board') { applyLook({ theme: 'dark' }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
+  // Outside a board the app wears the look you last picked (dark or light).
+  if (m !== 'board') { applyLook({ theme: defaultLook().theme }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -437,8 +438,8 @@ function removeThing(kind, id) {
 // and greyscale change. Saved before and after an edit, for undo.
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
-const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'titleBase'];
-const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide'];
+const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'fillAlpha', 'outline', 'titleBase'];
+const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide', 'title'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
@@ -457,7 +458,7 @@ function applyState(st) {
   for (const k of propsOf(it.kind)) if (k in st) it[k] = st[k];
   if ('group' in st) it.group = st.group;
   if (it.kind === 'note') board.layoutNote(it);
-  if (it.kind === 'image') board.setCaption(it, it.caption);
+  if (it.kind === 'image') { board.setCaption(it, it.caption); board.setTitle(it, it.title); }
   if (it.kind === 'shape') board.drawShape(it);
   if (it.kind === 'frame') board.drawFrame(it);
   it.sprite.position.set(st.x, st.y);
@@ -673,6 +674,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointermove', move, true);
   window.addEventListener('pointerup', up, true);
 }, true);
+let frameTextMode = null;   // the frame whose title you're on (its text options show in the bar)
 function renameFrame(f, pane, at = -1) {
   const input = document.createElement('input');
   input.className = 'frame-rename';
@@ -689,6 +691,7 @@ function renameFrame(f, pane, at = -1) {
   const startAt = at >= 0 ? Math.min(at, input.value.length) : input.value.length;
   input.setSelectionRange(startAt, startAt);
   titleEditor = { f, input };
+  frameTextMode = f;   // the bar shows the title's text options
   const before = [stateOf(f)];
   const original = f.name;
   // You type into an invisible box; what you see is the title on the board itself, with a
@@ -1062,30 +1065,32 @@ const palettePanel = new PalettePanel({
 // turns with it. Double-click an image (or press Enter, or the bar's caption button) to write one.
 
 let captionEditing = null;
-function editCaption(item, pane = activePane || targetBoardPane()) {
+function editCaption(item, pane = activePane || targetBoardPane(), which = 'caption') {
+  const above = which === 'title', textKey = above ? 'titleText' : 'captionText';
   if (!item || item.kind !== 'image' || !pane) return;
   finishCaption();
   const before = [stateOf(item)];
   const ta = document.createElement('textarea');
   ta.className = 'caption-editor';
-  ta.value = item.caption || '';
-  ta.placeholder = item.sourceUrl ? 'Write a caption… (where it\'s from is in the right-click menu)' : 'Write a caption…';
+  ta.value = item[which] || '';
+  if (above) ta.classList.add('title-editor');
+  ta.placeholder = above ? 'Write a title…' : item.sourceUrl ? 'Write a caption… (where it\'s from is in the right-click menu)' : 'Write a caption…';
   ta.spellcheck = true;
   document.body.appendChild(ta);
-  if (item.captionText) item.captionText.visible = false;
+  if (item[textKey]) item[textKey].visible = false;
   const place = () => {
     const f = board.captionFrame(item);
     const s = item.sprite;
     const z = pane.camera.zoom;
     const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
-    const lx = -f.w / 2, ly = f.h / 2 + f.gap;
+    const lx = -f.w / 2, ly = above ? -f.h / 2 - f.gap : f.h / 2 + f.gap;
     const wx = s.x + lx * cos - ly * sin, wy = s.y + lx * sin + ly * cos;
     Object.assign(ta.style, {
       left: `${pane.rect.x + pane.camera.x + wx * z}px`,
       top: `${pane.rect.y + pane.camera.y + wy * z}px`,
       width: `${Math.max(120, f.w * z)}px`,
       fontSize: `${Math.max(11, 32 * f.k * z)}px`,
-      transform: `rotate(${s.rotation}rad)`,
+      transform: `rotate(${s.rotation}rad)${above ? ' translateY(-100%)' : ''}`,
     });
     ta.style.height = 'auto';
     ta.style.height = `${ta.scrollHeight + 2}px`;
@@ -1098,11 +1103,11 @@ function editCaption(item, pane = activePane || targetBoardPane()) {
     if (!captionEditing) return;
     captionEditing = null;
     ta.remove();
-    if (save && ta.value.trim() !== (item.caption || '')) {
-      board.setCaption(item, ta.value);
+    if (save && ta.value.trim() !== (item[which] || '')) {
+      if (above) board.setTitle(item, ta.value); else board.setCaption(item, ta.value);
       recordChange([item], before);
-    } else if (item.captionText) {
-      item.captionText.visible = true;
+    } else if (item[textKey]) {
+      item[textKey].visible = true;
     }
     requestRender();
   };
@@ -3292,6 +3297,7 @@ function drawMap() {
   }
 }
 document.getElementById('map-button').addEventListener('click', toggleMap);
+document.body.appendChild(document.getElementById('map-button'));   // it sits in the bottom-left corner of the window
 
 // ---------- A floating view that stays on top ----------
 //
@@ -3543,7 +3549,13 @@ function cycleTheme() {
     syncSoon();
   }
 }
-function updateThemeButtons() {}   // (the look is switched from the ⋯ menu now)
+function updateThemeButtons() {
+  const next = nextTheme();
+  for (const b of document.querySelectorAll('.theme-cycle')) { b.dataset.next = next; b.title = `Switch to ${next} mode`; }
+}
+for (const b of document.querySelectorAll('.theme-cycle')) b.addEventListener('click', cycleTheme);
+window.addEventListener('themechange', updateThemeButtons);
+updateThemeButtons();
 
 // ---------- Shortcuts and help ----------
 //
@@ -3620,6 +3632,19 @@ nameInput.addEventListener('blur', () => {
 
 function paneAction(action, pane, button) {
   const l = layout();
+  if (action === 'zoom') {
+    const r = button.getBoundingClientRect();
+    const b = docOfPane(pane)?.board || board;
+    const to = (z) => { pane.camera.zoomAt(pane.rect.w / 2, pane.rect.h / 2, z / pane.camera.zoom); viewChanged(); requestRender(); };
+    const pct = Math.round(pane.camera.zoom * 100);
+    showMenu(r.right - 150, r.top - 4, [
+      { label: 'Fit everything', shortcut: 'Shift+1', disabled: b.isEmpty(), action: () => { activate(docOfPane(pane)); fitPane(pane, null); viewChanged(); requestRender(); } },
+      { label: 'Fit the selection', shortcut: 'Shift+2', disabled: !b.selection.length, action: () => { activate(docOfPane(pane)); fitPane(pane, board.selection); viewChanged(); requestRender(); } },
+      '-',
+      ...[25, 50, 100, 200, 400].map((v) => ({ label: `${v}%${pct === v ? ' ✓' : ''}`, action: () => to(v / 100) })),
+    ]);
+    return;
+  }
   if (action === 'type' || action === 'board') {
     const r = button.getBoundingClientRect();
     paneMenu(pane, r.left, r.bottom + 4, action === 'board');
@@ -4375,6 +4400,7 @@ for (const [id, title, action] of SEL_ACTIONS) {
       const hasImage = sel.some((x) => x.kind === 'image');
       showMenu(r.left, r.bottom + 6, [
         ...SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })),
+        ...(sel.length === 1 && hasImage ? [{ label: sel[0].title ? 'Edit the title above it' : 'Write a title above it', action: () => editCaption(sel[0], undefined, 'title') }] : []),
         ...(hasImage ? ['-', { label: 'Opacity', submenu: opacityItems() }, { label: 'Composition guide', submenu: guideItems() }] : []),
       ]);
     });
@@ -4405,6 +4431,8 @@ textControls.innerHTML = `
   <button data-text="align" title="Alignment"></button>
   <button data-text="box" title="Background: none, soft box or outline (keeps text readable over images)"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="2"/><path d="M5 10l3-5 3 5M6 8.5h4"/></svg></button>
   <button data-text="fill" title="Fill the shape"><svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" fill="currentColor" fill-opacity="0.35"/></svg></button>
+  <button data-text="fillAlpha" title="How solid the background is"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.500"/><path d="M8 2.500a5.500 5.500 0 010 11z" fill="currentColor" stroke="none"/></svg></button>
+  <button data-text="outline" title="Outline on / off"><svg viewBox="0 0 16 16"><rect x="2.500" y="3.500" width="11" height="9" rx="1.500" stroke-dasharray="2.200 1.800"/></svg></button>
   <button data-text="colour" class="sel-colour" title="Colour"></button>
   <div class="sel-palette" hidden></div>
   <div class="sel-palette fill-palette" hidden></div>`;
@@ -4477,7 +4505,7 @@ function setTextProps(props) {
     // Frame titles: level, font, bold, italic and colour, like text.
     editSelection((f) => {
       if (props.level) { f.level = props.level; f.weight = Math.max(600, LEVELS[props.level].weight); }
-      for (const k of ['font', 'italic', 'color', 'weight', 'fill']) if (k in props) f[k] = props[k];
+      for (const k of ['font', 'italic', 'color', 'weight', 'fill', 'fillAlpha', 'outline']) if (k in props) f[k] = props[k];
       board.drawFrame(f);
     }, frames);
     if (props.font || props.weight || 'italic' in props) {
@@ -4545,6 +4573,12 @@ textControls.querySelector('[data-text="fill"]').addEventListener('click', () =>
   if (selectedFrames().length && !selectedShapes().length) { fillPalette.hidden = !fillPalette.hidden; palette.hidden = true; return; }
   setTextProps({ fill: !selectedShapes().every((x) => x.fill) });
 });
+textControls.querySelector('[data-text="outline"]').addEventListener('click', () => setTextProps({ outline: !selectedFrames().every((x) => x.outline !== false) }));
+textControls.querySelector('[data-text="fillAlpha"]').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const now = selectedFrames()[0]?.fillAlpha ?? 1;
+  showMenu(r.left, r.bottom + 6, [1, 0.75, 0.5, 0.25].map((v) => ({ label: `${v * 100}%${Math.abs(now - v) < 0.01 ? ' ✓' : ''}`, action: () => setTextProps({ fillAlpha: v }) })));
+});
 selectionBar.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // Show the text controls for the selection, and keep them in step with it.
@@ -4560,13 +4594,22 @@ function updateTextControls(sel) {
   if (textControls.hidden) { palette.hidden = true; fillPalette.hidden = true; return; }
   const fillButton = textControls.querySelector('[data-text="fill"]');
   fillButton.title = isFrame ? 'Background colour' : 'Fill the shape';
+  const frameOnly = textControls.querySelectorAll('[data-text="fillAlpha"], [data-text="outline"]');
+  for (const el of frameOnly) el.hidden = !isFrame;
   if (isFrame) {
-    // A frame's title: level, font, bold, italic, colour (no alignment or box).
-    for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"]')) el.hidden = false;
+    // A frame shows its own options (background, how solid it is, outline). The text
+    // options (size, font, bold, italic, colour) show while you're on its title.
+    if (frameTextMode && !(frames.length === 1 && frames[0] === frameTextMode)) frameTextMode = null;
+    const onTitle = !!frameTextMode;
+    for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], .sel-colour')) el.hidden = !onTitle;
     for (const el of textControls.querySelectorAll('[data-text="align"], [data-text="box"]')) el.hidden = true;
-    fillButton.hidden = false;
+    fillButton.hidden = onTitle;
+    for (const el of frameOnly) el.hidden = onTitle;
+    if (onTitle) fillPalette.hidden = true; else palette.hidden = true;
     const f = frames[0];
-    const key = frames.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.color}:${x.fill}`).join(',') + customFonts().join(',');
+    textControls.querySelector('[data-text="outline"]').classList.toggle('on', frames.every((x) => x.outline !== false));
+    textControls.querySelector('[data-text="fillAlpha"]').disabled = !frames.some((x) => x.fill);
+    const key = onTitle + frames.map((x) => `${x.id}:${x.font}:${x.level}:${x.weight}:${x.italic}:${x.color}:${x.fill}:${x.fillAlpha}:${x.outline}`).join(',') + customFonts().join(',');
     if (key === lastControls) return;
     lastControls = key;
     levelSelect.value = f.level || 'body';
@@ -4736,6 +4779,8 @@ panesEl.addEventListener('pointerdown', (e) => {
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
   const tool = toolbar.tool;
+  // Clicking a frame's title puts you on its text; clicking anywhere else takes you off it.
+  frameTextMode = tool === 'select' ? board.frameTitleAt(w.x, w.y) || null : null;
 
   // Middle button, or Space + left button, always pans.
   if (e.button === 1 || (e.button === 0 && (spaceHeld || tool === 'hand'))) {
@@ -5166,7 +5211,7 @@ function openMenu(x, y, pane) {
     { label: `Delete ${what}`, shortcut: 'Del', action: removeSelected },
     '-',
     ...(imgs.length ? [{ label: imgs.every((x) => x.star) ? 'Remove star' : 'Star as a favourite', shortcut: 'M', action: toggleStar }] : []),
-    ...(one?.kind === 'image' ? [{ label: one.caption ? 'Edit caption' : 'Write a caption', shortcut: 'Enter', action: () => editCaption(one, pane) }] : []),
+    ...(one?.kind === 'image' ? [{ label: one.title ? 'Edit title' : 'Write a title (above)', action: () => editCaption(one, pane, 'title') }, { label: one.caption ? 'Edit caption' : 'Write a caption (below)', shortcut: 'Enter', action: () => editCaption(one, pane) }] : []),
     ...(n === 2 && imgs.length === 2 ? [{ label: 'Compare these two…', action: compareSelection }] : []),
     ...(storyboards.ownerOf(one) ? [{ label: 'Edit storyboard…', action: () => { const o = storyboards.ownerOf(one); storyboards.edit(o.sb, o.panel); } }] : []),
     ...(sel.some((x) => x.kind === 'frame') ? [

@@ -181,7 +181,7 @@ export class Board {
   // A frame's title has text settings like any text: a level (Title, Heading 1…, sizes
   // relative to titleBase), a font, weight, italic and colour (null = the board's ink).
   // `fill` is the frame's background colour (null = see-through).
-  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, titleBase, level = 'body', font = 'Inter', weight, italic = false, color = null, fill = null, locked = false, index }) {
+  addFrame({ id, x, y, w = 1600, h = 900, name = 'Frame', titleSize = 18, titleBase, level = 'body', font = 'Inter', weight, italic = false, color = null, fill = null, fillAlpha = 1, outline = true, locked = false, index }) {
     const c = new Container();
     const bg = new Graphics();
     const base = titleBase ?? titleSize;
@@ -190,7 +190,7 @@ export class Board {
     c.position.set(x, y);
     const item = {
       kind: 'frame', id: takeId(id), sprite: c, bg, title, w, h, name, locked: !!locked, width: w, height: h,
-      titleBase: base, level: LEVELS[level] ? level : 'body', font, weight: weight ?? (LEVELS[level]?.weight >= 600 ? LEVELS[level].weight : 600), italic: !!italic, color, fill,
+      titleBase: base, level: LEVELS[level] ? level : 'body', font, weight: weight ?? (LEVELS[level]?.weight >= 600 ? LEVELS[level].weight : 600), italic: !!italic, color, fill, fillAlpha, outline: outline !== false,
       titleSize: base * (LEVELS[level]?.size ?? 1),
     };
     this.drawFrame(item);
@@ -206,8 +206,9 @@ export class Board {
     f.bg.clear();
     // See-through with a faint outline, or filled with a solid colour (f.fill).
     f.bg.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, Math.min(f.w, f.h) * 0.012)
-      .fill(f.fill ? { color: f.fill, alpha: 1 } : { color: this.ink, alpha: 0.035 })
-      .stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: f.fill ? 0.1 : 0.22 });
+      .fill(f.fill ? { color: f.fill, alpha: f.fillAlpha ?? 1 } : { color: this.ink, alpha: 0.035 });
+    // (The outline can be switched off; a frame with no background keeps a hairline so it can still be found.)
+    if (f.outline !== false || !f.fill) f.bg.stroke({ width: f.titleBase * 0.08, color: this.ink, alpha: f.outline === false ? 0.08 : f.fill ? 0.1 : 0.22 });
     f.titleSize = f.titleBase * (LEVELS[f.level]?.size ?? 1);
     f.title.text = f.name || 'Add a title';
     Object.assign(f.title.style, { fontFamily: fontStack(f.font || 'Inter'), fontWeight: String(f.weight || 600), fontStyle: f.italic ? 'italic' : 'normal', fontSize: f.titleSize, fill: f.color || this.ink });
@@ -433,7 +434,7 @@ export class Board {
     for (const f of this.frames) this.drawFrame(f);
     for (const s of this.strokes) if (s.color === 'ink') this.redrawStroke(s);
     for (const x of this.shapes) if (x.color === 'ink') this.drawShape(x);
-    for (const i of this.items) if (i.captionText) i.captionText.style.fill = colour;
+    for (const i of this.items) { if (i.captionText) i.captionText.style.fill = colour; if (i.titleText) i.titleText.style.fill = colour; }
   }
 
   frameJSON(f) {
@@ -441,6 +442,8 @@ export class Board {
       id: f.id, x: f.sprite.x, y: f.sprite.y, w: f.w, h: f.h, name: f.name, titleSize: f.titleSize, titleBase: f.titleBase,
       level: f.level, font: f.font, weight: f.weight, ...(f.italic ? { italic: true } : {}), ...(f.color ? { color: f.color } : {}),
       ...(f.fill ? { fill: f.fill } : {}),
+      ...(f.fillAlpha != null && f.fillAlpha !== 1 ? { fillAlpha: f.fillAlpha } : {}),
+      ...(f.outline === false ? { outline: false } : {}),
       ...(f.locked ? { locked: true } : {}),
     };
   }
@@ -461,7 +464,7 @@ export class Board {
   // `index` puts it at a given place in the stack (used by undo).
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null, title = '' } = {}) {
     const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
@@ -498,6 +501,7 @@ export class Board {
     if (crop) this.setCrop(item, crop, { keepPlace: false });
     if (grey) this.setGrey(item, true);
     if (caption) this.setCaption(item, caption);
+    if (title) this.setTitle(item, title);
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
     this.items.splice(at, 0, item);
     this.imageLayer.addChildAt(sprite, at);
@@ -514,6 +518,7 @@ export class Board {
       ...(item.grey ? { grey: true } : {}),
       ...(item.group ? { group: item.group } : {}),
       ...(item.caption ? { caption: item.caption } : {}),
+      ...(item.title ? { title: item.title } : {}),
       ...(item.star ? { star: true } : {}),
       ...(item.guide ? { guide: item.guide } : {}),
       ...(item.sketch ? { sketch: item.sketch } : {}),
@@ -543,6 +548,35 @@ export class Board {
     }
     item.captionText.text = item.caption;
     this.placeCaption(item);
+  }
+
+  // A title above the image (bolder than the caption under it); it moves with the image too.
+  setTitle(item, text) {
+    item.title = (text || '').trim();
+    if (!item.title) { item.titleText?.destroy(); item.titleText = null; return; }
+    if (!item.titleText) {
+      item.titleText = new Text({
+        text: '',
+        style: { fontFamily: fontStack('Inter'), fontWeight: '600', fontSize: CAPTION_SIZE * 1.15, fill: this.ink, wordWrap: true, wordWrapWidth: CAPTION_WRAP, lineHeight: CAPTION_SIZE * 1.45, breakWords: true },
+      });
+      this.captionLayer.addChild(item.titleText);
+    }
+    item.titleText.text = item.title;
+    this.placeTitle(item);
+  }
+  placeTitle(item) {
+    const t = item.titleText;
+    if (!t) return;
+    const s = item.sprite;
+    const w = Math.abs(item.width * s.scale.x), h = Math.abs(item.height * s.scale.y);
+    const k = Math.sqrt(w * h) / CAPTION_AREA;
+    if (Math.abs(t.style.wordWrapWidth - w / k) > 1) t.style.wordWrapWidth = w / k;
+    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+    const lx = -w / 2, ly = -h / 2 - CAPTION_SIZE * 0.4 * k - (t.height / (t.scale.y || 1)) * k;
+    t.position.set(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
+    t.rotation = s.rotation;
+    t.scale.set(k);
+    t.visible = s.visible;
   }
 
   // Where the caption sits: just under the image, turning with it.
@@ -611,6 +645,7 @@ export class Board {
     list.splice(i, 1);
     this.selection = this.selection.filter((x) => x !== item);
     if (item.captionText) { item.captionText.destroy(); item.captionText = null; }
+    if (item.titleText) { item.titleText.destroy(); item.titleText = null; }
     const thing = item.sprite;
     const b = thing.getLocalBounds();
     const box = new Container();
@@ -863,9 +898,11 @@ export class Board {
   syncImages() {
     for (const item of this.items) {
       this.placeCaption(item);
+      this.placeTitle(item);
       const faded = this.focus && !item.star;
       item.sprite.alpha = (item.opacity ?? 1) * (faded ? 0.12 : 1);
       if (item.captionText) item.captionText.alpha = faded ? 0.1 : 0.85;
+      if (item.titleText) item.titleText.alpha = faded ? 0.1 : 0.95;
     }
     const fade = this.focus ? 0.15 : 1;
     this.noteLayer.alpha = this.shapeLayer.alpha = this.strokeLayer.alpha = fade;
@@ -1125,8 +1162,7 @@ export class Board {
       const res = resFor(want);
       if (n.label.resolution !== res) n.label.resolution = res;
     }
-    for (const i of this.items) {
-      const t = i.captionText;
+    for (const i of this.items) for (const t of [i.captionText, i.titleText]) {
       if (!t) continue;
       const z = zoomFor(i.sprite.x, i.sprite.y, Math.hypot(i.width * i.sprite.scale.x, i.height * i.sprite.scale.y));
       const want = z ? Math.min(z * pixelRatio * t.scale.x, 4096 / Math.max(CAPTION_WRAP, t.height / (t.scale.y || 1), 1)) : 0.5;
@@ -1142,6 +1178,7 @@ export class Board {
     const i = list.indexOf(item);
     if (i === -1) return -1;
     if (item.captionText) { item.captionText.destroy(); item.captionText = null; }
+    if (item.titleText) { item.titleText.destroy(); item.titleText = null; }
     list.splice(i, 1);
     this.selection = this.selection.filter((x) => x !== item);
     // Also free the picture from graphics memory.
