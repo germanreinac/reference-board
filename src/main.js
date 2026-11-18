@@ -253,9 +253,10 @@ function activate(doc) {
 
 // The small name label on a pane, shown when more than one board is on screen.
 function paneLabel(pane) {
-  if (pane.type !== 'board' || docs.size < 2) return null;
+  // Every board pane says which board it shows; click the name to show another one there.
+  if (pane.type !== 'board') return null;
   const d = docOfPane(pane);
-  return d ? { text: d.meta.name, active: d === activeDoc, main: d === mainDoc } : null;
+  return d ? { text: d.meta.name, active: docs.size > 1 && d === activeDoc, main: d === mainDoc } : null;
 }
 
 // Something on the board changed (images added, moved, removed...).
@@ -3591,7 +3592,13 @@ nameInput.addEventListener('keydown', (e) => {
     nameInput.blur();
   }
 });
+// The name in the tab is only a label until you double-click it; then you can type.
+nameInput.readOnly = true;
+nameInput.title = 'Double-click to rename';
+nameInput.addEventListener('dblclick', () => { nameInput.readOnly = false; nameInput.select(); });
+nameInput.addEventListener('mousedown', (e) => { if (nameInput.readOnly && e.detail < 2) e.preventDefault(); });
 nameInput.addEventListener('blur', () => {
+  nameInput.readOnly = true;
   const value = nameInput.value.trim();
   if (mainDoc && value && value !== mainDoc.meta.name) renameBoard(mainDoc.meta.id, value);
   else updateTitle();
@@ -4072,6 +4079,13 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
     Object.assign(document.createElement('i'), { className: 'dock-sep' }),
     ...Object.values(toolbar.extraButtons),
   );
+  // Fold the dock away into one small button, and back (remembered).
+  const DOCK_KEY = 'refboard.dockFolded';
+  const fold = extra('<svg viewBox="0 0 16 16"><path d="M10 4L6 8l4 4"/></svg>', 'Hide the studio tools', 'dock-fold', () => setFolded(true));
+  const open = extra('<svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg>', 'Show the studio tools: image search, mannequin, drawing, storyboard, palettes', 'dock-open', () => setFolded(false));
+  const setFolded = (on) => { dock.classList.toggle('folded', on); try { localStorage.setItem(DOCK_KEY, on ? '1' : ''); } catch {} };
+  dock.append(Object.assign(document.createElement('i'), { className: 'dock-sep' }), fold, open);
+  try { if (localStorage.getItem(DOCK_KEY)) dock.classList.add('folded'); } catch {}
   toolbar.el.querySelector('.tool-group.extras')?.remove();
   document.body.appendChild(dock);
 }

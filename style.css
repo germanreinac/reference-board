@@ -2106,7 +2106,7 @@ body.grey-view #stage { filter: grayscale(1); }
 
 /* The studio dock: the bigger tools, on the right, apart from the everyday toolbar */
 #studio-dock {
-  position: fixed; right: 10px; top: 50%; z-index: 4; transform: translateY(-50%);
+  position: fixed; left: 10px; top: 50%; z-index: 4; transform: translateY(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px;
   border: 1px solid var(--panel-border); border-radius: var(--blob);
   background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
@@ -2178,3 +2178,19 @@ body:not([data-mode="board"]) #mannequin-window { display: none; }
 #split-tip strong { color: var(--text-strong); font: 600 14px var(--font-second); }
 #split-tip button { align-self: flex-end; border: 0; padding: 4px 10px; border-radius: var(--blob-s); background: var(--accent); color: #fff; font: 600 12px var(--font-second); cursor: pointer; }
 body:not([data-mode="board"]) #split-tip { display: none; }
+
+/* The dock folds into one small button */
+#studio-dock .dock-open { display: none; }
+#studio-dock.folded > :not(.dock-open) { display: none; }
+#studio-dock.folded .dock-open { display: block; }
+#studio-dock.folded { padding: 2px; opacity: 0.75; }
+#studio-dock.folded:hover { opacity: 1; }
+/* A board pane doesn't need the "what's in this pane" button: its name label does that */
+.pane[data-type="board"] .pane-tools [data-action="type"] { display: none; }
+/* The board's name in a pane: quiet until you point at the pane */
+.pane-label { top: 8px; left: 8px; opacity: 0.55; transition: opacity 0.15s, border-color 0.15s; border-radius: var(--blob-s); font-family: var(--font-second); }
+.pane:hover .pane-label, .pane-label.active { opacity: 1; }
+.pane-label:hover { border-color: var(--accent); color: var(--text-strong); }
+/* The tab's name is a label until you double-click it */
+#board-name:read-only { cursor: default; user-select: none; }
+#board-name:read-only:hover { border-color: transparent; }
