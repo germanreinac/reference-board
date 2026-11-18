@@ -2214,3 +2214,6 @@ html:has(body[data-theme="light"]:not([data-mode="board"])) { background: #f3f1f
 /* A title above an image, while typing it */
 .caption-editor.title-editor { font-weight: 600; transform-origin: 0 0; }
 .sel-text button:disabled { opacity: 0.35; cursor: default; }
+
+/* The storyboard editor settings wrap onto a second line when they need to */
+.sb-settings { flex-wrap: wrap; row-gap: 6px; }

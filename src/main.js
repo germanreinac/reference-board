@@ -22,7 +22,7 @@ import { Toolbar, BrushCursor, TOOL_KEYS, COLOURS } from './tools.js';
 import { openSketch, sketchOpen, refreshSketch } from './sketch.js';
 import { makePdf } from './pdf.js';
 import { PalettePanel, lightness } from './palettes.js';
-import { Storyboards } from './storyboard.js';
+import { Storyboards, PAPERS } from './storyboard.js';
 import { NoteEditor } from './note-editor.js';
 import { createEditor } from './editors.js';
 import { RESULT_DRAG_TYPE } from './search-pane.js';
@@ -182,6 +182,8 @@ function placeToolbar() {
 window.addEventListener('themechange', (e) => {
   viewports.setColours(e.detail);
   for (const d of docs.values()) d.board.setInk(themeInk());
+  // (Storyboards with no page behind them take the board's text colour.)
+  if (mode === 'board' && board?.storyboards?.some((sb) => sb.paper === 'none')) setTimeout(() => storyboards.layoutAllOn(board), 0);
   app.renderer.background.color = e.detail.gap;
   requestRender();
 });
@@ -1552,7 +1554,7 @@ const INK_DARK = '#1b1b1d';
 function storyboardDialog() {
   if (!current) return;
   const imgs = board.selection.filter((x) => x.kind === 'image');
-  let prefs = { shape: 0, cols: 3, count: 9, notes: true };
+  let prefs = { shape: 0, cols: 3, count: 9, notes: true, paper: 'none' };
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem(SB_KEY) || '{}') }; } catch {}
   const el = document.createElement('div');
   el.className = 'mini-dialog';
@@ -1562,6 +1564,7 @@ function storyboardDialog() {
     <label>Panel shape <select data-k="shape">${PANEL_SHAPES.map(([l], i) => `<option value="${i}">${l}</option>`).join('')}</select></label>
     <label>Panels per row <select data-k="cols">${[2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
     <label data-row="count">Panels <input type="number" data-k="count" min="1" max="60"></label>
+    <label>Background <select data-k="paper">${PAPERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
     <div class="buttons"><button data-a="cancel">Cancel</button><button data-a="ok" class="primary">Make storyboard</button></div>`;
   el.querySelector('p').textContent = imgs.length
     ? `The ${imgs.length} selected image${imgs.length > 1 ? 's' : ''} become the panels, in reading order (left to right, top to bottom).`
@@ -1570,16 +1573,17 @@ function storyboardDialog() {
   f('shape').value = prefs.shape;
   f('cols').value = prefs.cols;
   f('count').value = prefs.count;
+  f('paper').value = prefs.paper || 'none';
   el.querySelector('[data-row="count"]').hidden = imgs.length > 0;
   document.body.appendChild(el);
   const close = () => { el.remove(); window.removeEventListener('keydown', onKey, true); };
   const ok = () => {
-    prefs = { shape: Number(f('shape').value), cols: Number(f('cols').value), count: Math.max(1, Math.min(60, Number(f('count').value) || 9)) };
+    prefs = { shape: Number(f('shape').value), cols: Number(f('cols').value), count: Math.max(1, Math.min(60, Number(f('count').value) || 9)), paper: f('paper').value };
     try { localStorage.setItem(SB_KEY, JSON.stringify(prefs)); } catch {}
     close();
     const pane = targetBoardPane();
     const at = pane ? pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2) : { x: 0, y: 0 };
-    storyboards.create({ ratio: PANEL_SHAPES[prefs.shape][1], cols: prefs.cols, count: prefs.count, images: readingOrder(imgs), at });
+    storyboards.create({ ratio: PANEL_SHAPES[prefs.shape][1], cols: prefs.cols, count: prefs.count, images: readingOrder(imgs), at, paper: prefs.paper });
   };
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Enter') { e.stopPropagation(); ok(); } };
   window.addEventListener('keydown', onKey, true);
@@ -1591,6 +1595,7 @@ function storyboardDialog() {
 // The storyboard tool itself (src/storyboard.js).
 const storyboards = new Storyboards({
   board: () => board,
+  ink: () => themeColours().text,
   addSheet,
   removeImage: removeImageById,
   thingData,

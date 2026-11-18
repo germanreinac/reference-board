@@ -23,6 +23,14 @@ export const RATIOS = [
 const PW = 900;                 // panel width on the board
 const GAP_X = 80, HEAD = 74, TEXT = 230, MARGIN = 110, PAGE_GAP = 180;
 const INK = '#1b1b1d', SOFT = '#55555c';
+// What a storyboard sits on. "None" is the board itself (no page behind the panels), so
+// its text follows the board's look. Storyboards made before this choice existed are white.
+export const PAPERS = [['none', 'None (the board)'], ['white', 'White paper'], ['grey', 'Grey paper'], ['black', 'Black paper']];
+const PAPER_LOOK = {
+  white: { fill: '#ffffff', ink: INK, soft: SOFT },
+  grey: { fill: '#cfcfd2', ink: INK, soft: '#4a4a50' },
+  black: { fill: '#131316', ink: '#f2f2f4', soft: '#a5a5ad' },
+};
 const SHEET = 1920;             // pixels across a blank panel's sketch
 
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -75,8 +83,8 @@ export class Storyboards {
 
   // ---------- Making one ----------
 
-  async create({ name, ratio, cols, count, images = [], at }) {
-    const sb = { id: uid('sb'), name: name || `Storyboard ${this.list.length + 1}`, ratio, cols, origin: { x: 0, y: 0 }, panels: [] };
+  async create({ name, ratio, cols, count, images = [], at, paper = 'none' }) {
+    const sb = { id: uid('sb'), name: name || `Storyboard ${this.list.length + 1}`, ratio, cols, paper, origin: { x: 0, y: 0 }, panels: [] };
     const n = images.length || count;
     const size = this.pageSize(sb, n);
     const spot = this.board.freeSpot(size.w, size.h, at.x, at.y);
@@ -114,7 +122,8 @@ export class Storyboards {
       if (p.art != null && this.board.find('image', p.art)) continue;
       const W = SHEET, H = Math.round(SHEET / sb.ratio);
       const k = PW / W;
-      const item = await this.api.addSheet(W, H, '#ffffff', { x: sb.origin.x, y: sb.origin.y, scaleX: k, scaleY: k, name: 'Panel' });
+      // A blank panel to draw in: white on white or grey paper, see-through otherwise.
+      const item = await this.api.addSheet(W, H, ['white', 'grey'].includes(sb.paper || 'white') ? '#ffffff' : null, { x: sb.origin.x, y: sb.origin.y, scaleX: k, scaleY: k, name: 'Panel' });
       p.art = item.id;
     }
   }
@@ -160,9 +169,11 @@ export class Storyboards {
     const cellH = HEAD + PH + TEXT;
     const base = Math.round(PW / 32);
     const tag = (x) => { x.sbGen = sb.id; return x; };
+    const look = PAPER_LOOK[sb.paper || 'white'] || { fill: null, ink: this.api.ink?.() || '#1b1b1d', soft: '#8d8a9c' };
+    const INK = look.ink, SOFT = look.soft;   // (the text colours for this storyboard's paper)
     for (let pg = 0; pg < size.pages; pg++) {
       const top = sb.origin.y + pg * (size.pageH + PAGE_GAP);
-      const f = b.addFrame({ x: sb.origin.x + size.w / 2, y: top + size.pageH / 2, w: size.w, h: size.pageH, name: size.pages > 1 ? `${sb.name} · ${pg + 1}/${size.pages}` : sb.name, titleSize: base * 1.4, fill: '#ffffff', index: pg });
+      const f = b.addFrame({ x: sb.origin.x + size.w / 2, y: top + size.pageH / 2, w: size.w, h: size.pageH, name: size.pages > 1 ? `${sb.name} · ${pg + 1}/${size.pages}` : sb.name, titleSize: base * 1.4, fill: look.fill, index: pg });
       tag(f).sbPage = pg;
     }
     sb.panels.forEach((p, i) => {
@@ -386,6 +397,7 @@ export class Storyboards {
       <div class="sb-settings">
         <label>Shape <select data-s="ratio">${RATIOS.map(([l, r]) => `<option value="${r}">${l}</option>`).join('')}</select></label>
         <label>Columns <select data-s="cols">${[2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
+        <label>Background <select data-s="paper">${PAPERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
         <span class="sb-total"></span>
       </div>
       <div class="sb-list"></div>
@@ -402,6 +414,9 @@ export class Storyboards {
     const cols = el.querySelector('[data-s="cols"]');
     cols.value = String(sb.cols);
     cols.addEventListener('change', () => this.change(sb, (s) => { s.cols = Number(cols.value); }));
+    const paper = el.querySelector('[data-s="paper"]');
+    paper.value = sb.paper || 'white';
+    paper.addEventListener('change', () => this.change(sb, (s) => { s.paper = paper.value; }));
     const total = sb.panels.reduce((a, p) => a + (+p.duration || 0), 0);
     el.querySelector('.sb-total').textContent = `${sb.panels.length} panels · ${total.toFixed(1).replace(/\.0$/, '')}s`;
     const on = (a, fn) => el.querySelector(`[data-a="${a}"]`)?.addEventListener('click', fn);
