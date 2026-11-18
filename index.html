@@ -25,7 +25,7 @@
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=53184eb62f",
+    "./src/main.js": "./src/main.js?v=e3d0697207",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -41,7 +41,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=ae33a12320",
     "./src/theme.js": "./src/theme.js?v=09a366661e",
     "./src/tools.js": "./src/tools.js?v=1785c37328",
-    "./src/version.js": "./src/version.js?v=3e588ddf3b",
+    "./src/version.js": "./src/version.js?v=82f9a6c283",
     "./src/viewports.js": "./src/viewports.js?v=24b175da35",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -59,7 +59,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=f57f2abe37">
+  <link rel="stylesheet" href="style.css?v=a43312def8">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -188,6 +188,7 @@
     </button>
     <button id="layouts-button" title="Layouts: split views to pick from, and your saved favourites">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><path d="M8 2.500v11M8 8h6.500"/></svg>
+      <span>Split view</span>
     </button>
     <button id="board-menu-button" title="Board menu (or right-click a board pane)">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>
@@ -211,11 +212,12 @@
       <button data-start="search">Search for images</button>
     </div>
     <p class="small">or drop images anywhere · <kbd>?</kbd> for shortcuts</p>
+    <p class="small"><button data-start="split">Split the view</button> to see references side by side</p>
   </div>
 
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=53184eb62f"></script>
+  <script type="module" src="src/main.js?v=e3d0697207"></script>
 </body>
 </html>

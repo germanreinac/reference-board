@@ -621,7 +621,7 @@ body[data-mode="board"] #home { display: none; }
 #board-name:focus { border-color: var(--accent); background: var(--bg); }
 
 @media (max-width: 520px) {
-  #home-button span, #present-button span, .bar-sep { display: none; }
+  #home-button span, #present-button span, #layouts-button span, .bar-sep { display: none; }
 }
 
 /* ---------- Home screen ---------- */
@@ -2163,3 +2163,18 @@ body:not([data-mode="board"]) #find-box { display: none; }
 #mannequin-window .mq-top { right: 8px; }
 body:not([data-mode="board"]) #mannequin-window { display: none; }
 #studio-dock .tool.active { background: var(--melt); color: #fff; }
+
+/* Split view: a labelled button, a quiet line on an empty board, and a one-time pointer */
+#layouts-button { display: inline-flex; align-items: center; gap: 6px; }
+#layouts-button span { font: 12px var(--font-second); }
+#empty-hint [data-start="split"] { pointer-events: auto; border: 0; padding: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+#split-tip {
+  position: fixed; z-index: 15; width: 230px; display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; border: 1px solid var(--accent); border-radius: var(--blob);
+  background: var(--panel); color: var(--text); font: 13px/1.4 var(--font-body);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+#split-tip::before { content: ""; position: absolute; top: -6px; right: 34px; width: 10px; height: 10px; background: var(--panel); border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); transform: rotate(45deg); }
+#split-tip strong { color: var(--text-strong); font: 600 14px var(--font-second); }
+#split-tip button { align-self: flex-end; border: 0; padding: 4px 10px; border-radius: var(--blob-s); background: var(--accent); color: #fff; font: 600 12px var(--font-second); cursor: pointer; }
+body:not([data-mode="board"]) #split-tip { display: none; }

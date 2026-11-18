@@ -2340,6 +2340,7 @@ async function doRoute() {
     }
     if (current) setMode('board');
     showBoardLink();
+    setTimeout(maybeSplitTip, 900);
   } else {
     await leaveBoard();
     setMode('home');
@@ -3019,7 +3020,33 @@ function layoutsMenu(button) {
     })) },
   ]);
 }
-document.getElementById('layouts-button').addEventListener('click', (e) => layoutsMenu(e.currentTarget));
+document.getElementById('layouts-button').addEventListener('click', (e) => { dismissSplitTip(); layoutsMenu(e.currentTarget); });
+
+// A one-time pointer to split views, the first time someone opens a board in this
+// browser. It goes away for good once it's been seen (clicked, dismissed, or used).
+const SPLIT_TIP = 'refboard.tipSplit';
+let splitTip = null;
+function dismissSplitTip() {
+  try { localStorage.setItem(SPLIT_TIP, 'seen'); } catch {}
+  splitTip?.remove();
+  splitTip = null;
+}
+function maybeSplitTip() {
+  let seen = true;
+  try { seen = !!localStorage.getItem(SPLIT_TIP); } catch {}
+  if (seen || splitTip || mode !== 'board') return;
+  if (layout().panes().length > 1) return dismissSplitTip();   // already using it
+  const r = document.getElementById('layouts-button').getBoundingClientRect();
+  if (!r.width) return;
+  splitTip = document.createElement('div');
+  splitTip.id = 'split-tip';
+  splitTip.innerHTML = '<strong>Split the view</strong><span>See several parts of your board, or two boards, side by side.</span><button>Got it</button>';
+  document.body.appendChild(splitTip);
+  splitTip.style.top = `${r.bottom + 10}px`;
+  splitTip.style.right = `${Math.max(8, window.innerWidth - r.right - 6)}px`;
+  splitTip.querySelector('button').addEventListener('click', dismissSplitTip);
+  splitTip.addEventListener('pointerdown', (e) => e.stopPropagation());
+}
 
 // ---------- The mannequin, floating over the board ----------
 //
@@ -3094,6 +3121,7 @@ function closeMannequin() {
     const a = e.target.closest('[data-start]')?.dataset.start;
     if (a === 'files') pick.click();
     if (a === 'search') openToolPane('search');
+    if (a === 'split') { dismissSplitTip(); layoutsMenu(document.getElementById('layouts-button')); }
     if (a === 'paste') {
       try {
         const list = [];
