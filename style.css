@@ -2173,14 +2173,21 @@ body:not([data-mode="board"]) #find-box { display: none; }
 #layouts-button span { font: 12px var(--font-second); }
 #empty-hint [data-start="split"] { pointer-events: auto; border: 0; padding: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 #split-tip {
-  position: fixed; z-index: 15; width: 230px; display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 14px; border: 1px solid var(--accent); border-radius: var(--blob);
+  position: fixed; z-index: 15; width: 270px; display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px 10px; border: 1px solid var(--accent); border-radius: var(--blob);
   background: var(--panel); color: var(--text); font: 13px/1.4 var(--font-body);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
 }
-#split-tip::before { content: ""; position: absolute; top: -6px; right: 34px; width: 10px; height: 10px; background: var(--panel); border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); transform: rotate(45deg); }
+#split-tip::before { content: ""; position: absolute; width: 10px; height: 10px; background: var(--panel); border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); }
+#split-tip[data-side="top"]::before { top: -6px; left: var(--arrow, 30px); transform: rotate(45deg); }
+#split-tip[data-side="bottom"]::before { bottom: -6px; left: var(--arrow, 30px); transform: rotate(225deg); }
+#split-tip[data-side="left"]::before { left: -6px; top: calc(50% - 5px); transform: rotate(-45deg); }
 #split-tip strong { color: var(--text-strong); font: 600 14px var(--font-second); }
-#split-tip button { align-self: flex-end; border: 0; padding: 4px 10px; border-radius: var(--blob-s); background: var(--accent); color: #fff; font: 600 12px var(--font-second); cursor: pointer; }
+#split-tip .tip-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+#split-tip .tip-row i { flex: 1; }
+#split-tip button { border: 0; padding: 4px 10px; border-radius: var(--blob-s); background: var(--accent); color: #fff; font: 600 12px var(--font-second); cursor: pointer; }
+#split-tip button.quiet { background: none; color: var(--text); font-weight: 500; padding: 4px 6px; }
+#split-tip button.quiet:hover { color: var(--text-strong); }
 body:not([data-mode="board"]) #split-tip { display: none; }
 
 /* The dock folds into one small button */

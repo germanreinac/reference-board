@@ -119,7 +119,7 @@ function setMode(m) {
   if (m === 'home') requestAnimationFrame(fitBrand);
   // The home screen is always dark; each board has its own look (set when it opens).
   // Outside a board the app wears the look you last picked (dark or light).
-  if (m !== 'board') { applyLook({ theme: defaultLook().theme }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
+  if (m !== 'board') { dismissSplitTip(); applyLook({ theme: defaultLook().theme }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -3034,30 +3034,67 @@ function layoutsMenu(button) {
 }
 document.getElementById('layouts-button').addEventListener('click', (e) => { dismissSplitTip(); layoutsMenu(e.currentTarget); });
 
-// A one-time pointer to split views, the first time someone opens a board in this
-// browser. It goes away for good once it's been seen (clicked, dismissed, or used).
-const SPLIT_TIP = 'refboard.tipSplit';
+// Tips: every time you open a new (empty) board, one small tip appears next to the thing
+// it's about. The first is always split views; after that they take turns, one per new
+// board. "Next tip" shows another, "Got it" closes it, and they can be turned off (and
+// back on in Settings).
+const TIPS = [
+  ['#layouts-button', 'Split the view', 'See several parts of your board, or two boards, side by side.'],
+  ['#toolbar', 'Select and move around', 'Drag on empty space to select several things. Hold Space and drag to move around, scroll to zoom.'],
+  ['#studio-dock', 'The studio tools', 'Image search, a poseable mannequin, drawing over images, storyboards and palettes live here.'],
+  ['#star-button', 'Pick your favourites', 'Select images and press M to star them. Then make a new board from just the starred ones.'],
+  ['#toolbar', 'Write anywhere', 'Double-click empty space to write. Press Ctrl/⌘ + F to find any note, caption or title on the board.'],
+  ['#map-button', 'Find your way', 'The map shows the whole board. Click in it to jump there, or pick a frame from its list.'],
+  ['.pane-zoom', 'Zoom to fit', 'Click the percentage to fit everything, or press Shift + 1. Press G to see the board in greyscale and check values.'],
+  ['#board-menu-button', 'Send it to someone', 'Export the board or a selection as an image, or its frames as a PDF, from this menu.'],
+];
+const TIPS_OFF = 'refboard.tipsOff', TIP_AT = 'refboard.tipAt';
 let splitTip = null;
+const tipsOn = () => { try { return !localStorage.getItem(TIPS_OFF); } catch { return true; } };
+function setTips(on) {
+  try { if (on) localStorage.removeItem(TIPS_OFF); else localStorage.setItem(TIPS_OFF, '1'); } catch {}
+  if (!on) dismissSplitTip();
+  toast(on ? 'Tips will show on new boards.' : 'Tips are off. Turn them back on under ⋯ → Settings.', 2600);
+}
 function dismissSplitTip() {
-  try { localStorage.setItem(SPLIT_TIP, 'seen'); } catch {}
   splitTip?.remove();
   splitTip = null;
 }
+function showTip(i) {
+  dismissSplitTip();
+  const [sel, title, text] = TIPS[i % TIPS.length];
+  const target = document.querySelector(sel);
+  const r = target?.getBoundingClientRect();
+  if (!r?.width) return;
+  const el = splitTip = document.createElement('div');
+  el.id = 'split-tip';
+  el.innerHTML = '<strong></strong><span></span><div class="tip-row"><button data-a="off" class="quiet">Turn tips off</button><i></i><button data-a="next" class="quiet">Next tip</button><button data-a="ok">Got it</button></div>';
+  el.querySelector('strong').textContent = title;
+  el.querySelector('span').textContent = text;
+  document.body.appendChild(el);
+  // Next to what it's about: under things at the top, above things at the bottom, beside the dock.
+  const w = el.offsetWidth, h = el.offsetHeight, W = window.innerWidth, H = window.innerHeight;
+  let x, y, side;
+  if (r.top < 60) { side = 'top'; x = r.left + r.width / 2 - w / 2; y = r.bottom + 10; }
+  else if (r.left < 80 && r.height > r.width * 2) { side = 'left'; x = r.right + 12; y = r.top + r.height / 2 - h / 2; }
+  else { side = 'bottom'; x = r.left + r.width / 2 - w / 2; y = r.top - h - 12; }
+  x = Math.max(8, Math.min(W - w - 8, x)); y = Math.max(8, Math.min(H - h - 8, y));
+  el.dataset.side = side;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.setProperty('--arrow', `${Math.max(14, Math.min(w - 24, r.left + r.width / 2 - x - 5))}px`);
+  el.querySelector('[data-a="ok"]').addEventListener('click', dismissSplitTip);
+  el.querySelector('[data-a="next"]').addEventListener('click', () => { try { localStorage.setItem(TIP_AT, String(i + 2)); } catch {} showTip(i + 1); });
+  el.querySelector('[data-a="off"]').addEventListener('click', () => setTips(false));
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+}
+// Called when a board comes on screen: a new, empty one gets the next tip.
 function maybeSplitTip() {
-  let seen = true;
-  try { seen = !!localStorage.getItem(SPLIT_TIP); } catch {}
-  if (seen || splitTip || mode !== 'board') return;
-  if (layout().panes().length > 1) return dismissSplitTip();   // already using it
-  const r = document.getElementById('layouts-button').getBoundingClientRect();
-  if (!r.width) return;
-  splitTip = document.createElement('div');
-  splitTip.id = 'split-tip';
-  splitTip.innerHTML = '<strong>Split the view</strong><span>See several parts of your board, or two boards, side by side.</span><button>Got it</button>';
-  document.body.appendChild(splitTip);
-  splitTip.style.top = `${r.bottom + 10}px`;
-  splitTip.style.right = `${Math.max(8, window.innerWidth - r.right - 6)}px`;
-  splitTip.querySelector('button').addEventListener('click', dismissSplitTip);
-  splitTip.addEventListener('pointerdown', (e) => e.stopPropagation());
+  if (!tipsOn() || splitTip || mode !== 'board' || !board?.isEmpty()) return;
+  let at = 0;
+  try { at = Number(localStorage.getItem(TIP_AT)) || 0; } catch {}
+  try { localStorage.setItem(TIP_AT, String(at + 1)); } catch {}
+  showTip(at);
 }
 
 // ---------- The mannequin, on the board ----------
@@ -5126,6 +5163,7 @@ function openMenu(x, y, pane) {
   ];
   const settingsMenu = [
     { label: snapOn ? 'Snapping: on ✓' : 'Snapping: off', action: () => setSnap(!snapOn) },
+    { label: tipsOn() ? 'Tips on new boards: on ✓' : 'Tips on new boards: off', action: () => setTips(!tipsOn()) },
     { label: 'Scrolling', submenu: [
       { label: `Work it out for me${scrollMode ? '' : ' ✓'}`, action: () => setScrollMode(null) },
       { label: `Mouse: the wheel zooms${scrollMode === 'mouse' ? ' ✓' : ''}`, action: () => setScrollMode('mouse') },
