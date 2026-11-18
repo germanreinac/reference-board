@@ -12,8 +12,8 @@
 export const THEMES = {
   // The Melti brand: a calm board (so references read true) with fluor pink between the
   // panes. Dark is the main look; light is the same idea, softer.
-  dark: { text: '#f6f3ff', board: '#16151c', gap: '#ff3fa9', dot: '#3d3a5c', scene: 0x1f1d2a, floor: 0x2a2740, grid: [0x3d3a5c, 0x322f4b] },
-  light: { text: '#1f1f22', board: '#f3f1f4', gap: '#ff8fcb', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
+  dark: { text: '#f6f3ff', board: '#16151c', gap: '#322f47', dot: '#3d3a5c', scene: 0x1f1d2a, floor: 0x2a2740, grid: [0x3d3a5c, 0x322f4b] },
+  light: { text: '#1f1f22', board: '#f3f1f4', gap: '#d6cfe0', dot: '#c2c2be', scene: 0xe6e6e3, floor: 0xd6d6d2, grid: [0xbdbdb8, 0xc9c9c5] },
 };
 
 // Colour mode palettes: soft and muted, never loud. [name, background, gap between panes,

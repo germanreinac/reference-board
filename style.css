@@ -3,7 +3,7 @@
 
 :root, body[data-theme="dark"] {
   --bg: #16151c;            /* board and pane background */
-  --gap: #ff3fa9;           /* the lines between panes: fluor pink */
+  --gap: #322f47;           /* the lines between panes: a quiet violet-grey (pink only when you grab one) */
   --line: #2a2838;          /* thin separators */
   --input: #100f16;         /* text boxes and the top bar */
   --card: #1f1d2a;          /* cards and chips */
@@ -24,7 +24,7 @@
 }
 body[data-theme="light"] {
   --bg: #f3f1f4;
-  --gap: #ff8fcb;
+  --gap: #d6cfe0;
   --line: #e2dde6;
   --input: #ffffff;
   --card: #ffffff;
