@@ -2297,3 +2297,13 @@ body[data-motion="on"][data-mode="home"] #home::before { animation: dots-drift 9
 .project.drop-below { box-shadow: 0 4px 0 0 var(--accent); }
 body.dragging-project .project { transition: box-shadow 0.1s; }
 #selection-bar [data-action="lock"].on { color: var(--accent); }
+
+/* Colour script: a bigger panel, with a size slider for the strip */
+.cs-panel { max-height: calc(100vh - 140px); display: flex; flex-direction: column; width: min(1400px, calc(100vw - 32px)); }
+.cs-strip { overflow: auto; flex: 1; min-height: 0; }
+.cs-canvas { height: 230px; }
+.cs-head input[type="range"] { width: 110px; accent-color: var(--accent); }
+/* Soft, uneven shapes on every panel and control (only images, selections and text stay straight) */
+body :is(.cs-panel, .mini-dialog, .sb-panel, .star-panel, .pal-panel, .pal-card, .help-box, .menu, #find-box, #opacity-pop, .search-settings, .mq-ai-settings, .shape-picker, .colour-palette, .sel-palette, #split-tip, #map-panel, #toast, #load-progress, .cs-strip, .cs-canvas, .star-thumb, .result, .sb-list > *, #mannequin-onboard) { border-radius: var(--blob); }
+body :is(.cs-panel button, .cs-modes, .mini-dialog button, .mini-dialog select, .mini-dialog input, .sb-panel button, .sb-panel select, .sb-panel input, .sb-panel textarea, .pal-panel button:not(.pal-swatch), .pal-card input, .star-actions button, .mq-bar select, .mq-bar button, .mq-bar input[type="text"], .mq-ai input, .chip, .search-input, .mood-input, .sel-text select, .sel-text button:not(.swatch):not(.sel-colour), .key-row input, .shape-picker button, .frame-rename, .caption-editor, .note-editor, .pane-zoom, .tab-close, #tab-add, .trash-link, kbd) { border-radius: var(--blob-s); }
+#selection-bar, #toolbar, #studio-dock, #board-bar .tab { border-radius: var(--blob); }

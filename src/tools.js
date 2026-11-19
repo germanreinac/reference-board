@@ -6,7 +6,7 @@ export const COLOURS = ['#ff3fa9', '#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '
 
 export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note', KeyS: 'shape', KeyA: 'frame' };
 
-export const SHAPES = ['rect', 'ellipse', 'star', 'line', 'arrow'];
+export const SHAPES = ['arrow', 'line', 'path', 'rect', 'ellipse', 'triangle', 'diamond', 'star'];
 
 const ICONS = {
   select: '<svg viewBox="0 0 16 16"><path d="M3.5 2.5l9 5-4 1.2-1.8 3.8z"/></svg>',
@@ -16,6 +16,9 @@ const ICONS = {
   ellipse: '<svg viewBox="0 0 16 16"><ellipse cx="8" cy="8" rx="5.5" ry="4.5"/></svg>',
   star: '<svg viewBox="0 0 16 16"><path d="M8 2.2l1.75 3.7 4 .5-2.95 2.75.75 4-3.55-1.95-3.55 1.95.75-4L2.25 6.4l4-.5z"/></svg>',
   line: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3"/></svg>',
+  path: '<svg viewBox="0 0 16 16"><path d="M2.500 12.500C5 12.500 5 4 8 4s3 8 5.500 8"/><circle cx="2.500" cy="12.500" r="1.200" fill="currentColor"/><circle cx="8" cy="4" r="1.200" fill="currentColor"/><circle cx="13.500" cy="12" r="1.200" fill="currentColor"/></svg>',
+  triangle: '<svg viewBox="0 0 16 16"><path d="M8 3l5.500 10h-11z"/></svg>',
+  diamond: '<svg viewBox="0 0 16 16"><path d="M8 2.500L13.500 8 8 13.500 2.500 8z"/></svg>',
   arrow: '<svg viewBox="0 0 16 16"><path d="M3 13L13 3M7.5 3H13v5.5"/></svg>',
   frame: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M2.5 2.4h5.5"/></svg>',
   pen: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-7.5 7.5-3.8.8.8-3.8z M9 4l3 3"/></svg>',
@@ -37,7 +40,7 @@ const TITLES = {
   eraser: 'Eraser (E), or flip your tablet pen over',
   text: 'Text (T): click to write. Start a line with # , ## or ### for headings',
   note: 'Sticky note (N): click to add a note',
-  shape: 'Shape (S): drag to draw. Click again to choose rectangle, ellipse, star, line or arrow',
+  shape: 'Shapes (S): arrow, line, path, rectangle, ellipse, triangle, diamond, star. Drag to draw',
   frame: 'Frame (A): drag to mark an area. Frames group things, and export as PDF pages',
 };
 
@@ -59,7 +62,8 @@ export class Toolbar {
       for (const tool of tools) {
         const b = this.button(ICONS[tool] || ICONS.rect, TITLES[tool], () => {
           // Clicking the shape tool again opens the choice of shapes.
-          if (tool === 'shape' && this.state.tool === 'shape') { this.shapePicker.hidden = !this.shapePicker.hidden; return; }
+          // The shape tool always shows its shapes, so you can see what there is.
+          if (tool === 'shape') { const was = this.state.tool === 'shape'; this.setTool(tool); this.shapePicker.hidden = was ? !this.shapePicker.hidden : false; return; }
           this.setTool(tool);
         });
         this.toolButtons[tool] = b;
@@ -82,7 +86,7 @@ export class Toolbar {
     this.shapePicker.className = 'shape-picker';
     this.shapePicker.hidden = true;
     for (const shape of SHAPES) {
-      const b = this.button(ICONS[shape], { rect: 'Rectangle', ellipse: 'Ellipse', star: 'Star', line: 'Line', arrow: 'Arrow' }[shape], () => {
+      const b = this.button(ICONS[shape], { rect: 'Rectangle (Shift: square)', ellipse: 'Ellipse (Shift: circle)', star: 'Star', line: 'Line', arrow: 'Arrow', triangle: 'Triangle', diamond: 'Diamond', path: 'Path: click to add points, double-click to finish. For roads, routes and outlines' }[shape], () => {
         this.state.shape = shape;
         this.state.tool = 'shape';
         this.shapePicker.hidden = true;

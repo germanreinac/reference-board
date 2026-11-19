@@ -9,6 +9,9 @@ import { getStroke, getStrokePoints } from '../vendor/perfect-freehand.mjs';
 import { fontStack } from './fonts.js';
 
 // Text levels: size as a multiple of Body text, and default weight.
+// Shapes that fill a box (the others are lines, arrows and paths).
+export const BOX_SHAPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star'];
+
 export const LEVELS = {
   title: { label: 'Title', size: 3.2, weight: 700 },
   h1: { label: 'Heading 1', size: 2.2, weight: 700 },
@@ -117,13 +120,15 @@ export class Board {
   // shape: 'rect', 'ellipse', 'star', 'line' or 'arrow'. Rectangles, ellipses and stars are w x h;
   // lines and arrows go from -(dx, dy)/2 to +(dx, dy)/2 around their centre.
 
-  addShape({ id, shape = 'rect', x, y, w = 160, h = 110, dx = 160, dy = 0, color = '#f5f5f5', fill = false, strokeWidth = 3,
+  addShape({ id, shape = 'rect', x, y, w = 160, h = 110, dx = 160, dy = 0, color = '#f5f5f5', fill = false, strokeWidth = 3, pts = null, curved = false,
     rotation = 0, scaleX = 1, scaleY = 1, locked = false, group = null, index }) {
     const g = new Graphics();
     g.position.set(x, y);
     g.rotation = rotation;
     g.scale.set(scaleX, scaleY);
-    const item = { kind: 'shape', id: takeId(id), sprite: g, shape, w, h, dx, dy, color, fill: !!fill, strokeWidth, locked: !!locked, group, width: 0, height: 0 };
+    const item = { kind: 'shape', id: takeId(id), sprite: g, shape, w, h, dx, dy, color, fill: !!fill, strokeWidth, locked: !!locked, group, width: 0, height: 0,
+      pts: pts || null,       // a path's anchor points [x, y, x, y…], measured from its middle
+      curved: !!curved };     // a path bends smoothly through its points, or turns sharply at them
     this.drawShape(item);
     const at = index === undefined ? this.shapes.length : Math.max(0, Math.min(index, this.shapes.length));
     this.shapes.splice(at, 0, item);
@@ -136,9 +141,28 @@ export class Board {
     const sw = item.strokeWidth;
     g.clear();
     const stroke = { width: sw, color: this.paint(item.color), cap: 'round', join: 'round' };
-    if (item.shape === 'rect' || item.shape === 'ellipse' || item.shape === 'star') {
+    if (item.shape === 'path') {
+      // A line through anchor points: straight between them, or bending smoothly.
+      const p = item.pts || [0, 0];
+      const n = p.length / 2;
+      g.moveTo(p[0], p[1]);
+      for (let i = 1; i < n; i++) {
+        const x1 = p[i * 2 - 2], y1 = p[i * 2 - 1], x2 = p[i * 2], y2 = p[i * 2 + 1];
+        if (!item.curved || n < 3) { g.lineTo(x2, y2); continue; }
+        const x0 = p[Math.max(0, i - 2) * 2], y0 = p[Math.max(0, i - 2) * 2 + 1];
+        const x3 = p[Math.min(n - 1, i + 1) * 2], y3 = p[Math.min(n - 1, i + 1) * 2 + 1];
+        g.bezierCurveTo(x1 + (x2 - x0) / 6, y1 + (y2 - y0) / 6, x2 - (x3 - x1) / 6, y2 - (y3 - y1) / 6, x2, y2);
+      }
+      g.stroke(stroke);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < n; i++) { minX = Math.min(minX, p[i * 2]); maxX = Math.max(maxX, p[i * 2]); minY = Math.min(minY, p[i * 2 + 1]); maxY = Math.max(maxY, p[i * 2 + 1]); }
+      item.width = Math.max(maxX - minX, sw * 4, 14);
+      item.height = Math.max(maxY - minY, sw * 4, 14);
+    } else if (BOX_SHAPES.includes(item.shape)) {
       const { w, h } = item;
       if (item.shape === 'rect') g.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h, 60) * 0.12);
+      else if (item.shape === 'triangle') g.poly([0, -h / 2, w / 2, h / 2, -w / 2, h / 2]);
+      else if (item.shape === 'diamond') g.poly([0, -h / 2, w / 2, 0, 0, h / 2, -w / 2, 0]);
       else if (item.shape === 'star') g.poly(starPoints(w, h));
       else g.ellipse(0, 0, w / 2, h / 2);
       if (item.fill) g.fill({ color: this.paint(item.color), alpha: 0.22 });
@@ -164,10 +188,32 @@ export class Board {
     }
   }
 
+  // A path's anchor points, on the board.
+  pathAnchors(item) {
+    const s = item.sprite, cos = Math.cos(s.rotation), sin = Math.sin(s.rotation), out = [];
+    for (let i = 0; i < (item.pts?.length || 0); i += 2) {
+      const x = item.pts[i] * s.scale.x, y = item.pts[i + 1] * s.scale.y;
+      out.push({ x: s.x + x * cos - y * sin, y: s.y + x * sin + y * cos });
+    }
+    return out;
+  }
+  // Set a path from points on the board: it's re-centred on their middle.
+  setPath(item, world) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of world) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    item.sprite.position.set(cx, cy);
+    item.sprite.rotation = 0;
+    item.sprite.scale.set(1, 1);
+    item.pts = world.flatMap((p) => [p.x - cx, p.y - cy]);
+    this.drawShape(item);
+  }
+
   shapeJSON(s) {
     const g = s.sprite;
     return {
       id: s.id, shape: s.shape, x: g.x, y: g.y, w: s.w, h: s.h, dx: s.dx, dy: s.dy, color: s.color, fill: s.fill, strokeWidth: s.strokeWidth,
+      ...(s.shape === 'path' ? { pts: s.pts, curved: s.curved } : {}),
       ...(g.rotation ? { rotation: g.rotation } : {}), ...(g.scale.x !== 1 || g.scale.y !== 1 ? { scaleX: g.scale.x, scaleY: g.scale.y } : {}),
       ...(s.locked ? { locked: true } : {}), ...(s.group ? { group: s.group } : {}),
     };
@@ -469,7 +515,7 @@ export class Board {
   // `index` puts it at a given place in the stack (used by undo).
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null, title = '', titleStyle = null } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null, title = '', titleStyle = null, script = null } = {}) {
     const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
@@ -506,6 +552,7 @@ export class Board {
     if (crop) this.setCrop(item, crop, { keepPlace: false });
     if (grey) this.setGrey(item, true);
     if (caption) this.setCaption(item, caption);
+    item.script = script || null;   // a colour script remembers its shots, so it can be changed later
     item.titleStyle = titleStyle || null;   // { font, level, weight, italic, color } when you've styled the title
     if (title) this.setTitle(item, title);
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
@@ -528,6 +575,7 @@ export class Board {
       ...(item.title && item.titleStyle ? { titleStyle: item.titleStyle } : {}),
       ...(item.star ? { star: true } : {}),
       ...(item.guide ? { guide: item.guide } : {}),
+      ...(item.script ? { script: item.script } : {}),
       ...(item.sketch ? { sketch: item.sketch } : {}),
     };
   }
@@ -1436,6 +1484,9 @@ export class Board {
     for (const item of this.selection) {
       o.poly(this.corners(item).flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x3d7bff, alignment: 0.5 });
     }
+    // A selected path shows its anchor points, to drag.
+    const path = this.selection.length === 1 && this.selection[0].shape === 'path' && !this.selection[0].locked ? this.selection[0] : null;
+    if (path && handles) for (const a of this.pathAnchors(path)) o.circle(a.x, a.y, 5 / zoom).fill(0xff3fa9).stroke({ width: line, color: 0xffffff });
     const h = handles && this.handles(zoom);
     if (h) {
       if (this.selection.length > 1) o.poly(h.corners.flatMap((p) => [p.x, p.y])).stroke({ width: line, color: 0x3d7bff, alpha: 0.6 });

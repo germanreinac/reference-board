@@ -7,7 +7,7 @@
 // so the browser's Back button and bookmarks just work.
 
 import { Application, Graphics } from '../vendor/pixi.min.mjs';
-import { Board } from './board.js';
+import { Board, BOX_SHAPES } from './board.js';
 import { Camera } from './camera.js';
 import { openCompare, compareOpen } from './compare.js';
 import { motionOn, setMotion, averageColour, ripple } from './liquid.js';
@@ -119,7 +119,7 @@ function setMode(m) {
   if (m === 'home') requestAnimationFrame(fitBrand);
   // The home screen is always dark; each board has its own look (set when it opens).
   // Outside a board the app wears the look you last picked (dark or light).
-  if (m !== 'board') { dismissSplitTip(); applyLook({ theme: defaultLook().theme }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
+  if (m !== 'board') { dismissSplitTip(); closeMannequin({ keep: true }); applyLook({ theme: defaultLook().theme }); palettePanel.close(); storyboards.close(); csPanel?.remove(); csPanel = null; }
   if (m === 'board') {
     viewports.position();
     requestRender();
@@ -485,7 +485,7 @@ function removeThing(kind, id) {
 // The parts of an image or note that moving, scaling, rotating, flipping, cropping
 // and greyscale change. Saved before and after an edit, for undo.
 const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box', 'fixW', 'fixH', 'doodles'];
-const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
+const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy', 'pts', 'curved'];
 const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'fillAlpha', 'outline', 'titleBase'];
 const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide', 'title', 'titleStyle'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
@@ -574,12 +574,14 @@ function opacitySlider(x, y) {
     el.querySelector('b').textContent = `${range.value}%`;
     requestRender();
   });
+  let from = before;
+  range.addEventListener('change', () => { recordChange(imgs, from); from = imgs.map(stateOf); });
   const close = (e) => {
     if (e && el.contains(e.target)) return;
     window.removeEventListener('pointerdown', close, true);
     el.remove();
     if (opacityPop === el) opacityPop = null;
-    recordChange(imgs, before);
+    recordChange(imgs, from);
   };
   setTimeout(() => window.addEventListener('pointerdown', close, true), 0);
   range.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' || e.key === 'Enter') close(); });
@@ -1877,34 +1879,45 @@ async function colourScript() {
 
 let csPanel = null;
 
-async function colourStripPanel() {
-  const imgs = readingOrder(board.selection.filter((x) => x.kind === 'image' && x.blob && !x.name.startsWith('Colours of') && !x.name.startsWith('Colour script')));
-  if (!imgs.length) { toast('Select the shots (images or panels) to make a colour script of.', 2200); return; }
+// (Open it on a colour script that's already on the board to change it: add or remove
+// shots, reorder them, change a colour, then update it in place.)
+async function colourStripPanel(existing = null) {
+  existing = existing?.kind === 'image' && existing.script ? existing : null;
+  const usable = (x) => x.kind === 'image' && x.blob && !x.script && !x.name.startsWith('Colours of') && !x.name.startsWith('Colour script');
+  const imgs = existing
+    ? existing.script.ids.map((id) => board.find('image', id)).filter(Boolean)
+    : readingOrder(board.selection.filter(usable));
+  if (!imgs.length) { toast(existing ? 'The images this colour script was made from are no longer on the board.' : 'Select the shots (images or panels) to make a colour script of.', 2600); return; }
   csPanel?.remove();
   toast('Working out the colours…', 20000);
-  const shots = [];
-  for (const it of imgs) {
+  const shotOf = async (it) => {
     const colours = await imageColours(it, 5);
     // The key colour: a big share, and some colour in it (not just the grey of the sky).
     const key = [...colours].sort((a, b) => b.share * (0.35 + chroma(b)) - a.share * (0.35 + chroma(a)))[0];
-    shots.push({ item: it, colours, key: key.hex, thumb: await thumbOf(it) });
-  }
+    return { item: it, colours, key: existing?.script.keys?.[it.id] || key.hex, thumb: await thumbOf(it) };
+  };
+  let shots = [];
+  for (const it of imgs) shots.push(await shotOf(it));
   toastEl.classList.remove('show');
-  const state = { mode: 'key', labels: true };
+  let prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem('refboard.colourScript') || '{}') || {}; } catch {}
+  const state = { mode: existing?.script.mode || 'key', labels: existing ? existing.script.labels !== false : true };
   const el = document.createElement('div');
   el.className = 'cs-panel';
   el.innerHTML = `
     <div class="cs-head">
       <strong>Colour script</strong>
       <div class="cs-modes"><button data-m="key">Key colour</button><button data-m="palette">Palette</button><button data-m="gradient">Gradient</button></div>
-      <label><input type="checkbox" data-k="labels" checked> Numbers</label>
+      <label><input type="checkbox" data-k="labels" ${state.labels ? 'checked' : ''}> Numbers</label>
+      <label title="How big the strip is shown here">Size <input type="range" data-k="size" min="110" max="460" value="${prefs.size || 230}"></label>
       <span class="cs-space"></span>
+      <button data-a="more" title="Add the images selected on the board to this colour script">+ Selected images</button>
       <button data-a="png">PNG</button>
-      <button data-a="add" class="primary">Add to board</button>
+      <button data-a="add" class="primary">${existing ? 'Update on board' : 'Add to board'}</button>
       <button data-a="close" title="Close">✕</button>
     </div>
     <div class="cs-strip"></div>
-    <p class="cs-hint">Click a shot's colour to change it.</p>`;
+    <p class="cs-hint">Click a shot to change its colour, move it or remove it. Select more images on the board and press “+ Selected images” to add them.</p>`;
   document.body.appendChild(el);
   csPanel = el;
   const strip = el.querySelector('.cs-strip');
@@ -1913,41 +1926,76 @@ async function colourStripPanel() {
   el.appendChild(picker);
   let editing = null;
   picker.addEventListener('input', () => { if (editing) { editing.key = picker.value; paint(); } });
+  const size = el.querySelector('[data-k="size"]');
   const paint = () => {
     for (const b of el.querySelectorAll('[data-m]')) b.classList.toggle('on', b.dataset.m === state.mode);
     strip.replaceChildren();
-    const c = renderStrip(shots, { ...state, cell: 120, h: 70, thumbs: true });
+    if (!shots.length) return;
+    const c = renderStrip(shots, { ...state, cell: 240, h: 140, thumbs: true });
     c.className = 'cs-canvas';
+    c.style.height = `${size.value}px`;
     c.addEventListener('click', (e) => {
       const r = c.getBoundingClientRect();
       const i = Math.floor((e.clientX - r.left) / r.width * shots.length);
       if (!shots[i]) return;
-      editing = shots[i];
-      picker.value = editing.key;
-      picker.click();
+      const move = (to) => { const [x] = shots.splice(i, 1); shots.splice(to, 0, x); paint(); };
+      showMenu(e.clientX, e.clientY, [
+        { label: 'Change its colour', action: () => { editing = shots[i]; picker.value = editing.key; picker.click(); } },
+        { label: 'Move left', disabled: i === 0, action: () => move(i - 1) },
+        { label: 'Move right', disabled: i === shots.length - 1, action: () => move(i + 1) },
+        '-',
+        { label: 'Remove this shot', disabled: shots.length < 2, action: () => { shots.splice(i, 1); paint(); } },
+      ]);
     });
     strip.appendChild(c);
   };
+  size.addEventListener('input', () => { const c = strip.querySelector('canvas'); if (c) c.style.height = `${size.value}px`; try { localStorage.setItem('refboard.colourScript', JSON.stringify({ size: Number(size.value) })); } catch {} });
   el.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => { state.mode = b.dataset.m; paint(); }));
   el.querySelector('[data-k="labels"]').addEventListener('change', (e) => { state.labels = e.target.checked; paint(); });
   el.querySelector('[data-a="close"]').addEventListener('click', () => { el.remove(); csPanel = null; });
+  el.querySelector('[data-a="more"]').addEventListener('click', async () => {
+    const extra = readingOrder(board.selection.filter((x) => usable(x) && !shots.some((sh) => sh.item === x)));
+    if (!extra.length) { toast('Select the images to add on the board first (the panel stays open).', 2600); return; }
+    for (const it of extra) shots.push(await shotOf(it));
+    paint();
+  });
   el.querySelector('[data-a="png"]').addEventListener('click', () => {
     renderStrip(shots, { ...state, cell: 400, h: 260 }).toBlob((blob) => downloadBlob(blob, `${current?.name || 'Board'} - colour script.png`), 'image/png');
   });
   el.querySelector('[data-a="add"]').addEventListener('click', async () => {
     const canvas = renderStrip(shots, { ...state, cell: 400, h: 260 });
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
-    const b = board.bounds(imgs);
-    const k = b.width / canvas.width;
     const bitmap = await createImageBitmap(blob);
-    const item = board.addImage(bitmap, b.x + b.width / 2, b.y + b.height + canvas.height * k / 2 + b.width * 0.03, { name: 'Colour script', blob, scaleX: k, scaleY: k });
+    const script = { ids: shots.map((sh) => sh.item.id), keys: Object.fromEntries(shots.map((sh) => [sh.item.id, sh.key])), mode: state.mode, labels: state.labels };
+    // Updating one that's on the board: it keeps its place (its top-left corner) and the size of its columns.
+    const old = existing && board.items.includes(existing) ? existing : null;
+    let k, x, y;
+    if (old) {
+      const s = old.sprite;
+      k = Math.abs(s.scale.x) * (old.width / (old.script.ids.length * 400)) || Math.abs(s.scale.x);
+      x = s.x - (old.width * Math.abs(s.scale.x)) / 2 + (canvas.width * k) / 2;
+      y = s.y - (old.height * Math.abs(s.scale.y)) / 2 + (canvas.height * k) / 2;
+    } else {
+      const b = board.bounds(shots.map((sh) => sh.item));
+      k = b.width / canvas.width;
+      x = b.x + b.width / 2;
+      y = b.y + b.height + canvas.height * k / 2 + b.width * 0.03;
+    }
+    const oldData = old ? thingData(old) : null;
+    if (old) removeImageById(old.id);
+    const item = board.addImage(bitmap, x, y, { name: 'Colour script', blob, scaleX: k, scaleY: k, script });
     store.saveImage(current.id, item.id, blob).catch(() => {});
     const data = { ...board.imageJSON(item), blob };
-    history.push({ undo: () => removeImageById(data.id), redo: () => restoreImage(data) });
+    history.push({
+      undo: async () => { removeImageById(data.id); if (oldData) await restoreThing(oldData); requestRender(); },
+      redo: async () => { if (oldData) removeImageById(oldData.data.id); await restoreImage(data); requestRender(); },
+    });
     board.selection = [item];
+    existing = item;
+    el.querySelector('[data-a="add"]').textContent = 'Update on board';
     contentChanged();
     requestRender();
-    toast('Colour script added under the shots.', 2000);
+    toast(old ? 'Colour script updated.' : 'Colour script added under the shots. Select it later to change it.', 2600);
   });
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   paint();
@@ -2428,6 +2476,7 @@ async function doRoute() {
     if (current) setMode('board');
     showBoardLink();
     setTimeout(maybeSplitTip, 900);
+    setTimeout(restoreMannequin, 300);
   } else {
     await leaveBoard();
     setMode('home');
@@ -3200,7 +3249,7 @@ function toggleMannequin() {
   const host = el.querySelector('.mqo-host');
   const fake = { type: 'mannequin', state: saved.state || {} };
   const remember = () => {
-    try { localStorage.setItem(MQ_KEY, JSON.stringify({ boardId: mqWin?.boardId ?? current?.id, ...place, state: fake.state })); } catch {}
+    try { localStorage.setItem(MQ_KEY, JSON.stringify({ boardId: mqWin?.boardId ?? current?.id, open: true, ...place, state: fake.state })); } catch {}
   };
   const editor = createEditor(fake, host, { ...editorActions, changed: () => remember() });
   mqWin = { el, editor, place, pane: null, boardId: current.id, remember };
@@ -3235,10 +3284,21 @@ function placeMannequin() {
   mqWin.el.style.display = '';
   mqWin.el.style.transform = `translate(${pane.camera.x + p.x * z}px, ${pane.camera.y + p.y * z}px) scale(${p.s * z})`;
 }
-function closeMannequin() {
+// The mannequin stays on its board: when that board is opened again, it's back in its place.
+function restoreMannequin() {
+  if (mode !== 'board' || !current) return;
+  if (mqWin && mqWin.boardId !== current.id) closeMannequin({ keep: true });   // you've gone to another board
+  if (mqWin) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(MQ_KEY) || 'null'); } catch {}
+  if (saved?.open && saved.boardId === current.id) toggleMannequin();
+}
+function closeMannequin({ keep = false } = {}) {
   if (!mqWin) return;
   mqWin.editor.destroy();   // (saves its pose first)
   mqWin.remember();
+  // Taken off the board by hand: it stays off. (Leaving the board keeps it for next time.)
+  if (!keep) { try { const sv = JSON.parse(localStorage.getItem(MQ_KEY) || '{}'); sv.open = false; localStorage.setItem(MQ_KEY, JSON.stringify(sv)); } catch {} }
   mqWin.el.remove();
   mqWin = null;
   document.querySelector('.mannequin-button')?.classList.remove('active');
@@ -4212,7 +4272,7 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
     { id: 'storyboard', icon: 'storyboard', title: 'Storyboard: make one, or open one on this board', onClick: (b) => storyboardMenu(b) },
     { id: 'palettes', icon: 'palette', title: 'Palettes: colour sets kept with this board', onClick: () => palettePanel.toggle() },
   ],
-  onChange: () => { updateCursor(); requestRender(); },
+  onChange: () => { if (pathDraft && !(toolbar.tool === 'shape' && toolbar.state.shape === 'path')) finishPath(); updateCursor(); requestRender(); },
   onUndo: undo,
   onRedo: redo,
 });
@@ -4321,6 +4381,77 @@ function addNoteAt(pane, wx, wy, style = 'sticky') {
     : board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: size, fixW: 170 / pane.camera.zoom, fixH: 150 / pane.camera.zoom });
   note.isNew = true;
   editNote(note, pane);
+}
+
+// ---------- Paths: lines through anchor points ----------
+//
+// For roads, routes, outlines and plans. With the Path shape chosen, each click adds a
+// point and a line follows the mouse to the next one; double-click (or Enter) finishes,
+// Esc throws it away. Afterwards, select the path to drag its points, and switch it
+// between sharp turns and smooth curves from its toolbar.
+
+let pathDraft = null;   // { item, pane, world: [{x, y}…] } while one is being drawn
+function pathClick(pane, w) {
+  if (!pathDraft) {
+    const item = board.addShape({ shape: 'path', x: w.x, y: w.y, pts: [0, 0], curved: !!toolbar.state.pathCurved, color: toolbar.color, strokeWidth: toolbar.state.shapeSize / pane.camera.zoom });
+    pathDraft = { item, pane, world: [{ x: w.x, y: w.y }] };
+    toast('Click to add points. Double-click or Enter to finish, Esc to cancel.', 3500);
+  } else {
+    const last = pathDraft.world.at(-1);
+    if (Math.hypot(w.x - last.x, w.y - last.y) * pane.camera.zoom > 3) pathDraft.world.push({ x: w.x, y: w.y });
+  }
+  board.setPath(pathDraft.item, pathDraft.world);
+  requestRender();
+}
+function pathHover(e) {
+  const pane = pathDraft.pane;
+  const p = localPoint(pane, e), w = pane.camera.toWorld(p.x, p.y);
+  board.setPath(pathDraft.item, [...pathDraft.world, { x: w.x, y: w.y }]);
+  requestRender();
+}
+function finishPath(cancel = false) {
+  if (!pathDraft) return;
+  const { item, world } = pathDraft;
+  pathDraft = null;
+  if (cancel || world.length < 2) { board.remove(item); requestRender(); return; }
+  board.setPath(item, world);
+  const data = board.shapeJSON(item);
+  history.push({ undo: () => removeThing('shape', data.id), redo: () => restoreThing({ kind: 'shape', data }) });
+  board.selected = item;
+  toolbar.setTool('select');
+  contentChanged();
+  requestRender();
+}
+// Is one of the selected path's points under this board point?
+function pathAnchorAt(pane, w) {
+  const item = board.selection.length === 1 && board.selection[0].shape === 'path' && !board.selection[0].locked ? board.selection[0] : null;
+  if (!item || toolbar.tool !== 'select') return null;
+  const reach = 9 / pane.camera.zoom;
+  const index = board.pathAnchors(item).findIndex((a) => Math.hypot(a.x - w.x, a.y - w.y) <= reach);
+  return index < 0 ? null : { item, index };
+}
+function togglePathCurve() {
+  const paths = board.selection.filter((x) => x.shape === 'path');
+  const on = !paths.every((x) => x.curved);
+  toolbar.state.pathCurved = on;
+  editSelection((x) => { x.curved = on; board.drawShape(x); }, paths);
+}
+// A rectangle can become a frame: same place and size, and what's inside it moves with it.
+function shapeToFrame() {
+  const r = board.selection.find((x) => x.kind === 'shape' && x.shape === 'rect');
+  if (!r) return;
+  const s = r.sprite, z = (activePane || targetBoardPane())?.camera.zoom || 1;
+  const data = thingData(r);
+  const f = board.addFrame({ x: s.x, y: s.y, w: r.w * Math.abs(s.scale.x), h: r.h * Math.abs(s.scale.y), name: '', titleSize: 15 / z, fill: r.fill ? (r.color === 'ink' ? null : r.color) : null, fillAlpha: r.fill ? 0.25 : 1 });
+  const fd = board.frameJSON(f);
+  removeThing('shape', r.id);
+  history.push({
+    undo: async () => { removeThing('frame', fd.id); await restoreThing(data); requestRender(); },
+    redo: () => { removeThing('shape', data.data.id); restoreThing({ kind: 'frame', data: fd }); requestRender(); },
+  });
+  board.selected = f;
+  contentChanged();
+  requestRender();
 }
 
 // The sticky-note tool: a square in the note's colour follows the mouse, and one click
@@ -4479,7 +4610,7 @@ function dragTo(d, w, e) {
   } else if (d.kind === 'create') {
     d.moved = true;
     const it = d.item;
-    if (it.kind === 'frame' || it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star') {
+    if (it.kind === 'frame' || BOX_SHAPES.includes(it.shape)) {
       let wx = w.x - d.start.x, wy = w.y - d.start.y;
       if (e.shiftKey && it.kind === 'shape') { const m = Math.max(Math.abs(wx), Math.abs(wy)); wx = Math.sign(wx || 1) * m; wy = Math.sign(wy || 1) * m; }
       it.sprite.position.set(d.start.x + wx / 2, d.start.y + wy / 2);
@@ -4527,6 +4658,9 @@ const SEL_ICONS = {
   paint: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   editSketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/><circle cx="12.5" cy="12.5" r="2" fill="currentColor" stroke="none"/></svg>',
   title: '<svg viewBox="0 0 16 16"><path d="M3.500 4V3h9v1M8 3v10M6 13h4"/></svg>',
+  editScript: '<svg viewBox="0 0 16 16"><rect x="1.500" y="3.500" width="13" height="9" rx="1.200"/><path d="M5.800 3.500v9M10.200 3.500v9"/></svg>',
+  curve: '<svg viewBox="0 0 16 16"><path d="M2.500 12C2.500 6 6 4 13.500 4"/><circle cx="2.500" cy="12" r="1.300" fill="currentColor"/><circle cx="13.500" cy="4" r="1.300" fill="currentColor"/></svg>',
+  toFrame: '<svg viewBox="0 0 16 16"><rect x="2.500" y="5" width="11" height="8.500" rx="1.200"/><path d="M2.500 2.500h5"/></svg>',
   imgTitle: '<svg viewBox="0 0 16 16"><path d="M3 3.500h10"/><rect x="2.500" y="6.500" width="11" height="7" rx="1.200"/></svg>',
   script: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.2"/><path d="M5.8 3.5v9M10.2 3.5v9"/><path d="M1.5 9.5h13" opacity=".6"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
@@ -4544,8 +4678,11 @@ const SEL_ACTIONS = [
   ['grey', 'Greyscale on / off', toggleGrey, (sel) => sel.some((x) => x.kind === 'image')],
   ['paint', 'Draw over this image (D): Advanced drawing with brushes and layers. The image itself stays as it is', () => paintOver(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !sel[0].sketch],
   ['editSketch', 'Keep drawing on it (D, or double-click it)', () => editSketch(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sketch],
-  ['script', 'Colour script: a strip of these shots\' colours', colourStripPanel, (sel) => sel.filter((x) => x.kind === 'image').length > 1],
+  ['script', 'Colour script: a strip of these shots\' colours', () => colourStripPanel(), (sel) => sel.filter((x) => x.kind === 'image' && !x.script).length > 1],
+  ['editScript', 'Change this colour script: add or remove shots, reorder, recolour', () => colourStripPanel(board.selected), (sel) => sel.length === 1 && !!sel[0].script],
   ['colours', 'Extract colours: add a palette of this image', extractColours, (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['curve', 'Smooth curves or sharp turns', togglePathCurve, (sel) => sel.length > 0 && sel.every((x) => x.shape === 'path')],
+  ['toFrame', 'Turn this rectangle into a frame', shapeToFrame, (sel) => sel.length === 1 && sel[0].kind === 'shape' && sel[0].shape === 'rect'],
   ['align', 'Align, spread out or arrange', () => { const r = selectionBar.querySelector('[data-action="align"]').getBoundingClientRect(); alignMenu(r.left, r.bottom + 6); }, (sel) => sel.length > 1],
   ['group', 'Group (Ctrl/⌘+G)', groupSelection, (sel) => sel.length > 1 && !(sel.every((x) => x.group && x.group === sel[0].group))],
   ['ungroup', 'Ungroup (Ctrl/⌘+Shift+G)', ungroupSelection, (sel) => sel.some((x) => x.group)],
@@ -4831,7 +4968,7 @@ function updateTextControls(sel) {
   fillPalette.hidden = true;
   // Shapes only get a colour and a fill; text gets everything else.
   for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], [data-text="align"], [data-text="box"]')) el.hidden = !isText;
-  textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => x.shape === 'rect' || x.shape === 'ellipse' || x.shape === 'star'));
+  textControls.querySelector('[data-text="fill"]').hidden = !(isShape && shapes.some((x) => BOX_SHAPES.includes(x.shape)));
   if (isShape) {
     const key = shapes.map((x) => `${x.id}:${x.color}:${x.fill}`).join(',');
     if (key === lastControls) return;
@@ -5021,6 +5158,11 @@ panesEl.addEventListener('pointerdown', (e) => {
       else if (tool === 'note') placeSticky(pane, w.x, w.y);
       else addNoteAt(pane, w.x, w.y, 'text');
     }
+  } else if (e.button === 0 && tool === 'shape' && toolbar.state.shape === 'path') {
+    // A path: every click adds a point (double-click or Enter finishes it).
+    board.selected = null;
+    pathClick(pane, w);
+    drag = null;
   } else if (e.button === 0 && (tool === 'shape' || tool === 'frame')) {
     // Drag to draw a shape or a frame.
     board.selected = null;
@@ -5037,13 +5179,17 @@ panesEl.addEventListener('pointerdown', (e) => {
     board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
     drag = { kind: 'crop', pane };
   } else if (e.button === 0) {
-    const handle = handleAt(pane, w);
+    const anchor = pathAnchorAt(pane, w);
+    const handle = anchor ? null : handleAt(pane, w);
     // A frame's name label selects the frame; otherwise the top thing under the mouse.
     let hit = board.frameTitleAt(w.x, w.y) || board.imageTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
     // Something locked can still be clicked (to see its toolbar and unlock it): it just
     // can't be moved or resized. Dragging on it draws a selection box, as on empty space.
     const lockedHit = !hit && !e.shiftKey ? board.hitTest(w.x, w.y, { includeLocked: true }) : null;
-    if (handle !== null) {
+    if (anchor) {
+      // One of a path's points: drag it to reshape the path.
+      drag = { kind: 'anchor', pane, item: anchor.item, index: anchor.index, before: [stateOf(anchor.item)] };
+    } else if (handle !== null) {
       // A corner handle scales, the round handle above rotates.
       const box = board.selectionBox();
       const items = [...board.selection];
@@ -5114,6 +5260,7 @@ panesEl.addEventListener('pointermove', (e) => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   updateCursor();
   if (!drag) {
+    if (pathDraft) pathHover(e);
     // Show which handle the mouse is over.
     const pane = viewports.paneFromElement(e.target);
     // Stir the dotted background a little (see viewports.stir).
@@ -5128,6 +5275,11 @@ panesEl.addEventListener('pointermove', (e) => {
   }
   if (drag.kind === 'pan') {
     drag.pane.camera.panBy(dx, dy);
+  } else if (drag.kind === 'anchor') {
+    const p = localPoint(drag.pane, e), w = drag.pane.camera.toWorld(p.x, p.y);
+    const world = board.pathAnchors(drag.item);
+    world[drag.index] = { x: w.x, y: w.y };
+    board.setPath(drag.item, world);
   } else if (['move', 'scale', 'rotate', 'marquee', 'crop', 'create'].includes(drag.kind)) {
     // These follow the mouse in the pane you're dragging in; every other pane updates too.
     // Moving things into another pane pushes through a thin layer of jelly first.
@@ -5155,11 +5307,11 @@ function endDrag() {
 
   if (d.kind === 'create') {
     const it = d.item;
-    if (!d.moved || (it.kind !== 'shape' || it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star' ? Math.max(it.w, it.h) : Math.hypot(it.dx, it.dy)) * d.pane.camera.zoom < 6) {
+    if (!d.moved || (it.kind !== 'shape' || BOX_SHAPES.includes(it.shape) ? Math.max(it.w, it.h) : Math.hypot(it.dx, it.dy)) * d.pane.camera.zoom < 6) {
       // Just a click: a shape or frame of a standard size.
       const z = d.pane.camera.zoom;
       if (it.kind === 'frame') { it.w = 960 / z; it.h = 540 / z; board.drawFrame(it); }
-      else if (it.shape === 'rect' || it.shape === 'ellipse' || it.shape === 'star') { it.w = 180 / z; it.h = 120 / z; board.drawShape(it); }
+      else if (BOX_SHAPES.includes(it.shape)) { it.w = 180 / z; it.h = 120 / z; board.drawShape(it); }
       else { it.dx = 180 / z; it.dy = 0; board.drawShape(it); }
       it.sprite.position.set(d.start.x, d.start.y);
     }
@@ -5187,6 +5339,9 @@ function endDrag() {
     }
     const rest = d.items.filter((x) => !storyboards.ownerOf(x));
     recordChange(rest, d.before.filter((st) => rest.some((x) => x.kind === st.kind && x.id === st.id)));
+  } else if (d.kind === 'anchor') {
+    recordChange([d.item], d.before);
+    requestRender();
   } else if (d.kind === 'marquee') {
     board.marquee = null;
     requestRender();
@@ -5232,6 +5387,7 @@ document.addEventListener('pointerleave', () => { if (!drag) { mouse.x = null; m
 
 // Double-click a note to edit it (with any tool).
 panesEl.addEventListener('dblclick', (e) => {
+  if (pathDraft) { finishPath(); return; }
   // (Found by position: while clicking, the mouse is captured by the whole pane area.)
   const pane = viewports.paneAt(e.clientX, e.clientY);
   if (pane?.type !== 'board') return;
@@ -5248,6 +5404,7 @@ panesEl.addEventListener('dblclick', (e) => {
   if (hit?.kind === 'frame' && hit.sbGen) return storyboards.edit(storyboards.find(hit.sbGen));
   if (hit?.kind === 'note') editNote(hit, pane);
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
+  else if (hit?.kind === 'image' && hit.script) { board.selection = [hit]; colourStripPanel(hit); }
   else if (hit?.kind === 'image' && hit.sketch) { board.selection = [hit]; editSketch(hit); }
   else if (hit?.kind === 'image') { board.selection = [hit]; editCaption(hit, pane); }
 });
@@ -5422,7 +5579,8 @@ function openMenu(x, y, pane) {
     ] : []),
     '-',
     ...(one?.kind === 'image' ? [{ label: 'Extract colours', action: extractColours }] : []),
-    ...(imgs.length > 1 ? [{ label: 'Colour script…', action: colourStripPanel }] : []),
+    ...(imgs.length > 1 ? [{ label: 'Colour script…', action: () => colourStripPanel() }] : []),
+    ...(one?.script ? [{ label: 'Change this colour script…', action: () => colourStripPanel(one) }] : []),
     '-',
     ...(one?.kind === 'image' ? [
       { label: 'Copy image', action: () => copyImage(one) },
@@ -5569,6 +5727,9 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Enter' && board.selected?.kind === 'image') {
     e.preventDefault();
     editCaption(board.selected, targetBoardPane());
+  } else if (pathDraft && (e.key === 'Enter' || e.key === 'Escape')) {
+    e.preventDefault();
+    finishPath(e.key === 'Escape');
   } else if (e.key === 'Escape') {
     if (cropping) { cropping = null; toast('Crop cancelled', 1200); }
     else board.selected = null;
