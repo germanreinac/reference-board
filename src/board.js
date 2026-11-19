@@ -224,15 +224,19 @@ export class Board {
   _wrapTitle(f) {
     const text = f.name || 'Add a title';
     const style = f.title.style;
-    const full = CanvasTextMetrics.measureText(text, style).width;
-    const wrapped = full > f.w;
+    // Measured letter by letter, because that's how a wrapped title is drawn. (Measuring
+    // the whole word at once comes out shorter when letters tuck together, like "ff", and
+    // then the last letters ran out of room and piled up on top of each other.)
+    const widths = [...text].map((ch) => CanvasTextMetrics.measureText(ch === ' ' ? ' ' : ch, style).width);
+    const full = widths.reduce((x, y) => x + y, 0);
+    const wrapped = CanvasTextMetrics.measureText(text, style).width > f.w;
     // One lap at most. Typing stops there (see titleFits); only if the frame is later made
     // smaller than its title do the letters shrink to stay inside one lap.
     const k = wrapped ? Math.min(1, this.titleRoom(f) / full) : 1;
     const size = f.titleSize * k;
     const g = f.titleBase * 0.35;   // gap between the frame's edge and the bottom of the letters
     // Each letter's width (also used to put the typing cursor in the right place).
-    const advances = [...text].map((ch) => CanvasTextMetrics.measureText(ch === ' ' ? ' ' : ch, style).width * k);
+    const advances = widths.map((w) => w * k);
     f.titleGeo = { size, g, advances, wrapped };
     // A short title is one ordinary line, sitting just above the frame.
     f.title.position.set(-f.w / 2, -f.h / 2 - g - f.title.height * 0.92);
@@ -273,7 +277,8 @@ export class Board {
 
   // Would this title fit (without shrinking)?
   titleFits(f, text) {
-    return CanvasTextMetrics.measureText(text || ' ', f.title.style).width <= Math.max(f.w, this.titleRoom(f));
+    const letters = [...(text || ' ')].reduce((sum, ch) => sum + CanvasTextMetrics.measureText(ch === ' ' ? ' ' : ch, f.title.style).width, 0);
+    return letters <= Math.max(f.w, this.titleRoom(f));
   }
 
   // A point on the title's path, `d` along it (counting only the straight sides) and `o`
