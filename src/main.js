@@ -966,7 +966,7 @@ function duplicateSelection() {
 let nudgeTimer = null;
 let nudgeBefore = null;
 function nudge(dx, dy, big) {
-  const sel = [...board.selection];
+  const sel = board.selection.filter((x) => !x.locked);   // locked things stay put
   if (!sel.length) return;
   const z = (activePane || targetBoardPane())?.camera.zoom || 1;
   const step = (big ? 10 : 1) / z;
@@ -4323,6 +4323,29 @@ function addNoteAt(pane, wx, wy, style = 'sticky') {
   editNote(note, pane);
 }
 
+// The sticky-note tool: a square in the note's colour follows the mouse, and one click
+// puts the note down right there (empty; double-click it to write).
+const STICKY_W = 170, STICKY_H = 150;   // its size on screen when you put it down
+function placeSticky(pane, wx, wy) {
+  const z = pane.camera.zoom;
+  const note = board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: 18 / z, fixW: STICKY_W / z, fixH: STICKY_H / z });
+  const data = board.noteJSON(note);
+  history.push({ undo: () => removeNoteById(data.id), redo: () => { board.addNote(data); requestRender(); } });
+  board.selection = [note];
+  toolbar.setTool('select');
+  contentChanged();
+  requestRender();
+}
+const stickyGhost = Object.assign(document.createElement('div'), { id: 'sticky-ghost', hidden: true });
+document.body.appendChild(stickyGhost);
+function updateStickyGhost() {
+  const show = mode === 'board' && toolbar.tool === 'note' && mouse.x !== null && hoverPane()?.type === 'board' && !noteEditor.editing && !drag;
+  stickyGhost.hidden = !show;
+  if (!show) return;
+  stickyGhost.style.transform = `translate(${mouse.x - STICKY_W / 2}px, ${mouse.y - STICKY_H / 2}px)`;
+  stickyGhost.style.background = toolbar.color;
+}
+
 // ---------- Selecting, moving, scaling and rotating ----------
 
 let activePane = null;  // the board pane you last clicked in (the selection bar shows there)
@@ -4476,7 +4499,9 @@ function dragTo(d, w, e) {
     if (d.kind === 'marquee') {
       const m = board.marquee;
       const inside = board.inRect(m.x0, m.y0, m.x1, m.y1);
-      board.selection = [...new Set([...d.base, ...inside.flatMap((x) => board.groupOf(x))])];
+      // (A click on something locked keeps it selected until the box actually grows.)
+      const tiny = Math.hypot(m.x1 - m.x0, m.y1 - m.y0) * d.pane.camera.zoom < 4;
+      board.selection = d.keep && tiny ? d.keep : [...new Set([...d.base, ...inside.flatMap((x) => board.groupOf(x))])];
     }
   }
 }
@@ -4485,6 +4510,7 @@ function dragTo(d, w, e) {
 const selectionBar = document.getElementById('selection-bar');
 const SEL_ICONS = {
   lock: '<svg viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>',
+  unlocked: '<svg viewBox="0 0 16 16"><rect x="3.500" y="7" width="9" height="7" rx="1.500"/><path d="M5.500 7V5a2.500 2.500 0 014.700-1.200"/></svg>',
   flipX: '<svg viewBox="0 0 16 16"><path d="M8 2v12M6 4L2 12h4zM10 4l4 8h-4z"/></svg>',
   flipY: '<svg viewBox="0 0 16 16"><path d="M2 8h12M4 6l8-4v4zM4 10l8 4v-4z"/></svg>',
   crop: '<svg viewBox="0 0 16 16"><path d="M4.5 1.5v10h10M1.5 4.5h10v10"/></svg>',
@@ -4511,7 +4537,7 @@ const SEL_ACTIONS = [
   ['imgTitle', 'Write a title above the image', () => editCaption(board.selected, undefined, 'title'), (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['title', 'Write the frame\'s title (Enter, or double-click the title)', () => renameFrame(board.selected, activePane || targetBoardPane()), (sel) => sel.length === 1 && sel[0].kind === 'frame' && !sel[0].sbGen],
   ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
-  ['lock', 'Lock (L)', () => setLocked(null, true)],
+  ['lock', 'Lock: it stays put and keeps its size (L). Click again to unlock', () => setLocked(null, !board.selection.every((x) => x.locked))],
   ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image' || x.kind === 'frame')],
   ['flipY', 'Flip upside down', () => flipSelection('y'), (sel) => sel.some((x) => x.kind === 'image' || x.kind === 'frame')],
   ['crop', 'Crop', startCrop, (sel) => sel.length === 1 && sel[0].kind === 'image'],
@@ -4838,6 +4864,10 @@ function placeSelectionBar() {
   selectionBar.hidden = !show;
   if (!show) return;
   for (const [id, , , when] of SEL_ACTIONS) selectionBar.querySelector(`[data-action="${id}"]`).hidden = !!SEL_MORE[id] || (when ? !when(sel) : false);
+  const allLocked = sel.every((x) => x.locked);
+  const lockButton = selectionBar.querySelector('[data-action="lock"]');
+  lockButton.classList.toggle('on', allLocked);
+  lockButton.innerHTML = allLocked ? SEL_ICONS.lock : SEL_ICONS.unlocked;
   selectionBar.querySelector('[data-action="star"]').classList.toggle('on', sel.some((x) => x.kind === 'image') && sel.filter((x) => x.kind === 'image').every((x) => x.star));
   // Just above the top of the selection, kept inside the pane.
   const b = board.bounds(sel);
@@ -4891,6 +4921,7 @@ function updateCursor() {
   const over = hoverPane();
   document.getElementById('toolbar').classList.toggle('away', !!over && over.type !== 'board');
   const t = toolbar.tool;
+  updateStickyGhost();
   if (mouse.x !== null && hoverPane()?.type === 'board' && (t === 'pen' || t === 'eraser') && !spaceHeld) brushCursor.show(mouse.x, mouse.y, toolbar.size, t === 'eraser');
   else brushCursor.hide();
 }
@@ -4987,7 +5018,8 @@ panesEl.addEventListener('pointerdown', (e) => {
     else {
       const hit = board.hitTest(w.x, w.y);
       if (hit?.kind === 'note') editNote(hit, pane);
-      else addNoteAt(pane, w.x, w.y, tool === 'text' ? 'text' : 'sticky');
+      else if (tool === 'note') placeSticky(pane, w.x, w.y);
+      else addNoteAt(pane, w.x, w.y, 'text');
     }
   } else if (e.button === 0 && (tool === 'shape' || tool === 'frame')) {
     // Drag to draw a shape or a frame.
@@ -5007,7 +5039,10 @@ panesEl.addEventListener('pointerdown', (e) => {
   } else if (e.button === 0) {
     const handle = handleAt(pane, w);
     // A frame's name label selects the frame; otherwise the top thing under the mouse.
-    const hit = board.frameTitleAt(w.x, w.y) || board.imageTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
+    let hit = board.frameTitleAt(w.x, w.y) || board.imageTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
+    // Something locked can still be clicked (to see its toolbar and unlock it): it just
+    // can't be moved or resized. Dragging on it draws a selection box, as on empty space.
+    const lockedHit = !hit && !e.shiftKey ? board.hitTest(w.x, w.y, { includeLocked: true }) : null;
     if (handle !== null) {
       // A corner handle scales, the round handle above rotates.
       const box = board.selectionBox();
@@ -5031,13 +5066,21 @@ panesEl.addEventListener('pointerdown', (e) => {
         board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
         drag = { kind: 'marquee', pane, base: [...board.selection] };
       }
+    } else if (lockedHit && !lockedHit.sbGen) {
+      board.selection = [lockedHit];
+      board.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
+      drag = { kind: 'marquee', pane, base: [], keep: [lockedHit] };
+    } else if (hit?.locked) {
+      // (a locked frame picked by its title)
+      board.selection = [hit];
+      drag = null;
     } else if (hit) {
       // Clicked an image or note: select it (keeping a group selected if it's part of
       // one), raise it to the top and start moving everything selected.
       if (!board.isSelected(hit)) board.selection = board.groupOf(hit);
       board.bringToFront(hit);
       // Frames take what's inside them along.
-      let items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])];
+      let items = [...new Set([...board.selection, ...board.selection.filter((x) => x.kind === 'frame').flatMap((f) => board.contentsOf(f))])].filter((x) => !x.locked);
       // A storyboard's panel: the whole storyboard moves (its panels keep their order).
       const owner = storyboards.ownerOf(hit);
       if (owner?.sb) {
@@ -5275,7 +5318,7 @@ function setLocked(target, locked) {
     requestRender();
   };
   history.push({ undo: () => apply(!locked), redo: () => apply(locked) });
-  toast(locked ? `Locked ${changed.length === 1 ? 'it' : `${changed.length} things`}. Right-click to unlock.` : 'Unlocked', 2200);
+  toast(locked ? `Locked: ${changed.length === 1 ? 'it stays' : `${changed.length} things stay`} put. Click the lock again to unlock.` : 'Unlocked', 2200);
   contentChanged();
   requestRender();
 }
@@ -5433,7 +5476,7 @@ panesEl.addEventListener('contextmenu', (e) => {
     const p = localPoint(pane, e);
     const w = pane.camera.toWorld(p.x, p.y);
     const hit = board.hitTest(w.x, w.y, { includeLocked: true });
-    if (!(hit && !hit.locked && board.isSelected(hit))) board.selected = hit && !hit.locked ? hit : null;
+    if (!(hit && board.isSelected(hit))) board.selected = hit && !hit.sbGen ? hit : null;
     menuTarget = hit;
     requestRender();
   } else {
@@ -5517,7 +5560,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     removeSelected();
   } else if (e.code === 'KeyL' && board.selection.length) {
-    setLocked(null, true);
+    setLocked(null, !board.selection.every((x) => x.locked));
   } else if (e.code === 'KeyM') {
     if (e.shiftKey) setFocus(!board.focus); else toggleStar();
   } else if (e.key === 'Enter' && board.selected?.kind === 'frame' && !board.selected.sbGen) {

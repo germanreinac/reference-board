@@ -2282,3 +2282,18 @@ body[data-motion="on"][data-mode="home"] #home::before { animation: dots-drift 9
 /* The sticky-note tool: the cursor is a little note, so you can see what a click will do */
 #panes[data-tool="note"] { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 4h20v14l-6 6H4z' fill='%23ff3fa9' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M24 18h-6v6' fill='none' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 4 4, copy; }
 #float-button { display: grid; place-items: center; }
+
+/* The sticky-note tool: a square in the note's colour follows the mouse */
+#sticky-ghost { position: fixed; left: 0; top: 0; z-index: 3; width: 170px; height: 150px; border-radius: 7px; opacity: 0.55; pointer-events: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+#sticky-ghost[hidden] { display: none; }
+#panes[data-tool="note"] { cursor: crosshair; }
+/* Where a dragged board will land: a pink line in the gap between boards */
+#drop-line { position: fixed; z-index: 40; width: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+#drop-line[hidden] { display: none; }
+.board-card.drop-before, .board-card.drop-after { box-shadow: none !important; }
+/* Dragging a project: the header is the handle, and a thick pink bar shows where it goes */
+.project-head { cursor: grab; }
+.project.drop-above { box-shadow: 0 -4px 0 0 var(--accent); }
+.project.drop-below { box-shadow: 0 4px 0 0 var(--accent); }
+body.dragging-project .project { transition: box-shadow 0.1s; }
+#selection-bar [data-action="lock"].on { color: var(--accent); }

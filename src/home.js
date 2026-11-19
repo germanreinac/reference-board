@@ -165,15 +165,20 @@ export class Home {
   _dropOnCard(card, record) {
     const ok = (e) => e.dataTransfer?.types?.includes(DRAG_TYPE);
     const side = (e) => { const r = card.getBoundingClientRect(); return e.clientX > r.left + r.width / 2 ? 'after' : 'before'; };
-    const clear = () => card.classList.remove('drop-before', 'drop-after');
+    // A pink line in the gap between two boards shows where the dragged one will land
+    // (in the gap, not on a board, so it doesn't look like the two will merge).
+    const line = () => document.getElementById('drop-line') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'drop-line' }));
+    const clear = () => { const l = document.getElementById('drop-line'); if (l) l.hidden = true; };
     card.addEventListener('dragover', (e) => {
       if (!ok(e)) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
-      clear();
-      card.classList.add(`drop-${side(e)}`);
+      const r = card.getBoundingClientRect(), l = line();
+      l.hidden = false;
+      Object.assign(l.style, { left: `${(side(e) === 'after' ? r.right + 10 : r.left - 10) - 2}px`, top: `${r.top + 6}px`, height: `${r.height - 12}px` });
     });
+    card.addEventListener('dragend', clear);
     card.addEventListener('dragleave', clear);
     card.addEventListener('drop', (e) => {
       if (!ok(e)) return;
@@ -238,16 +243,21 @@ export class Home {
     grip.className = 'project-grip';
     grip.textContent = '⠿';
     grip.title = 'Drag to move this project up or down';
-    grip.draggable = true;
     head.prepend(grip);
-    grip.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setDragImage(head, 10, 10);
+    // The whole header drags the project: its grip, its name, the space beside it.
+    head.draggable = true;
+    fold.draggable = true;
+    head.addEventListener('dragstart', (e) => {
+      if (e.target.closest?.('.name-input, .project-more')) { e.preventDefault(); return; }
+      document.body.classList.add('dragging-project');
+      try { e.dataTransfer.setDragImage(head, 20, 14); } catch {}
       e.dataTransfer.setData(PROJECT_DRAG, name);
       e.dataTransfer.effectAllowed = 'move';
       e.stopPropagation();
     });
     const isProject = (e) => e.dataTransfer?.types?.includes(PROJECT_DRAG);
-    const half = (e) => { const r = section.getBoundingClientRect(); return e.clientY > r.top + Math.min(r.height / 2, 80) ? 'below' : 'above'; };
+    head.addEventListener('dragend', () => { document.body.classList.remove('dragging-project'); this.el.querySelectorAll('.drop-above, .drop-below').forEach((x) => x.classList.remove('drop-above', 'drop-below')); });
+    const half = (e) => { const r = section.getBoundingClientRect(); return e.clientY > r.top + r.height / 2 ? 'below' : 'above'; };
     const clear = () => section.classList.remove('drop-above', 'drop-below');
     section.addEventListener('dragover', (e) => {
       if (!isProject(e)) return;

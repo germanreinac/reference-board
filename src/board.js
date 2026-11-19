@@ -1249,8 +1249,7 @@ export class Board {
     const all = target === 'all' ? [...this.selectable, ...this.strokes] : [target];
     const changed = all.filter((x) => !!x.locked !== locked);
     for (const x of changed) x.locked = locked;
-    if (locked) this.selection = this.selection.filter((x) => !changed.includes(x));
-    return changed;
+    return changed;   // (locked things stay selected: locking only stops moving and resizing)
   }
 
   // Remove everything (used when leaving a board).
