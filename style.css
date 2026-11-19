@@ -2233,3 +2233,10 @@ html:has(body[data-theme="light"]:not([data-mode="board"])) { background: #f3f1f
 .tab #board-name { font-weight: 600; }
 .tab #board-name:read-only, .tab #board-name:read-only:hover, .tab #board-name:read-only:focus { border-color: transparent; background: none; }
 .tab #board-name:not(:read-only) { border-color: var(--accent); background: var(--input); cursor: text; }
+
+/* Folded toolbars: the little "open me" button is pink, so it's easy to find */
+#toolbar.collapsed, #studio-dock.folded { border-color: var(--accent); opacity: 1; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+#toolbar.collapsed .tool.mini, #studio-dock.folded .dock-open { color: var(--accent); }
+#toolbar.collapsed .tool.mini svg, #studio-dock.folded .dock-open svg { stroke-width: 2.2; }
+#toolbar.collapsed:hover, #studio-dock.folded:hover { background: var(--accent); }
+#toolbar.collapsed:hover .tool.mini, #studio-dock.folded:hover .dock-open { color: #fff; background: none; }
