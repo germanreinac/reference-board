@@ -2240,3 +2240,31 @@ html:has(body[data-theme="light"]:not([data-mode="board"])) { background: #f3f1f
 #toolbar.collapsed .tool.mini svg, #studio-dock.folded .dock-open svg { stroke-width: 2.2; }
 #toolbar.collapsed:hover, #studio-dock.folded:hover { background: var(--accent); }
 #toolbar.collapsed:hover .tool.mini, #studio-dock.folded:hover .dock-open { color: #fff; background: none; }
+
+/* Dragging projects into an order: a pink line shows where it will land */
+.project.drop-above { box-shadow: 0 -3px 0 0 var(--accent); }
+.project.drop-below { box-shadow: 0 3px 0 0 var(--accent); }
+.project-head { cursor: grab; }
+/* The home screen has the board's dotted background too */
+#home { background-color: var(--bg); background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.6px); background-size: 24px 24px; }
+/* Opacity: a small slider */
+#opacity-pop { position: fixed; z-index: 30; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--panel-border); border-radius: var(--blob); background: var(--panel); color: var(--text-strong); font: 12px var(--font-second); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+#opacity-pop input { width: 170px; accent-color: var(--accent); }
+#opacity-pop b { width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Soft, uneven shapes, a little more so (the playful side of the brand) */
+:root, body[data-theme="dark"], body[data-theme="light"] {
+  --blob: 20px 30px 17px 27px / 27px 17px 30px 20px;
+  --blob-s: 11px 17px 9px 15px / 15px 9px 17px 11px;
+}
+body .board-card { border-radius: 22px 32px 19px 29px / 29px 19px 32px 22px; }
+@keyframes melt-squish {
+  0% { border-radius: 11px 17px 9px 15px / 15px 9px 17px 11px; }
+  45% { border-radius: 18px 9px 16px 8px / 8px 16px 9px 18px; }
+  100% { border-radius: 11px 17px 9px 15px / 15px 9px 17px 11px; }
+}
+.tab.active, #map-button, .pane-label, #studio-dock .tool, #toolbar .tool { border-radius: var(--blob-s); }
+
+.project-head { cursor: default; }
+.project-grip { cursor: grab; padding: 2px 4px; margin-right: -2px; color: var(--text); opacity: 0.35; font-size: 15px; line-height: 1; user-select: none; }
+.project-head:hover .project-grip { opacity: 0.9; }
+.project-grip:hover { color: var(--accent); }

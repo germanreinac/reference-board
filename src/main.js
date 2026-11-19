@@ -432,6 +432,31 @@ function removeSelected() {
   requestRender();
 }
 
+// A pen line that starts on a sticky note becomes part of that note: a doodle that moves,
+// turns and scales with it. Returns true if it did.
+function doodleOnNote(stroke) {
+  const pts = stroke.points;
+  if (pts.length < 3) return false;
+  const note = [...board.notes].reverse().find((n) => {
+    if (n.style === 'text' || n.locked) return false;
+    const l = board.noteLocal(n, pts[0], pts[1]);
+    return l.x >= 0 && l.x <= n.width && l.y >= 0 && l.y <= n.height;
+  });
+  if (!note) return false;
+  const local = [];
+  for (let i = 0; i < pts.length; i += 3) { const l = board.noteLocal(note, pts[i], pts[i + 1]); local.push(l.x, l.y, pts[i + 2]); }
+  const before = [stateOf(note)];
+  board.removeStroke(stroke);
+  note.doodles = [...(note.doodles || []), { points: local, color: stroke.color, size: stroke.size / (note.sprite.scale.x || 1), simulatePressure: stroke.simulatePressure }];
+  board.layoutNote(note);
+  recordChange([note], before);
+  requestRender();
+  return true;
+}
+function clearDoodles() {
+  editSelection((n) => { n.doodles = []; board.layoutNote(n); }, board.selection.filter((x) => x.kind === 'note' && x.doodles?.length));
+}
+
 // Any image, note, shape or frame as plain data (with its picture, for images),
 // and back again. Used by delete, undo, copy and paste.
 function thingData(item) {
@@ -458,10 +483,10 @@ function removeThing(kind, id) {
 
 // The parts of an image or note that moving, scaling, rotating, flipping, cropping
 // and greyscale change. Saved before and after an edit, for undo.
-const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box'];
+const TEXT_PROPS = ['text', 'color', 'font', 'level', 'base', 'weight', 'italic', 'align', 'box', 'fixW', 'fixH', 'doodles'];
 const SHAPE_PROPS = ['color', 'fill', 'strokeWidth', 'w', 'h', 'dx', 'dy'];
 const FRAME_PROPS = ['w', 'h', 'name', 'level', 'font', 'weight', 'italic', 'color', 'fill', 'fillAlpha', 'outline', 'titleBase'];
-const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide', 'title'];
+const IMAGE_PROPS = ['caption', 'star', 'opacity', 'guide', 'title', 'titleStyle'];
 const propsOf = (kind) => ({ note: TEXT_PROPS, shape: SHAPE_PROPS, frame: FRAME_PROPS, image: IMAGE_PROPS }[kind] || []);
 function stateOf(item) {
   const s = item.sprite;
@@ -528,10 +553,38 @@ function setOpacity(v) {
 function setGuide(g) {
   editSelection((item) => { item.guide = g; }, board.selection.filter((i) => i.kind === 'image'));
 }
-const opacityItems = () => {
-  const now = board.selection.find((i) => i.kind === 'image')?.opacity ?? 1;
-  return [1, 0.75, 0.5, 0.25].map((v) => ({ label: `${v * 100}%${Math.abs(now - v) < 0.01 ? ' ✓' : ''}`, action: () => setOpacity(v) }));
-};
+// A small slider that appears where you asked for it: drag for any opacity from 5 to 100%.
+let opacityPop = null;
+function opacitySlider(x, y) {
+  opacityPop?.remove();
+  const imgs = board.selection.filter((i) => i.kind === 'image');
+  if (!imgs.length) return;
+  const before = imgs.map(stateOf);
+  const el = opacityPop = document.createElement('div');
+  el.id = 'opacity-pop';
+  const now = Math.round((imgs[0].opacity ?? 1) * 100);
+  el.innerHTML = `<span>Opacity</span><input type="range" min="5" max="100" value="${now}"><b>${now}%</b>`;
+  document.body.appendChild(el);
+  el.style.left = `${Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, x))}px`;
+  el.style.top = `${Math.max(8, Math.min(window.innerHeight - el.offsetHeight - 8, y))}px`;
+  const range = el.querySelector('input');
+  range.addEventListener('input', () => {
+    for (const i of imgs) i.opacity = Number(range.value) / 100;
+    el.querySelector('b').textContent = `${range.value}%`;
+    requestRender();
+  });
+  const close = (e) => {
+    if (e && el.contains(e.target)) return;
+    window.removeEventListener('pointerdown', close, true);
+    el.remove();
+    if (opacityPop === el) opacityPop = null;
+    recordChange(imgs, before);
+  };
+  setTimeout(() => window.addEventListener('pointerdown', close, true), 0);
+  range.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' || e.key === 'Enter') close(); });
+  range.focus();
+}
+const opacityItem = () => ({ label: 'Opacity…', action: () => { const r = selectionBar.getBoundingClientRect(); opacitySlider(r.left, r.bottom + 8); } });
 const guideItems = () => {
   const now = board.selection.find((i) => i.kind === 'image')?.guide || null;
   return [[null, 'None'], ['thirds', 'Thirds'], ['grid', 'Grid'], ['centre', 'Centre lines'], ['diagonals', 'Diagonals']]
@@ -697,6 +750,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointerup', up, true);
 }, true);
 let frameTextMode = null;   // the frame whose title you're on (its text options show in the bar)
+let imageTitleMode = null;  // the image whose title you're on (same idea)
 function renameFrame(f, pane, at = -1) {
   const input = document.createElement('input');
   input.className = 'frame-rename';
@@ -1095,7 +1149,7 @@ function editCaption(item, pane = activePane || targetBoardPane(), which = 'capt
   const ta = document.createElement('textarea');
   ta.className = 'caption-editor';
   ta.value = item[which] || '';
-  if (above) ta.classList.add('title-editor');
+  if (above) { ta.classList.add('title-editor'); imageTitleMode = item; }
   ta.placeholder = above ? 'Write a title…' : item.sourceUrl ? 'Write a caption… (where it\'s from is in the right-click menu)' : 'Write a caption…';
   ta.spellcheck = true;
   document.body.appendChild(ta);
@@ -4351,6 +4405,21 @@ function dragTo(d, w, e) {
     d.items.forEach((item, i) => item.sprite.position.set(d.before[i].x + dx, d.before[i].y + dy));
     d.moved = true;
   } else if (d.kind === 'scale') {
+    // One sticky note: its corner changes its size and shape freely (the text keeps its
+    // size and wraps to fit). Hold Shift to scale it as a whole instead.
+    const one = d.items.length === 1 ? d.items[0] : null;
+    if (one?.kind === 'note' && one.style !== 'text' && !e?.shiftKey) {
+      const s = one.sprite, k = d.before[0].sx || 1;
+      const ux = Math.cos(s.rotation), uy = Math.sin(s.rotation);
+      const dx = w.x - d.anchor.x, dy = w.y - d.anchor.y;
+      const du = dx * ux + dy * uy, dv = -dx * uy + dy * ux;
+      one.fixW = Math.max(one.fontSize * 2, Math.abs(du) / k);
+      one.fixH = Math.max(one.fontSize * 1.5, Math.abs(dv) / k);
+      board.layoutNote(one);
+      const W = one.width * k * Math.sign(du || 1), H = one.height * k * Math.sign(dv || 1);
+      s.position.set(d.anchor.x + (ux * W - uy * H) / 2, d.anchor.y + (uy * W + ux * H) / 2);
+      return;
+    }
     // Scale from the opposite corner, keeping the shape.
     const f = Math.max(0.02, Math.hypot(w.x - d.anchor.x, w.y - d.anchor.y) / d.startDist);
     d.items.forEach((item, i) => {
@@ -4462,8 +4531,10 @@ for (const [id, title, action] of SEL_ACTIONS) {
       const hasImage = sel.some((x) => x.kind === 'image');
       showMenu(r.left, r.bottom + 6, [
         ...SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })),
+        ...(sel.some((x) => x.kind === 'note' && x.doodles?.length) ? [{ label: 'Clear the doodle', action: clearDoodles }] : []),
+        ...(sel.some((x) => x.kind === 'note' && (x.fixW || x.fixH)) ? [{ label: 'Fit the note to its text', action: () => editSelection((n) => { n.fixW = null; n.fixH = null; board.layoutNote(n); }, sel.filter((x) => x.kind === 'note')) }] : []),
         ...(sel.length === 1 && hasImage ? [{ label: sel[0].title ? 'Edit the title above it' : 'Write a title above it', action: () => editCaption(sel[0], undefined, 'title') }] : []),
-        ...(hasImage ? ['-', { label: 'Opacity', submenu: opacityItems() }, { label: 'Composition guide', submenu: guideItems() }] : []),
+        ...(hasImage ? ['-', opacityItem(), { label: 'Composition guide', submenu: guideItems() }] : []),
       ]);
     });
     selectionBar.appendChild(more);
@@ -4560,6 +4631,20 @@ const selectedFrames = () => board.selection.filter((x) => x.kind === 'frame');
 
 // Change text (or shape) settings on everything selected, as one undo step.
 function setTextProps(props) {
+  if (imageTitleMode && board.selection.length === 1 && board.selection[0] === imageTitleMode) {
+    // The title above an image: size, font, bold, italic and colour.
+    const it = imageTitleMode;
+    editSelection((x) => {
+      const ts = { ...(x.titleStyle || {}) };
+      for (const k of ['level', 'font', 'italic', 'color', 'weight']) if (k in props) ts[k] = props[k];
+      x.titleStyle = ts;
+      board.setTitle(x, x.title);
+    }, [it]);
+    const ts = it.titleStyle;
+    ensureFont(ts.font || 'Inter', ts.weight || 600, !!ts.italic).then(() => { board.setTitle(it, it.title); requestRender(); });
+    lastControls = '';
+    return;
+  }
   const notes = selectedNotes();
   const shapes = selectedShapes();
   const frames = selectedFrames();
@@ -4612,10 +4697,12 @@ fontSelect.addEventListener('change', async () => {
   lastControls = '';
 });
 textControls.querySelector('[data-text="bold"]').addEventListener('click', () => {
+  if (imageTitleMode) return setTextProps({ weight: (imageTitleMode.titleStyle?.weight || 600) >= 600 ? 400 : 700 });
   const list = selectedNotes().length ? selectedNotes() : selectedFrames();
   setTextProps({ weight: list.every((n) => n.weight >= 600) ? 400 : 700 });
 });
 textControls.querySelector('[data-text="italic"]').addEventListener('click', () => {
+  if (imageTitleMode) return setTextProps({ italic: !imageTitleMode.titleStyle?.italic });
   const list = selectedNotes().length ? selectedNotes() : selectedFrames();
   setTextProps({ italic: !list.every((n) => n.italic) });
 });
@@ -4652,6 +4739,25 @@ function updateTextControls(sel) {
   const isText = notes.length > 0 && notes.length === sel.length;
   const isShape = shapes.length > 0 && shapes.length === sel.length;
   const isFrame = frames.length > 0 && frames.length === sel.length;
+  // An image's title: its text options show while you're on the title.
+  if (imageTitleMode && !(sel.length === 1 && sel[0] === imageTitleMode && imageTitleMode.title)) imageTitleMode = null;
+  if (imageTitleMode) {
+    textControls.hidden = false;
+    for (const el of textControls.querySelectorAll('.sel-level, .sel-font, [data-text="bold"], [data-text="italic"], .sel-colour')) el.hidden = false;
+    for (const el of textControls.querySelectorAll('[data-text="align"], [data-text="box"], [data-text="fill"], [data-text="fillAlpha"], [data-text="outline"]')) el.hidden = true;
+    fillPalette.hidden = true;
+    const ts = imageTitleMode.titleStyle || {};
+    const key = `img${imageTitleMode.id}:${JSON.stringify(ts)}` + customFonts().join(',');
+    if (key === lastControls) return;
+    lastControls = key;
+    levelSelect.hidden = false;
+    levelSelect.value = ts.level || 'body';
+    fillFontMenu(ts.font || 'Inter');
+    textControls.querySelector('[data-text="bold"]').classList.toggle('on', (ts.weight || 600) >= 600);
+    textControls.querySelector('[data-text="italic"]').classList.toggle('on', !!ts.italic);
+    textControls.querySelector('.sel-colour').style.setProperty('--c', ts.color || `#${board.ink.toString(16).padStart(6, '0')}`);
+    return;
+  }
   textControls.hidden = !isText && !isShape && !isFrame;
   if (textControls.hidden) { palette.hidden = true; fillPalette.hidden = true; return; }
   const fillButton = textControls.querySelector('[data-text="fill"]');
@@ -4843,6 +4949,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   const tool = toolbar.tool;
   // Clicking a frame's title puts you on its text; clicking anywhere else takes you off it.
   frameTextMode = tool === 'select' ? board.frameTitleAt(w.x, w.y) || null : null;
+  imageTitleMode = tool === 'select' ? board.imageTitleAt(w.x, w.y) || null : null;
 
   // Middle button, or Space + left button, always pans.
   if (e.button === 1 || (e.button === 0 && (spaceHeld || tool === 'hand'))) {
@@ -4888,7 +4995,7 @@ panesEl.addEventListener('pointerdown', (e) => {
   } else if (e.button === 0) {
     const handle = handleAt(pane, w);
     // A frame's name label selects the frame; otherwise the top thing under the mouse.
-    const hit = board.frameTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
+    const hit = board.frameTitleAt(w.x, w.y) || board.imageTitleAt(w.x, w.y) || board.hitTest(w.x, w.y);
     if (handle !== null) {
       // A corner handle scales, the round handle above rotates.
       const box = board.selectionBox();
@@ -5032,6 +5139,8 @@ function endDrag() {
     const m = board.marquee;
     board.marquee = null;
     finishCrop(m);
+  } else if (d.kind === 'draw' && doodleOnNote(d.stroke)) {
+    // (the line was drawn on a sticky note: it belongs to the note now)
   } else if (d.kind === 'draw') {
     board.redrawStroke(d.stroke, true);
     const data = board.strokeJSON(d.stroke);
@@ -5074,6 +5183,8 @@ panesEl.addEventListener('dblclick', (e) => {
   activate(docOfPane(pane));
   const p = localPoint(pane, e);
   const w = pane.camera.toWorld(p.x, p.y);
+  const imgTitle = board.imageTitleAt(w.x, w.y);
+  if (imgTitle) { board.selection = [imgTitle]; return editCaption(imgTitle, pane, 'title'); }
   const title = board.frameTitleAt(w.x, w.y);
   if (title?.sbGen) return storyboards.edit(storyboards.find(title.sbGen));
   if (title) return renameFrame(title, pane, board.titleIndexAt(title, w.x, w.y));
@@ -5249,7 +5360,7 @@ function openMenu(x, y, pane) {
     { label: 'Flip left to right', action: () => flipSelection('x') },
     { label: 'Flip upside down', action: () => flipSelection('y') },
     { label: 'Greyscale on / off', action: toggleGrey },
-    { label: 'Opacity', submenu: opacityItems() },
+    opacityItem(),
     { label: 'Composition guide', submenu: guideItems() },
     ...(one?.kind === 'image' ? [
       one.sketch ? { label: 'Keep drawing on it', shortcut: 'D', action: () => editSketch(one) } : { label: 'Draw over it (Advanced drawing)', shortcut: 'D', action: () => paintOver(one) },

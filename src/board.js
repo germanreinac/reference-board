@@ -434,7 +434,7 @@ export class Board {
     for (const f of this.frames) this.drawFrame(f);
     for (const s of this.strokes) if (s.color === 'ink') this.redrawStroke(s);
     for (const x of this.shapes) if (x.color === 'ink') this.drawShape(x);
-    for (const i of this.items) { if (i.captionText) i.captionText.style.fill = colour; if (i.titleText) i.titleText.style.fill = colour; }
+    for (const i of this.items) { if (i.captionText) i.captionText.style.fill = colour; if (i.titleText && !i.titleStyle?.color) i.titleText.style.fill = colour; }
   }
 
   frameJSON(f) {
@@ -464,7 +464,7 @@ export class Board {
   // `index` puts it at a given place in the stack (used by undo).
   // `fullWidth`/`fullHeight`: the image's real size, when `bitmap` is a smaller preview of
   // it (big boards load previews first; see setImageBitmap).
-  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null, title = '' } = {}) {
+  addImage(bitmap, x, y, { name = '', sourceUrl = '', blob = null, id, scaleX = 1, scaleY = 1, rotation = 0, alpha = 1, index, locked = false, crop = null, grey = false, group = null, caption = '', star = false, fullWidth, fullHeight, sketch = null, guide = null, title = '', titleStyle = null } = {}) {
     const fw = fullWidth || bitmap.fullWidth || bitmap.width, fh = fullHeight || bitmap.fullHeight || bitmap.height;
     const source = imageSource(bitmap, fw);
     const sprite = new Sprite(new Texture({ source }));
@@ -501,6 +501,7 @@ export class Board {
     if (crop) this.setCrop(item, crop, { keepPlace: false });
     if (grey) this.setGrey(item, true);
     if (caption) this.setCaption(item, caption);
+    item.titleStyle = titleStyle || null;   // { font, level, weight, italic, color } when you've styled the title
     if (title) this.setTitle(item, title);
     const at = index === undefined ? this.items.length : Math.max(0, Math.min(index, this.items.length));
     this.items.splice(at, 0, item);
@@ -519,6 +520,7 @@ export class Board {
       ...(item.group ? { group: item.group } : {}),
       ...(item.caption ? { caption: item.caption } : {}),
       ...(item.title ? { title: item.title } : {}),
+      ...(item.title && item.titleStyle ? { titleStyle: item.titleStyle } : {}),
       ...(item.star ? { star: true } : {}),
       ...(item.guide ? { guide: item.guide } : {}),
       ...(item.sketch ? { sketch: item.sketch } : {}),
@@ -562,7 +564,25 @@ export class Board {
       this.captionLayer.addChild(item.titleText);
     }
     item.titleText.text = item.title;
+    // Its look: like a frame's title, it has a size (level), font, weight, slant and colour.
+    const ts = item.titleStyle || {};
+    const size = CAPTION_SIZE * 1.15 * (LEVELS[ts.level]?.size ?? 1);
+    Object.assign(item.titleText.style, {
+      fontFamily: fontStack(ts.font || 'Inter'), fontWeight: String(ts.weight || 600), fontStyle: ts.italic ? 'italic' : 'normal',
+      fontSize: size, lineHeight: size * 1.25, fill: ts.color || this.ink,
+    });
     this.placeTitle(item);
+  }
+  // The image whose title is at this point of the board (or null).
+  imageTitleAt(wx, wy) {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const item = this.items[i], t = item.titleText;
+      if (!t || item.locked || !t.visible) continue;
+      const dx = wx - t.x, dy = wy - t.y, cos = Math.cos(-t.rotation), sin = Math.sin(-t.rotation);
+      const lx = (dx * cos - dy * sin) / t.scale.x, ly = (dx * sin + dy * cos) / t.scale.y;
+      if (lx >= 0 && lx <= t.width / t.scale.x && ly >= 0 && ly <= t.height / t.scale.y) return item;
+    }
+    return null;
   }
   placeTitle(item) {
     const t = item.titleText;
@@ -1047,7 +1067,7 @@ export class Board {
   // alignment. `base` is the size Body text would have; each level is a multiple of it.
 
   addNote({ id, x, y, text = '', color = '#ffb547', fontSize = 20, index, locked = false,
-    style = 'sticky', font = 'Inter', level = 'body', base, weight, italic = false, align = 'left', scale = 1, rotation = 0, group = null, box = 'none', wrap = null }) {
+    style = 'sticky', font = 'Inter', level = 'body', base, weight, italic = false, align = 'left', scale = 1, rotation = 0, group = null, box = 'none', wrap = null, fixW = null, fixH = null, doodles = null }) {
     const container = new Container();
     const bg = new Graphics();
     const label = new Text({ text: '', style: { wordWrap: true, breakWords: true } });
@@ -1058,6 +1078,8 @@ export class Board {
     if (!LEVELS[level]) level = 'body';
     const note = {
       kind: 'note', id: takeId(id), sprite: container, bg, label, text, color, locked: !!locked, group, box, wrap,
+      fixW, fixH,              // a sticky note's own size, once you've resized it (otherwise it fits its text)
+      doodles: doodles || [],  // pen lines drawn on a sticky note: they belong to it and move with it
       style: style === 'text' ? 'text' : 'sticky', font, level, italic: !!italic, align,
       base: base || (style === 'text' ? fontSize / LEVELS[level].size : fontSize),
       weight: weight || (style === 'text' ? LEVELS[level].weight : 400),
@@ -1094,12 +1116,15 @@ export class Board {
     st.align = note.align || 'left';
     // How wide a line of text can get, in letter sizes. (A note brought in from another
     // app can have its own width, to keep its shape.)
-    st.wordWrapWidth = fs * (note.wrap || (text ? (note.base / fs) * 34 : 16));
+    st.wordWrapWidth = !text && note.fixW ? Math.max(fs * 2, note.fixW - pad * 2) : fs * (note.wrap || (text ? (note.base / fs) * 34 : 16));
     st.fill = text ? note.color : textColourFor(note.color);
     st.letterSpacing = text && note.level === 'title' ? -fs * 0.02 : 0;
     note.label.text = note.text || ' ';
     note.width = Math.max(fs * (text ? 1 : 2), note.label.width + pad * 2);
     note.height = note.label.height + pad * 2;
+    // A sticky note you've resized keeps that size (it only grows if the text needs more room).
+    if (!text && note.fixW) note.width = Math.max(note.fixW, fs * 2);
+    if (!text && note.fixH) note.height = Math.max(note.fixH, note.height);
     // Line the text up inside its box by its alignment.
     const inner = note.width - pad * 2;
     const offset = note.align === 'center' ? (inner - note.label.width) / 2 : note.align === 'right' ? inner - note.label.width : 0;
@@ -1112,6 +1137,7 @@ export class Board {
       if (note.box === 'fill') note.bg.fill({ color: textColourFor(note.color) === '#1b1b1d' ? 0x1b1b1d : 0xffffff, alpha: 0.82 });
       else note.bg.stroke({ width: Math.max(1, fs * 0.06), color: note.color });
     }
+    this._drawDoodles(note);
     // Position, like images, is the centre of the note.
     note.sprite.pivot.set(note.width / 2, note.height / 2);
   }
@@ -1124,6 +1150,27 @@ export class Board {
     }
   }
 
+  // The pen lines that belong to a sticky note, drawn inside it (redrawn only when they change).
+  _drawDoodles(note) {
+    if (note._doodles === note.doodles) return;
+    note._doodles = note.doodles;
+    if (note.doodleLayer) { note.doodleLayer.destroy({ children: true }); note.doodleLayer = null; }
+    if (!note.doodles?.length) return;
+    note.doodleLayer = new Container();
+    for (const d of note.doodles) {
+      const g = new Graphics();
+      this.redrawStroke({ ...d, graphics: g }, true);
+      note.doodleLayer.addChild(g);
+    }
+    note.sprite.addChild(note.doodleLayer);
+  }
+  // A point on the board, in a note's own coordinates (0,0 is its top-left corner).
+  noteLocal(note, wx, wy) {
+    const s = note.sprite, dx = wx - s.x, dy = wy - s.y;
+    const cos = Math.cos(-s.rotation), sin = Math.sin(-s.rotation);
+    return { x: (dx * cos - dy * sin) / s.scale.x + note.width / 2, y: (dx * sin + dy * cos) / s.scale.y + note.height / 2 };
+  }
+
   noteJSON(n) {
     const s = n.sprite;
     return {
@@ -1134,6 +1181,8 @@ export class Board {
       ...(n.italic ? { italic: true } : {}),
       ...(n.box && n.box !== 'none' ? { box: n.box } : {}),
       ...(n.wrap ? { wrap: n.wrap } : {}),
+      ...(n.fixW ? { fixW: n.fixW } : {}), ...(n.fixH ? { fixH: n.fixH } : {}),
+      ...(n.doodles?.length ? { doodles: n.doodles } : {}),
       ...(n.align && n.align !== 'left' ? { align: n.align } : {}),
       ...(s.scale.x !== 1 ? { scale: s.scale.x } : {}),
       ...(s.rotation ? { rotation: s.rotation } : {}),

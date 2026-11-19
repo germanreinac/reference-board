@@ -14,6 +14,8 @@ import { lookBackground } from './theme.js';
 const timeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 const DRAG_TYPE = 'application/x-refboard-boards';
 const FOLDED = 'refboard.foldedProjects';
+const PROJECT_ORDER = 'refboard.projectOrder';   // the order you've dragged your projects into
+const PROJECT_DRAG = 'application/x-refboard-project';
 const PROJECTS = 'refboard.projects';   // projects you made, kept even while they're empty
 
 // "just now", "5 minutes ago", "yesterday", ...
@@ -79,7 +81,12 @@ export class Home {
     const latest = new Map();
     for (const b of this.boards) if (b.group) latest.set(b.group, Math.max(latest.get(b.group) || 0, b.updated));
     const empty = this.made.filter((n) => !latest.has(n)).reverse();
-    return [...empty, ...[...latest.keys()].sort((a, b) => latest.get(b) - latest.get(a))];
+    const all = [...empty, ...[...latest.keys()].sort((a, b) => latest.get(b) - latest.get(a))];
+    // Projects you've dragged into an order keep it; new ones come first.
+    let order = [];
+    try { order = JSON.parse(localStorage.getItem(PROJECT_ORDER) || '[]'); } catch {}
+    const at = (n) => order.indexOf(n);
+    return all.map((n, i) => [n, i]).sort((a, b) => (at(a[0]) - at(b[0])) || (a[1] - b[1])).map(([n]) => n);
   }
 
   _keepProjects(list) {
@@ -212,6 +219,41 @@ export class Home {
       e.stopPropagation();
     });
     head.append(fold, more);
+    // Drag a project by its name to move it above or below another project.
+    const grip = document.createElement('span');
+    grip.className = 'project-grip';
+    grip.textContent = '⠿';
+    grip.title = 'Drag to move this project up or down';
+    grip.draggable = true;
+    head.prepend(grip);
+    grip.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setDragImage(head, 10, 10);
+      e.dataTransfer.setData(PROJECT_DRAG, name);
+      e.dataTransfer.effectAllowed = 'move';
+      e.stopPropagation();
+    });
+    const isProject = (e) => e.dataTransfer?.types?.includes(PROJECT_DRAG);
+    const half = (e) => { const r = section.getBoundingClientRect(); return e.clientY > r.top + Math.min(r.height / 2, 80) ? 'below' : 'above'; };
+    const clear = () => section.classList.remove('drop-above', 'drop-below');
+    section.addEventListener('dragover', (e) => {
+      if (!isProject(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clear();
+      section.classList.add(`drop-${half(e)}`);
+    });
+    section.addEventListener('dragleave', (e) => { if (!section.contains(e.relatedTarget)) clear(); });
+    section.addEventListener('drop', (e) => {
+      if (!isProject(e)) return;
+      e.preventDefault();
+      const moved = e.dataTransfer.getData(PROJECT_DRAG), where = half(e);
+      clear();
+      if (!moved || moved === name) return;
+      const order = this.projects().filter((n) => n !== moved);
+      order.splice(order.indexOf(name) + (where === 'below' ? 1 : 0), 0, moved);
+      try { localStorage.setItem(PROJECT_ORDER, JSON.stringify(order)); } catch {}
+      this.refresh();
+    });
     const grid = document.createElement('div');
     grid.className = 'board-grid';
     // A "new board" card in every project, so starting one there is one click.

@@ -122,8 +122,8 @@ export class Storyboards {
       if (p.art != null && this.board.find('image', p.art)) continue;
       const W = SHEET, H = Math.round(SHEET / sb.ratio);
       const k = PW / W;
-      // A blank panel to draw in: white on white or grey paper, see-through otherwise.
-      const item = await this.api.addSheet(W, H, ['white', 'grey'].includes(sb.paper || 'white') ? '#ffffff' : null, { x: sb.origin.x, y: sb.origin.y, scaleX: k, scaleY: k, name: 'Panel' });
+      // (With no page behind them, the panels are an off-white, so they read as panels.)
+      const item = await this.api.addSheet(W, H, { white: '#ffffff', grey: '#ffffff', none: '#ebe8e1' }[sb.paper || 'white'] ?? null, { x: sb.origin.x, y: sb.origin.y, scaleX: k, scaleY: k, name: 'Panel' });
       p.art = item.id;
     }
   }
