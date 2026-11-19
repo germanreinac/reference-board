@@ -447,7 +447,8 @@ function doodleOnNote(stroke) {
   for (let i = 0; i < pts.length; i += 3) { const l = board.noteLocal(note, pts[i], pts[i + 1]); local.push(l.x, l.y, pts[i + 2]); }
   const before = [stateOf(note)];
   board.removeStroke(stroke);
-  note.doodles = [...(note.doodles || []), { points: local, color: stroke.color, size: stroke.size / (note.sprite.scale.x || 1), simulatePressure: stroke.simulatePressure }];
+  const ink = String(stroke.color).toLowerCase() === String(note.color).toLowerCase() ? (lightness(note.color) > 0.6 ? '#1b1b1d' : '#ffffff') : stroke.color;
+  note.doodles = [...(note.doodles || []), { points: local, color: ink, size: stroke.size / (note.sprite.scale.x || 1), simulatePressure: stroke.simulatePressure }];
   board.layoutNote(note);
   recordChange([note], before);
   requestRender();
@@ -787,7 +788,7 @@ function renameFrame(f, pane, at = -1) {
     }
     lastGood = input.value;
     lastSel = [input.selectionStart, input.selectionEnd];
-    f.name = input.value.trim() ? input.value : original;
+    f.name = input.value;
     board.titleEdit.caret = input.value.trim() ? (input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd) : 0;
     board.titleEdit.sel = [input.selectionStart, input.selectionEnd];
     board.drawFrame(f);
@@ -805,7 +806,7 @@ function renameFrame(f, pane, at = -1) {
     document.removeEventListener('selectionchange', update);
     board.titleEdit = null;
     titleEditor = null;
-    f.name = save && input.value.trim() ? input.value.trim() : original;
+    f.name = save ? input.value.trim() : original;   // (it can be left empty; add one later with the Title button)
     board.drawFrame(f);
     if (f.name !== original) recordChange([f], before);
     input.remove();
@@ -2525,6 +2526,8 @@ const TRASH_DAYS = 30;
 async function deleteBoards(ids) {
   const records = (await Promise.all(ids.map((id) => store.getBoard(id)))).filter(Boolean);
   if (!records.length) return false;
+  const what = records.length === 1 ? `"${records[0].name}"` : `these ${records.length} boards`;
+  if (!confirm(`Delete ${what}?\n\nIt goes to the trash, where you can bring it back for ${TRASH_DAYS} days.`)) return false;
   for (const rec of records) {
     drive.removeBoard(rec);
     const { drive: gone, ...rest } = rec;   // (restoring it uploads it afresh)
@@ -3117,7 +3120,7 @@ const TIPS = [
   ['#toolbar', 'Select and move around', 'Drag on empty space to select several things. Hold Space and drag to move around, scroll to zoom.'],
   ['#studio-dock', 'The studio tools', 'Image search, a poseable mannequin, drawing over images, storyboards and palettes live here.'],
   ['#star-button', 'Pick your favourites', 'Select images and press M to star them. Then make a new board from just the starred ones.'],
-  ['#toolbar', 'Write anywhere', 'Double-click empty space to write. Press Ctrl/⌘ + F to find any note, caption or title on the board.'],
+  ['#toolbar', 'Write and find', 'Press T and click to write, N for a sticky note. Ctrl/⌘ + F finds any note, caption or title on the board.'],
   ['#map-button', 'Find your way', 'The map shows the whole board. Click in it to jump there, or pick a frame from its list.'],
   ['.pane-zoom', 'Zoom to fit', 'Click the percentage to fit everything, or press Shift + 1. Press G to see the board in greyscale and check values.'],
   ['#board-menu-button', 'Send it to someone', 'Export the board or a selection as an image, or its frames as a PDF, from this menu.'],
@@ -3413,6 +3416,7 @@ function drawMap() {
   }
 }
 document.getElementById('map-button').addEventListener('click', toggleMap);
+document.getElementById('float-button').addEventListener('click', () => floatView());
 document.body.appendChild(document.getElementById('map-button'));   // it sits in the bottom-left corner of the window
 
 // ---------- A floating view that stays on top ----------
@@ -3687,7 +3691,7 @@ const HELP = [
   ]],
   ['Adding', [
     ['Images', 'Drop them in, or paste with Ctrl/⌘ + V'], ['From any website', 'Right-click → Save image to board (browser extension)'],
-    ['Search for images', 'Magnifier in the dock on the right, or Ctrl/⌘ + Shift + F'], ['Find on this board (notes, captions, titles)', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'], ['Write text', 'Double-click empty space'],
+    ['Search for images', 'Magnifier in the dock on the right, or Ctrl/⌘ + Shift + F'], ['Find on this board (notes, captions, titles)', 'Ctrl/⌘ + F'], ['From your phone', 'melti.io/#/add'],
   ]],
   ['Tools', [
     ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
@@ -4263,7 +4267,13 @@ const noteEditor = new NoteEditor((note, text, oldText) => {
       text = text.slice(m[0].length);
     }
   }
-  if (!text) {
+  if (!text && note.style !== 'text' && isNew) {
+    // A sticky note can be put down empty and written on later.
+    board.setNoteText(note, '');
+    const data = board.noteJSON(note);
+    history.push({ undo: () => removeNoteById(data.id), redo: () => { board.addNote(data); requestRender(); } });
+    contentChanged();
+  } else if (!text && note.style === 'text') {
     board.remove(note);
     if (!isNew) {
       const data = { ...board.noteJSON(note), text: oldText };
@@ -4308,7 +4318,7 @@ function addNoteAt(pane, wx, wy, style = 'sticky') {
   const prefs = textPrefs();
   const note = style === 'text'
     ? board.addNote({ x: wx, y: wy, text: '', style: 'text', color: themeColours().text, base: size, level: prefs.level, font: prefs.font, fontSize: size })
-    : board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: size });
+    : board.addNote({ x: wx, y: wy, text: '', color: toolbar.color, fontSize: size, fixW: 170 / pane.camera.zoom, fixH: 150 / pane.camera.zoom });
   note.isNew = true;
   editNote(note, pane);
 }
@@ -4491,12 +4501,14 @@ const SEL_ICONS = {
   paint: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/></svg>',
   editSketch: '<svg viewBox="0 0 16 16"><path d="M13.5 2.5c-2 .8-5.2 3.7-6.6 5.7l1 1c2-1.4 4.9-4.6 5.6-6.7z"/><path d="M6.4 8.8c-1.6 0-2.4 1-2.5 2.3-.1 1.1-.6 1.9-1.4 2.4 2.6.4 4.8-.5 5.2-2.6"/><circle cx="12.5" cy="12.5" r="2" fill="currentColor" stroke="none"/></svg>',
   title: '<svg viewBox="0 0 16 16"><path d="M3.500 4V3h9v1M8 3v10M6 13h4"/></svg>',
+  imgTitle: '<svg viewBox="0 0 16 16"><path d="M3 3.500h10"/><rect x="2.500" y="6.500" width="11" height="7" rx="1.200"/></svg>',
   script: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.2"/><path d="M5.8 3.5v9M10.2 3.5v9"/><path d="M1.5 9.5h13" opacity=".6"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
 const SEL_ACTIONS = [
   ['star', 'Star as a favourite (M)', toggleStar, (sel) => sel.some((x) => x.kind === 'image')],
   ['caption', 'Write a caption under it (Enter, or double-click the image)', () => editCaption(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image'],
+  ['imgTitle', 'Write a title above the image', () => editCaption(board.selected, undefined, 'title'), (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['title', 'Write the frame\'s title (Enter, or double-click the title)', () => renameFrame(board.selected, activePane || targetBoardPane()), (sel) => sel.length === 1 && sel[0].kind === 'frame' && !sel[0].sbGen],
   ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
   ['lock', 'Lock (L)', () => setLocked(null, true)],
@@ -4516,7 +4528,7 @@ const SEL_ACTIONS = [
   ['delete', 'Delete (Del)', removeSelected],
 ];
 // Less-used actions live under the ⋯ button, so the bar stays short.
-const SEL_MORE = { lock: 'Lock', flipY: 'Flip upside down', grey: 'Greyscale on / off', colours: 'Extract colours as a palette', script: 'Colour script of these shots', frame: 'Put a frame around' };
+const SEL_MORE = { flipX: 'Flip left to right', flipY: 'Flip upside down', grey: 'Greyscale on / off', colours: 'Extract colours as a palette', script: 'Colour script of these shots', frame: 'Put a frame around' };
 for (const [id, title, action] of SEL_ACTIONS) {
   if (id === 'duplicate') {
     const more = document.createElement('button');
@@ -4530,7 +4542,7 @@ for (const [id, title, action] of SEL_ACTIONS) {
       const sel = board.selection;
       const hasImage = sel.some((x) => x.kind === 'image');
       showMenu(r.left, r.bottom + 6, [
-        ...SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], shortcut: i === 'lock' ? 'L' : '', action: act })),
+        ...SEL_ACTIONS.filter(([i, , , when]) => SEL_MORE[i] && (!when || when(sel))).map(([i, , act]) => ({ label: SEL_MORE[i], action: act })),
         ...(sel.some((x) => x.kind === 'note' && x.doodles?.length) ? [{ label: 'Clear the doodle', action: clearDoodles }] : []),
         ...(sel.some((x) => x.kind === 'note' && (x.fixW || x.fixH)) ? [{ label: 'Fit the note to its text', action: () => editSelection((n) => { n.fixW = null; n.fixH = null; board.layoutNote(n); }, sel.filter((x) => x.kind === 'note')) }] : []),
         ...(sel.length === 1 && hasImage ? [{ label: sel[0].title ? 'Edit the title above it' : 'Write a title above it', action: () => editCaption(sel[0], undefined, 'title') }] : []),
@@ -5195,8 +5207,6 @@ panesEl.addEventListener('dblclick', (e) => {
   else if (hit?.kind === 'frame') renameFrame(hit, pane);
   else if (hit?.kind === 'image' && hit.sketch) { board.selection = [hit]; editSketch(hit); }
   else if (hit?.kind === 'image') { board.selection = [hit]; editCaption(hit, pane); }
-  // Empty space: start writing there.
-  else if (!hit && toolbar.tool === 'select') addNoteAt(pane, w.x, w.y, 'text');
 });
 
 // Stop the middle button from starting Chrome's auto-scroll.

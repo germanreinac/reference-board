@@ -89,6 +89,17 @@ export class Home {
     return all.map((n, i) => [n, i]).sort((a, b) => (at(a[0]) - at(b[0])) || (a[1] - b[1])).map(([n]) => n);
   }
 
+  // Move a project up or down the page (also done by dragging its ⠿ grip).
+  _moveProject(name, step) {
+    const order = this.projects();
+    const i = order.indexOf(name);
+    if (i < 0) return;
+    order.splice(i, 1);
+    order.splice(Math.max(0, Math.min(order.length, step === -Infinity ? 0 : i + step)), 0, name);
+    try { localStorage.setItem(PROJECT_ORDER, JSON.stringify(order)); } catch {}
+    this.refresh();
+  }
+
   _keepProjects(list) {
     this.made = [...new Set(list.filter(Boolean))];
     try { localStorage.setItem(PROJECTS, JSON.stringify(this.made)); } catch {}
@@ -209,6 +220,9 @@ export class Home {
       showMenu(r.left, r.bottom + 4, [
         { label: 'New board in this project', action: () => this.actions.create({ group: name }) },
         { label: 'Rename project', action: () => this._renameProject(fold, name, boards) },
+        { label: 'Move up', disabled: this.projects()[0] === name, action: () => this._moveProject(name, -1) },
+        { label: 'Move down', disabled: this.projects().at(-1) === name, action: () => this._moveProject(name, 1) },
+        { label: 'Move to the top', disabled: this.projects()[0] === name, action: () => this._moveProject(name, -Infinity) },
         { label: 'Select its boards', action: () => { this.selected = new Set(boards.map((b) => b.id)); this.setSelecting(true); } },
         '-',
         { label: boards.length ? 'Remove project (keep its boards)' : 'Remove project', action: async () => {

@@ -1412,6 +1412,8 @@ export class Board {
       if (item.guide === 'diagonals') { line(0, 0, 1, 1); line(1, 0, 0, 1); }
       o.stroke({ width: 1.2 / zoom, color: 0xffffff, alpha: 0.9 });
     }
+    // A frame with no title shows a faint "Add a title" only while it's selected.
+    for (const f of this.frames) if (!f.name) f.title.alpha = this.selection.includes(f) ? 0.32 : 0;
     // A small star at the top-right corner of starred images (the same size at any zoom).
     for (const item of this.items) {
       if (!item.star || !item.sprite.visible) continue;

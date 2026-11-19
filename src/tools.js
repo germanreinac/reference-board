@@ -2,7 +2,7 @@
 // the colour (click it for the palette), size, undo/redo, and a button to fold the
 // toolbar away into a small pill. Also the round brush outline that follows the mouse.
 
-export const COLOURS = ['#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '#4cd07d', '#4da3ff', '#b57bff'];
+export const COLOURS = ['#ff3fa9', '#f5f5f5', '#1b1b1d', '#ff5a5a', '#ffb547', '#ffe14d', '#4cd07d', '#4da3ff', '#b57bff'];
 
 export const TOOL_KEYS = { KeyV: 'select', KeyH: 'hand', KeyB: 'pen', KeyP: 'pen', KeyE: 'eraser', KeyT: 'text', KeyN: 'note', KeyS: 'shape', KeyA: 'frame' };
 
@@ -48,8 +48,9 @@ export class Toolbar {
   constructor(element, { onChange, onUndo, onRedo, extras = [] }) {
     this.el = element;
     this.onChange = onChange;
-    this.state = { tool: 'select', color: '#ff5a5a', penSize: 6, eraserSize: 30, shapeSize: 3, shape: 'arrow', collapsed: false };
+    this.state = { tool: 'select', color: '#ff3fa9', penSize: 6, eraserSize: 30, shapeSize: 3, shape: 'arrow', collapsed: false };
     this.load();
+    if (this.state.color === '#ff5a5a' && !this.state.pickedRed) this.state.color = '#ff3fa9';   // the old default becomes the brand pink
 
     // Moving around, then making things, then the bigger tools.
     this.toolButtons = {};

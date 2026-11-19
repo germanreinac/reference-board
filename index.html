@@ -13,7 +13,7 @@
 {
   "imports": {
     "./src/ai-pose.js": "./src/ai-pose.js?v=56ec6eaecf",
-    "./src/board.js": "./src/board.js?v=c0d5c4b148",
+    "./src/board.js": "./src/board.js?v=ec360bb167",
     "./src/camera.js": "./src/camera.js?v=1a9d003b41",
     "./src/colour-match.js": "./src/colour-match.js?v=606d6ed8b2",
     "./src/compare.js": "./src/compare.js?v=9b24dca94d",
@@ -21,11 +21,11 @@
     "./src/editors.js": "./src/editors.js?v=b33ce41254",
     "./src/fonts.js": "./src/fonts.js?v=d04ee92c77",
     "./src/history.js": "./src/history.js?v=7dcb8cfbb9",
-    "./src/home.js": "./src/home.js?v=39b3410844",
+    "./src/home.js": "./src/home.js?v=dd1d2c0ae8",
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=4a73253d4b",
+    "./src/main.js": "./src/main.js?v=3d4b9b3cc5",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -40,8 +40,8 @@
     "./src/storage.js": "./src/storage.js?v=21a5fc1b67",
     "./src/storyboard.js": "./src/storyboard.js?v=adb67da158",
     "./src/theme.js": "./src/theme.js?v=09a366661e",
-    "./src/tools.js": "./src/tools.js?v=1785c37328",
-    "./src/version.js": "./src/version.js?v=40a11a4668",
+    "./src/tools.js": "./src/tools.js?v=916d0d67ef",
+    "./src/version.js": "./src/version.js?v=8bff594760",
     "./src/viewports.js": "./src/viewports.js?v=1f17ba49d6",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -59,7 +59,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=fb14510ce3">
+  <link rel="stylesheet" href="style.css?v=deafa1e241">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -100,7 +100,7 @@
       <div class="home-title">
         <h1>Boards</h1>
         <button class="text-button" data-action="new-project" title="Make a project: a folder to keep boards together">New project</button>
-        <button class="text-button" data-action="select" title="Pick several boards, to move them to a project or delete them (or Ctrl/⌘-click boards)">Select</button>
+        <button class="text-button" data-action="select" hidden title="Pick several boards, to move them to a project or delete them (or Ctrl/⌘-click boards)">Select</button>
       </div>
       <p id="drive-progress" class="drive-progress" hidden></p>
       <!-- Boards not in a project first (with New board), then one section per project. -->
@@ -189,6 +189,9 @@
     <button id="map-button" title="Map of the board: see everything and jump around">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><rect x="8.500" y="8" width="4.500" height="4" rx="0.500"/></svg>
     </button>
+    <button id="float-button" title="Float this view: a small window of the board that stays on top of your other apps">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="10" rx="1.500"/><rect x="8" y="7" width="5" height="4" rx="0.800" fill="currentColor" stroke="none"/></svg>
+    </button>
     <button id="layouts-button" title="Layouts: split views to pick from, and your saved favourites">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.500" y="2.500" width="13" height="11" rx="1.500"/><path d="M8 2.500v11M8 8h6.500"/></svg>
       <span>View layouts</span>
@@ -224,6 +227,6 @@
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=4a73253d4b"></script>
+  <script type="module" src="src/main.js?v=3d4b9b3cc5"></script>
 </body>
 </html>

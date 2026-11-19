@@ -580,7 +580,7 @@ body[data-mode="board"] #home { display: none; }
   background: var(--input);
 }
 
-#home-button, #board-menu-button, #bar-theme-button, #present-button, #layouts-button, #map-button {
+#home-button, #board-menu-button, #bar-theme-button, #present-button, #layouts-button, #map-button, #float-button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1078,7 +1078,7 @@ body.drag-over::after {
 .home-version { margin-top: 10px; font-size: 11px; opacity: 0.5; }
 
 /* Light/dark switch in the top bar: shows the sun in dark mode, the moon in light mode */
-#map-button svg, #layouts-button svg, #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+#float-button svg, #map-button svg, #layouts-button svg, #bar-theme-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
 
 /* Folded toolbar: a single, clear "show" button */
 #toolbar.collapsed .tool.mini { width: 40px; height: 30px; justify-content: center; padding: 0; }
@@ -2268,3 +2268,17 @@ body .board-card { border-radius: 22px 32px 19px 29px / 29px 19px 32px 22px; }
 .project-grip { cursor: grab; padding: 2px 4px; margin-right: -2px; color: var(--text); opacity: 0.35; font-size: 15px; line-height: 1; user-select: none; }
 .project-head:hover .project-grip { opacity: 0.9; }
 .project-grip:hover { color: var(--accent); }
+
+/* The home screen's dots drift slowly (a separate layer, so it costs almost nothing) */
+#home { background-image: none; }
+#home::before {
+  content: ""; position: fixed; inset: -48px; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.6px); background-size: 24px 24px;
+}
+#home > * { position: relative; z-index: 1; }
+@keyframes dots-drift { from { transform: translate(0, 0); } to { transform: translate(24px, 24px); } }
+body[data-motion="on"][data-mode="home"] #home::before { animation: dots-drift 9s linear infinite; will-change: transform; }
+.home-title [data-action="select"][hidden] { display: none; }
+/* The sticky-note tool: the cursor is a little note, so you can see what a click will do */
+#panes[data-tool="note"] { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 4h20v14l-6 6H4z' fill='%23ff3fa9' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M24 18h-6v6' fill='none' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 4 4, copy; }
+#float-button { display: grid; place-items: center; }
