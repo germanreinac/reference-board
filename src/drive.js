@@ -2,7 +2,7 @@
 // and your phone. Nothing goes to us; the app talks to Google directly from your browser.
 //
 // What's in your Drive:
-//   Art Direction/                 a folder the app makes
+//   Melti App/                     a folder the app makes
 //     Characters/                  one folder per board (renamed with the board)
 //       board.json                 where everything sits, captions, notes…
 //       hero-12.png …              the images, one file each
@@ -185,12 +185,18 @@ const patch = (id, meta) => json(`${API}/files/${id}?fields=id,name,modifiedTime
 const trash = (id) => patch(id, { trashed: true });
 const download = async (id) => (await call(`${API}/files/${id}?alt=media`)).blob();
 
+const ROOT_NAME = 'Melti App';
 async function rootFolder() {
   const s = load();
-  if (s.rootId) return s.rootId;
-  const found = await list(tagged('refboard', 'root'));
-  const id = found[0]?.id || (await createFolder('Art Direction', null, { refboard: 'root' })).id;
-  save({ rootId: id });
+  if (s.rootId && s.rootName === ROOT_NAME) return s.rootId;
+  const id = s.rootId || (await list(tagged('refboard', 'root')))[0]?.id || (await createFolder(ROOT_NAME, null, { refboard: 'root' })).id;
+  // The folder used to be called "Art Direction": rename it once (only if it still has
+  // that name, so a name you gave it yourself is left alone).
+  try {
+    const now = await json(`${API}/files/${id}?fields=name`);
+    if (now?.name === 'Art Direction') await patch(id, { name: ROOT_NAME });
+  } catch (err) { console.warn('Drive: could not rename the folder', err); }
+  save({ rootId: id, rootName: ROOT_NAME });
   return id;
 }
 

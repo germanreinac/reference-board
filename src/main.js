@@ -392,8 +392,28 @@ function removeImageById(id) {
 
 // Delete the selected image or note.
 function removeSelected() {
-  const items = [...board.selection];
+  let items = [...board.selection];
   if (!items.length) return;
+  // Part of a storyboard? Deleting its page, or all of its panels, deletes the whole
+  // storyboard (nothing is left behind); deleting some of its panels removes just those.
+  const owned = new Map();   // storyboard -> the panels of it that are selected
+  let page = new Set();
+  for (const it of items) {
+    const o = storyboards.ownerOf(it);
+    if (!o?.sb) continue;
+    if (!owned.has(o.sb)) owned.set(o.sb, []);
+    if (o.panel) owned.get(o.sb).push(o.panel); else page.add(o.sb);
+  }
+  if (owned.size) {
+    items = items.filter((it) => !storyboards.ownerOf(it)?.sb);
+    board.selection = items;
+    for (const [sb, panels] of owned) {
+      if (page.has(sb) || panels.length >= sb.panels.length) storyboards.deleteStoryboard(sb);
+      else for (const pnl of panels) storyboards.deletePanel(sb, pnl);
+    }
+    requestRender();
+    if (!items.length) return;
+  }
   const gone = items.map(thingData);
   if (motionOn()) {
     // Up in flames (with a sweeper to tidy the ash).
@@ -2722,7 +2742,7 @@ async function connectDrive() {
   try {
     await drive.connect();
     if (mode === 'add') { toast('Connected to Google Drive ✓', 2000); return; }
-    toast('Connected to Google Drive. Your boards are being copied to an "Art Direction" folder…', 3500);
+    toast('Connected to Google Drive. Your boards are being copied to a "Melti App" folder…', 3500);
     await syncNow();
     if (driveState === 'synced') toast('Your boards are in Google Drive ✓', 2500);
     else if (drive.lastError()) toast(`Couldn't sync: ${drive.lastError()}`, 9000);
@@ -4903,6 +4923,9 @@ panesEl.addEventListener('pointerdown', (e) => {
       const owner = storyboards.ownerOf(hit);
       if (owner?.sb) {
         const pages = board.frames.filter((f) => f.sbGen === owner.sb.id);
+        // Clicking anywhere on a storyboard selects the storyboard itself (its pages).
+        // Double-click a panel to draw in it, or to open the storyboard's editor.
+        if (!e.shiftKey && pages.length) board.selection = pages;
         items = [...new Set([...pages, ...pages.flatMap((f) => board.contentsOf(f))])];
       }
       drag = { kind: 'move', pane, items, before: items.map(stateOf), start: w, moved: false };
@@ -4991,7 +5014,15 @@ function endDrag() {
   } else if (['move', 'scale', 'rotate'].includes(d.kind)) {
     // A storyboard's pages and panels follow its own layout: moving its pages moves it.
     const owned = d.items.filter((x) => storyboards.ownerOf(x));
-    if (owned.length) storyboards.moved(new Set(owned.map((x) => storyboards.ownerOf(x).sb?.id).filter(Boolean)));
+    if (owned.length) {
+      const ids = new Set(owned.map((x) => storyboards.ownerOf(x).sb?.id).filter(Boolean));
+      const wasSelected = board.selection.some((x) => x.sbGen);
+      // (Only a real move needs laying out again; that redraws its pages, so pick them again.)
+      if (d.moved || d.kind !== 'move') {
+        storyboards.moved(ids);
+        if (wasSelected) board.selection = board.frames.filter((f) => ids.has(f.sbGen));
+      }
+    }
     const rest = d.items.filter((x) => !storyboards.ownerOf(x));
     recordChange(rest, d.before.filter((st) => rest.some((x) => x.kind === st.kind && x.id === st.id)));
   } else if (d.kind === 'marquee') {

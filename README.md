@@ -270,7 +270,7 @@ doesn't work, right-click it, choose **Copy Image**, and paste it instead.
 ## Google Drive and your phone
 
 **Connect Google Drive** (the cloud button on the home screen or in the top bar) keeps your boards
-in your own Google Drive, in a folder called **Art Direction**, with a folder for each board
+in your own Google Drive, in a folder called **Melti App**, with a folder for each board
 holding its images. Then they're on every computer where you open melti.io and connect
 the same Google account. Nothing goes through anyone else's server: the app talks to Google
 straight from your browser, and it can only see the files it makes, not the rest of your Drive.
@@ -285,7 +285,7 @@ straight from your browser, and it can only see the files it makes, not the rest
 
 **Saving from your phone:** open **melti.io/#/add** (on iPhone: in Safari, then Share →
 **Add to Home Screen**). Connect Google Drive once. Then, whenever you see something you like
-(Instagram, Pinterest, anywhere), save it or take a screenshot, open Art Direction, **Choose
+(Instagram, Pinterest, anywhere), save it or take a screenshot, open Melti, **Choose
 photos**, pick a board and save. The photos appear on that board on your computer, in view,
 the next time you open it. (Phones don't let web apps appear in the Share menu, so this is
 the quickest way that works on iPhone.)
