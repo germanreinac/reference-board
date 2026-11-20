@@ -238,6 +238,19 @@ async function doSync(hooks) {
     save({ boards: folders.map((f) => ({ id: f.appProperties?.boardId, name: f.name, folderId: f.id })) });
     let changed = false;
 
+    // 0. Boards deleted here (in Melti's trash, or deleted for good): their Drive folder goes
+    //    to Drive's bin too. This is done here, at every sync, so it still happens when the
+    //    board was deleted while Drive wasn't reachable. They are never brought back down.
+    const gone = new Set(load().gone || []);
+    for (const [boardId, folder] of [...remote]) {
+      if (!boardId) continue;
+      const local = await store.getBoard(boardId);
+      if (!local?.trashed && !gone.has(boardId)) continue;
+      remote.delete(boardId);
+      try { await trash(folder.id); gone.delete(boardId); } catch (err) { console.warn(`Drive: couldn't remove "${folder.name}"`, err); if (err.message === 'reconnect') throw err; }
+    }
+    save({ gone: [...gone].filter((id) => folders.some((f) => f.appProperties?.boardId === id)), boards: folders.filter((f) => remote.has(f.appProperties?.boardId)).map((f) => ({ id: f.appProperties?.boardId, name: f.name, folderId: f.id })) });
+
     // 1. Boards on Drive: bring down what's newer there. Each board appears as soon as it's
     //    in; smaller boards first, so the list fills up quickly. Images come several at once.
     const toGet = [];
@@ -396,6 +409,13 @@ export async function downloadBoardFiles(rec, onProgress = () => {}) {
 // main.js keeps the open boards' details in memory; it listens for this.
 function driveUpdated(boardId, drive) {
   window.dispatchEvent(new CustomEvent('drive-updated', { detail: { boardId, drive } }));
+}
+
+// A board was deleted for good here: remember it, so its Drive folder is removed at the
+// next sync and it's never downloaded again.
+export function markGone(boardId) {
+  if (!isConnected()) return;
+  save({ gone: [...new Set([...(load().gone || []), boardId])] });
 }
 
 // A board was deleted here: send its Drive folder to the bin too.

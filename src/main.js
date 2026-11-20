@@ -2587,6 +2587,7 @@ async function deleteBoards(ids) {
   saveTabs();
   announceBoards();
   await home.refresh();
+  syncSoon();   // (their folders in Drive go to Drive's bin)
   toast(`${records.length === 1 ? `"${records[0].name}" is` : `${records.length} boards are`} in the trash, at the bottom of this page, for ${TRASH_DAYS} days.`, 4500);
   return true;
 }
@@ -2607,8 +2608,9 @@ async function purgeBoards(ids, { ask = true } = {}) {
   if (!records.length) return false;
   const what = records.length === 1 ? `"${records[0].name}"` : `these ${records.length} boards`;
   if (ask && !confirm(`Delete ${what} for good? This can't be undone.`)) return false;
-  for (const rec of records) await store.deleteBoard(rec.id);
+  for (const rec of records) { drive.markGone(rec.id); await store.deleteBoard(rec.id); }
   await home.refresh();
+  syncSoon();
   return true;
 }
 store.listTrashed().then((list) => purgeBoards(list.filter((b) => Date.now() - b.trashed > TRASH_DAYS * 864e5).map((b) => b.id), { ask: false })).catch(() => {});
