@@ -245,7 +245,11 @@ async function doSync(hooks) {
     for (const [boardId, folder] of [...remote]) {
       if (!boardId) continue;
       const local = await store.getBoard(boardId);
-      if (!local?.trashed && !gone.has(boardId)) continue;
+      // Also: a folder with pictures but no board in it, that isn't a board here and is
+      // more than a day old. That's what's left when a board was deleted while it was
+      // still uploading. (A day, so a board another computer is sending right now is safe.)
+      const leftover = !dataOf.get(folder.id) && !local && Date.now() - Date.parse(folder.modifiedTime) > 864e5;
+      if (!local?.trashed && !gone.has(boardId) && !leftover) continue;
       remote.delete(boardId);
       try { await trash(folder.id); gone.delete(boardId); } catch (err) { console.warn(`Drive: couldn't remove "${folder.name}"`, err); if (err.message === 'reconnect') throw err; }
     }
