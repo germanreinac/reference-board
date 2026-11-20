@@ -3286,6 +3286,19 @@ function maybeSplitTip() {
   showTip(at);
 }
 
+// ---------- Playground: a play mat and a box of toys ----------
+// (Its own file, loaded only when it's first opened: src/playground.js.)
+async function openPlaygroundNow() {
+  if (!current) return;
+  try {
+    const { openPlayground } = await import('./playground.js');
+    openPlayground({ boardId: current.id, addImage: (blob, name) => addBlobToBoard(blob, name), toast: (m) => toast(m, 2600) });
+  } catch (err) {
+    console.error(err);
+    toast("The playground couldn't open. Refresh the page and try again.");
+  }
+}
+
 // ---------- The mannequin, on the board ----------
 //
 // The 3D figure lives on the board like anything else there: it has a place, it moves and
@@ -3818,7 +3831,7 @@ const HELP = [
   ]],
   ['Tools', [
     ['Select and move', 'V'], ['Hand', 'H'], ['Pen (Shift: straight line)', 'B'], ['Eraser', 'E'], ['Text', 'T'], ['Sticky note', 'N'], ['Shape', 'S'], ['Frame', 'A'],
-    ['Advanced drawing (over the selected image, or a new canvas)', 'D'], ['Storyboard', 'Clapperboard button'], ['Palettes', 'Palette button'],
+    ['Advanced drawing (over the selected image, or a new canvas)', 'D'], ['Storyboard', 'Clapperboard button'], ['Palettes', 'Palette button'], ['Playground (3D toys on a play mat)', 'Blocks button in the dock'],
     ['Brush size', '[ and ]'],
   ]],
   ['Selection', [
@@ -4358,6 +4371,8 @@ const toolbar = new Toolbar(document.getElementById('toolbar'), {
     extra('<svg viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.7"/><path d="M8 5v5M8 6.5l-3.5 2M8 6.5l3.5 2M8 10l-2.5 4.5M8 10l2.5 4.5"/></svg>', 'Mannequin: put a poseable 3D figure on the board', 'mannequin-button', () => toggleMannequin()),
     Object.assign(document.createElement('i'), { className: 'dock-sep' }),
     ...Object.values(toolbar.extraButtons),
+    Object.assign(document.createElement('i'), { className: 'dock-sep' }),
+    extra('<svg viewBox="0 0 16 16"><rect x="2" y="8" width="5" height="5.500" rx="0.800"/><rect x="9" y="8" width="5" height="5.500" rx="0.800"/><rect x="5.500" y="2.500" width="5" height="5.500" rx="0.800"/></svg>', 'Playground: a play mat and a box of 3D toys to build little scenes with', 'playground-button', () => openPlaygroundNow()),
   );
   // Fold the dock away into one small button, and back (remembered).
   const DOCK_KEY = 'refboard.dockFolded';
