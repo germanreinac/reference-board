@@ -41,7 +41,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=adb67da158",
     "./src/theme.js": "./src/theme.js?v=09a366661e",
     "./src/tools.js": "./src/tools.js?v=754714e013",
-    "./src/version.js": "./src/version.js?v=73037c200c",
+    "./src/version.js": "./src/version.js?v=b8f09f1495",
     "./src/viewports.js": "./src/viewports.js?v=1f17ba49d6",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -59,7 +59,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=8ab867f510">
+  <link rel="stylesheet" href="style.css?v=00cee80f9a">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -82,14 +82,14 @@
             </g>
           </svg>
         </div>
-        <div class="brand-sub"><span>Where references melt into art direction</span></div>
+        <div class="brand-sub"><span>Where references <em>melt</em> into art direction</span></div>
       </div>
       <div class="home-actions">
         <a class="text-button add-link" href="#/add" title="Save photos from this phone to a board">Save photos</a>
         <button class="text-button drive-status" data-state="off"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 12.5h7.2a3 3 0 00.4-6 4.2 4.2 0 00-8.1.9A2.6 2.6 0 004.5 12.5z"/><path class="tick" d="M6.2 9.4l1.4 1.3 2.4-2.6"/></svg><span>Google Drive</span></button>
         <button class="text-button" id="install-button" title="Install Melti as an app: its own window and icon, and it works offline" hidden>Install app</button>
-        <button class="text-button" id="backup-button" title="Save every board into one backup file">Back up all</button>
-        <button class="text-button" data-action="open-file" title="Open a .refboard file or a backup">Open file…</button>
+        <button class="text-button" id="backup-button" title="Save every board into one backup file"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.500v7.500M5 7.200L8 10l3-2.800M3 12.500h10"/></svg><span>Back up all</span></button>
+        <button class="text-button" data-action="open-file" title="Open a .refboard file or a backup"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12.500v-8a1 1 0 011-1h3l1.500 1.500H13a1 1 0 011 1v6.500a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg><span>Open file…</span></button>
         <button id="home-theme-button" class="theme-cycle text-button" title="Switch the look">
       <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 10.2A5.5 5.5 0 015.8 2.800a5.500 5.500 0 107.400 7.400z"/></svg><svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.500v1.500M8 13v1.500M1.500 8H3M13 8h1.500M3.400 3.400l1 1M11.600 11.600l1 1M3.400 12.600l1-1M11.600 4.400l1-1"/></svg>
     </button>
@@ -99,7 +99,7 @@
     <main class="home-main">
       <div class="home-title">
         <h1>Boards</h1>
-        <button class="text-button" data-action="new-project" title="Make a project: a folder to keep boards together">New project</button>
+        <button class="text-button" data-action="new-project" title="Make a project: a folder to keep boards together"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.500v9M3.500 8h9"/></svg><span>New project</span></button>
         <button class="text-button" data-action="select" hidden title="Pick several boards, to move them to a project or delete them (or Ctrl/⌘-click boards)">Select</button>
       </div>
       <p id="drive-progress" class="drive-progress" hidden></p>

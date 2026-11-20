@@ -2318,3 +2318,32 @@ body :is(.cs-panel button, .cs-modes, .mini-dialog button, .mini-dialog select, 
 .drive-explain li strong { color: var(--text-strong); }
 .drive-explain .quiet { font-size: 12px; opacity: 0.8; }
 .home-note a { color: var(--accent); }
+
+/* ---------- Home header: the one-liner and the buttons ---------- */
+/* The one-liner sits right under the name, as part of it: brighter, with "melt" in pink. */
+.brand { gap: 0; }
+body .wordmark { padding-bottom: 0; }
+.brand-sub { margin-top: 0.5em; color: var(--text-strong); font-weight: 600; letter-spacing: -0.005em; }
+.brand-sub em { font-style: normal; color: var(--accent); }
+/* The home buttons: one height, a filled pill, an icon each. Solid, not sketchy. */
+#home .text-button {
+  display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 15px;
+  border: 1px solid var(--panel-border); border-radius: 999px;
+  background: var(--card); color: var(--text-strong);
+  font: 600 13px/1 var(--font-second); text-decoration: none; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.15s, background 0.15s, transform 0.08s, box-shadow 0.15s;
+  animation: none !important;
+}
+#home .text-button svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+#home .text-button:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--text-strong); box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 22%, transparent); }
+#home .text-button:active { transform: translateY(1px) scale(0.98); box-shadow: none; }
+#home .text-button[hidden] { display: none; }
+#home #home-theme-button { width: 36px; padding: 0; justify-content: center; }
+#home .text-button.danger { color: #ff7a7a; }
+.home-actions { gap: 8px; align-items: center; }
+.home-title { gap: 12px; }
+#home .select-bar .text-button { height: 32px; }
+/* ("Save photos" is for phones only) */
+#home .text-button.add-link { display: none; }
+@media (max-width: 700px) { #home .text-button.add-link { display: inline-flex; } }
