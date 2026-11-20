@@ -51,6 +51,21 @@ export class Home {
     try { this.made = JSON.parse(localStorage.getItem(PROJECTS) || '[]'); } catch { this.made = []; }
     if (!Array.isArray(this.made)) this.made = [];
     element.querySelector('[data-action="new-project"]').addEventListener('click', () => this.newProject());
+    // Thumbnails or a plain list (remembered).
+    const VIEW = 'refboard.homeView';
+    const viewButton = element.querySelector('[data-action="view"]');
+    const ICON_LIST = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.500 4h11M2.500 8h11M2.500 12h11"/></svg>';
+    const ICON_GRID = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>';
+    const setView = (list) => {
+      element.classList.toggle('list-view', list);
+      viewButton.innerHTML = list ? ICON_GRID : ICON_LIST;
+      viewButton.title = list ? 'Show boards as thumbnails' : 'Show boards as a list';
+      try { localStorage.setItem(VIEW, list ? 'list' : 'grid'); } catch {}
+    };
+    let startList = false;
+    try { startList = localStorage.getItem(VIEW) === 'list'; } catch {}
+    setView(startList);
+    viewButton.addEventListener('click', () => setView(!element.classList.contains('list-view')));
     element.querySelector('[data-action="select"]').addEventListener('click', () => this.setSelecting(!this.selecting));
 
     this.bar.querySelector('[data-select="all"]').addEventListener('click', () => {
@@ -201,7 +216,9 @@ export class Home {
   // Dropped on a card: the dragged boards go right before or after it (in its project).
   _dropOnCard(card, record) {
     const ok = (e) => e.dataTransfer?.types?.includes(DRAG_TYPE);
-    const side = (e) => { const r = card.getBoundingClientRect(); return e.clientX > r.left + r.width / 2 ? 'after' : 'before'; };
+    // (In the list, boards stack: before means above. As thumbnails, before means to the left.)
+    const isList = () => this.el.classList.contains('list-view');
+    const side = (e) => { const r = card.getBoundingClientRect(); return (isList() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2) ? 'after' : 'before'; };
     // A pink line in the gap between two boards shows where the dragged one will land
     // (in the gap, not on a board, so it doesn't look like the two will merge).
     const line = () => document.getElementById('drop-line') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'drop-line' }));
@@ -213,7 +230,8 @@ export class Home {
       e.dataTransfer.dropEffect = 'move';
       const r = card.getBoundingClientRect(), l = line();
       l.hidden = false;
-      Object.assign(l.style, { left: `${(side(e) === 'after' ? r.right + 10 : r.left - 10) - 2}px`, top: `${r.top + 6}px`, height: `${r.height - 12}px`, width: '4px' });
+      if (isList()) Object.assign(l.style, { left: `${r.left}px`, top: `${(side(e) === 'after' ? r.bottom + 2 : r.top - 2) - 2}px`, height: '4px', width: `${r.width}px` });
+      else Object.assign(l.style, { left: `${(side(e) === 'after' ? r.right + 10 : r.left - 10) - 2}px`, top: `${r.top + 6}px`, height: `${r.height - 12}px`, width: '4px' });
     });
     card.addEventListener('dragend', clear);
     card.addEventListener('dragleave', clear);

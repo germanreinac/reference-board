@@ -2374,3 +2374,22 @@ body.dragging-boards #home:not(.no-boards) .board-grid.loose:not(:has(.board-car
 #home [data-action="new-top"] { border-radius: 13px 4px 4px 16px / 16px 4px 4px 13px; padding-right: 12px; }
 #home .new-more { width: 30px; padding: 0; justify-content: center; margin-left: -9px; border-radius: 4px 18px 11px 4px / 4px 11px 18px 4px; border-left: 1px solid color-mix(in srgb, #fff 35%, var(--accent)); }
 #home.no-boards .new-more { display: none; }
+
+/* Small icon-only buttons on the home title row (new project, list / thumbnails) */
+#home .text-button.icon-only { width: 36px; padding: 0; justify-content: center; border-radius: 14px 17px 12px 16px / 16px 12px 17px 14px; }
+#home .text-button.icon-only svg { width: 17px; height: 17px; opacity: 1; }
+.home-title-space { flex: 1; }
+.home-title { max-width: none; }
+/* List view: one line per board (name, when, how many images), no thumbnails */
+#home.list-view .board-grid { display: flex; flex-direction: column; gap: 4px; }
+#home.list-view .board-card[data-id] { flex-direction: row; align-items: center; min-height: 42px; border-radius: 12px 16px 11px 15px / 15px 11px 16px 12px; transform: none !important; box-shadow: none !important; }
+#home.list-view .board-card[data-id] .thumb { display: none; }
+#home.list-view .board-card[data-id] .meta { flex: 1; display: flex; align-items: baseline; gap: 16px; padding: 9px 52px 9px 44px; }
+#home.list-view .board-card[data-id] .name { flex: 1; font-size: 14px; }
+#home.list-view .board-card[data-id] .when { margin: 0; white-space: nowrap; }
+#home.list-view .board-card .more { top: 50%; transform: translateY(-50%); right: 8px; background: none; }
+#home.list-view .board-card.new { display: none; }
+#home.list-view.no-boards .board-card.new { display: flex; max-width: 300px; }
+#home.list-view .project { margin-top: 22px; }
+#home.list-view .project-head { margin-bottom: 8px; }
+#home.list-view .project-empty { padding: 10px 14px; }
