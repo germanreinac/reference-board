@@ -2913,7 +2913,7 @@ function driveMenu(x, y) {
     ...(driveState === 'error' && drive.lastError() ? [{ label: `Problem: ${drive.lastError().slice(0, 140)}`, disabled: true }, '-'] : []),
     { label: 'Sync now', action: async () => { await syncNow(); toast(driveState === 'synced' ? 'Synced with Google Drive ✓' : `Couldn't sync: ${drive.lastError() || 'try reconnecting'}`, driveState === 'synced' ? 2000 : 9000); } },
     { label: 'Open the folder in Google Drive', action: () => window.open(drive.driveFolderUrl(), '_blank', 'noopener') },
-    { label: 'Save photos from your phone…', action: () => { location.hash = '#/add'; } },
+    { label: 'Add photos from your phone…', action: () => { location.hash = '#/add'; } },
     '-',
     { label: 'Disconnect', action: () => { if (confirm('Disconnect Google Drive? Your boards stay here and in Drive; they just stop syncing.')) { drive.disconnect(); driveState = 'off'; updateDriveButton(); } } },
   ]);
