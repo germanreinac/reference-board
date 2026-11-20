@@ -73,6 +73,43 @@ export class Home {
     });
     // Dropping a board on the loose boards takes it out of its project.
     this.dropTarget(this.loose, '');
+    // Dragging a project: wherever the mouse is on the page, a pink line shows the gap
+    // between projects it will land in, and letting go anywhere puts it there.
+    const isProject = (e) => e.dataTransfer?.types?.includes(PROJECT_DRAG);
+    const slot = (e) => {
+      const rects = [...this.sections.querySelectorAll('.project')].map((el) => el.getBoundingClientRect());
+      let index = rects.findIndex((r) => e.clientY < r.top + r.height / 2);
+      if (index < 0) index = rects.length;
+      const y = !rects.length ? 0 : index < rects.length ? rects[index].top - 18 : rects.at(-1).bottom + 12;
+      return { index, y, left: rects[0]?.left ?? 0, width: rects[0]?.width ?? 0 };
+    };
+    element.addEventListener('dragover', (e) => {
+      if (!isProject(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      const at = slot(e);
+      const l = document.getElementById('drop-line') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'drop-line' }));
+      l.hidden = false;
+      Object.assign(l.style, { left: `${at.left}px`, top: `${at.y - 2}px`, width: `${at.width}px`, height: '4px' });
+    });
+    element.addEventListener('drop', (e) => {
+      if (!isProject(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const l = document.getElementById('drop-line');
+      if (l) l.hidden = true;
+      const moved = e.dataTransfer.getData(PROJECT_DRAG);
+      const names = this.projects();
+      if (!moved || !names.includes(moved)) return;
+      let { index } = slot(e);
+      if (names.indexOf(moved) < index) index--;   // (it leaves its old place first)
+      const order = names.filter((n) => n !== moved);
+      order.splice(index, 0, moved);
+      try { localStorage.setItem(PROJECT_ORDER, JSON.stringify(order)); } catch {}
+      this.refresh();
+    });
+    element.querySelector('[data-action="new-top"]').addEventListener('click', () => actions.create());
   }
 
   // Projects, most recently edited first; the ones with no boards yet come first of all
@@ -176,7 +213,7 @@ export class Home {
       e.dataTransfer.dropEffect = 'move';
       const r = card.getBoundingClientRect(), l = line();
       l.hidden = false;
-      Object.assign(l.style, { left: `${(side(e) === 'after' ? r.right + 10 : r.left - 10) - 2}px`, top: `${r.top + 6}px`, height: `${r.height - 12}px` });
+      Object.assign(l.style, { left: `${(side(e) === 'after' ? r.right + 10 : r.left - 10) - 2}px`, top: `${r.top + 6}px`, height: `${r.height - 12}px`, width: '4px' });
     });
     card.addEventListener('dragend', clear);
     card.addEventListener('dragleave', clear);
@@ -255,38 +292,23 @@ export class Home {
       e.dataTransfer.effectAllowed = 'move';
       e.stopPropagation();
     });
-    const isProject = (e) => e.dataTransfer?.types?.includes(PROJECT_DRAG);
-    head.addEventListener('dragend', () => { document.body.classList.remove('dragging-project'); this.el.querySelectorAll('.drop-above, .drop-below').forEach((x) => x.classList.remove('drop-above', 'drop-below')); });
-    const half = (e) => { const r = section.getBoundingClientRect(); return e.clientY > r.top + r.height / 2 ? 'below' : 'above'; };
-    const clear = () => section.classList.remove('drop-above', 'drop-below');
-    section.addEventListener('dragover', (e) => {
-      if (!isProject(e)) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      clear();
-      section.classList.add(`drop-${half(e)}`);
-    });
-    section.addEventListener('dragleave', (e) => { if (!section.contains(e.relatedTarget)) clear(); });
-    section.addEventListener('drop', (e) => {
-      if (!isProject(e)) return;
-      e.preventDefault();
-      const moved = e.dataTransfer.getData(PROJECT_DRAG), where = half(e);
-      clear();
-      if (!moved || moved === name) return;
-      const order = this.projects().filter((n) => n !== moved);
-      order.splice(order.indexOf(name) + (where === 'below' ? 1 : 0), 0, moved);
-      try { localStorage.setItem(PROJECT_ORDER, JSON.stringify(order)); } catch {}
-      this.refresh();
-    });
+    head.addEventListener('dragend', () => { document.body.classList.remove('dragging-project'); const l = document.getElementById('drop-line'); if (l) l.hidden = true; });
     const grid = document.createElement('div');
     grid.className = 'board-grid';
-    // A "new board" card in every project, so starting one there is one click.
+    // A small + in the header starts a board in this project (no big card taking up room).
     const add = document.createElement('button');
-    add.className = 'board-card new';
-    add.innerHTML = '<div class="thumb"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></div><div class="meta"><div class="name">New board</div><div class="when"></div></div>';
-    add.querySelector('.when').textContent = boards.length ? `In ${name}` : 'Or drag boards here';
-    add.addEventListener('click', () => this.actions.create({ group: name }));
-    grid.appendChild(add);
+    add.className = 'project-add';
+    add.title = `New board in ${name}`;
+    add.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.500v9M3.500 8h9"/></svg>';
+    add.addEventListener('click', (e) => { e.stopPropagation(); this.actions.create({ group: name }); });
+    head.insertBefore(add, more);
+    if (!boards.length) {
+      const empty = document.createElement('button');
+      empty.className = 'project-empty';
+      empty.textContent = 'Empty. Drag boards here, or click to start a new board in this project.';
+      empty.addEventListener('click', () => this.actions.create({ group: name }));
+      grid.appendChild(empty);
+    }
     for (const b of boards) grid.appendChild(this._card(b, thumbs.get(b.id)));
     section.append(head, grid);
     this.dropTarget(section, name);

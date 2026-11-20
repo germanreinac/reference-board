@@ -4173,7 +4173,7 @@ async function captureScreen() {
 
 let dragDepth = 0;
 // Boards dragged between projects on the home screen are handled there (src/home.js).
-const boardDrag = (e) => e.dataTransfer?.types?.includes('application/x-refboard-boards');
+const boardDrag = (e) => e.dataTransfer?.types?.includes('application/x-refboard-boards') || e.dataTransfer?.types?.includes('application/x-refboard-project');
 window.addEventListener('dragenter', (e) => {
   e.preventDefault();
   if (boardDrag(e)) return;

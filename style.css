@@ -2347,3 +2347,20 @@ body .wordmark { padding-bottom: 0; }
 /* ("Save photos" is for phones only) */
 #home .text-button.add-link { display: none; }
 @media (max-width: 700px) { #home .text-button.add-link { display: inline-flex; } }
+
+/* Home, simpler: the big "New board" card only while you have no boards at all. After
+   that, a "New board" button by the title, and a small + on each project. */
+#home:not(.no-boards) .board-grid.loose .board-card.new { display: none; }
+#home.no-boards [data-action="new-top"] { display: none; }
+#home .text-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+#home .text-button.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #fff); color: #fff; }
+.project-add { width: 28px; height: 28px; padding: 6px; border: 0; border-radius: 50%; background: none; color: var(--text); cursor: pointer; opacity: 0.7; }
+.project-add svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.project-add:hover { opacity: 1; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.project-empty { grid-column: 1 / -1; padding: 16px 18px; border: 1px dashed var(--panel-border); border-radius: var(--blob); background: none; color: var(--text); font: 13px var(--font-body); text-align: left; cursor: pointer; }
+.project-empty:hover { border-color: var(--accent); color: var(--text-strong); }
+/* With every board in a project, the top area still takes a board dropped on it */
+.board-grid.loose:empty, #home:not(.no-boards) .board-grid.loose:not(:has(.board-card[data-id])) { min-height: 0; }
+body.dragging-boards #home:not(.no-boards) .board-grid.loose:not(:has(.board-card[data-id])) { min-height: 70px; border-radius: var(--blob); }
+body.dragging-boards #home:not(.no-boards) .board-grid.loose:not(:has(.board-card[data-id]))::before { content: "Drop here to take it out of its project"; padding: 22px 18px; color: var(--text); font-size: 13px; }
+.project.drop-above, .project.drop-below { box-shadow: none; }

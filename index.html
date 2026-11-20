@@ -21,11 +21,11 @@
     "./src/editors.js": "./src/editors.js?v=b33ce41254",
     "./src/fonts.js": "./src/fonts.js?v=d04ee92c77",
     "./src/history.js": "./src/history.js?v=7dcb8cfbb9",
-    "./src/home.js": "./src/home.js?v=238833dce7",
+    "./src/home.js": "./src/home.js?v=183d47f1e8",
     "./src/importer.js": "./src/importer.js?v=1d5e287efd",
     "./src/layout.js": "./src/layout.js?v=ec1e304782",
     "./src/liquid.js": "./src/liquid.js?v=5a90cb3dc6",
-    "./src/main.js": "./src/main.js?v=ca0a542e73",
+    "./src/main.js": "./src/main.js?v=aee4cfc621",
     "./src/mannequin-pane.js": "./src/mannequin-pane.js?v=733057cbdf",
     "./src/mannequin.js": "./src/mannequin.js?v=49e4ffbebf",
     "./src/menu.js": "./src/menu.js?v=9d37efa2e1",
@@ -41,7 +41,7 @@
     "./src/storyboard.js": "./src/storyboard.js?v=adb67da158",
     "./src/theme.js": "./src/theme.js?v=09a366661e",
     "./src/tools.js": "./src/tools.js?v=754714e013",
-    "./src/version.js": "./src/version.js?v=74190c20f0",
+    "./src/version.js": "./src/version.js?v=668a308763",
     "./src/viewports.js": "./src/viewports.js?v=1f17ba49d6",
     "./src/zipfile.js": "./src/zipfile.js?v=ef715ab04f",
     "./vendor/anthropic-sdk.mjs": "./vendor/anthropic-sdk.mjs?v=66a5844483",
@@ -59,7 +59,7 @@
   <link rel="apple-touch-icon" href="icons/192.png">
   <meta name="theme-color" content="#16151c">
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
-  <link rel="stylesheet" href="style.css?v=00cee80f9a">
+  <link rel="stylesheet" href="style.css?v=c27bd683ae">
 </head>
 <body data-mode="home">
   <!-- ===== Home screen: your boards ===== -->
@@ -99,6 +99,7 @@
     <main class="home-main">
       <div class="home-title">
         <h1>Boards</h1>
+        <button class="text-button primary" data-action="new-top" title="Start a new, empty board"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.500v9M3.500 8h9"/></svg><span>New board</span></button>
         <button class="text-button" data-action="new-project" title="Make a project: a folder to keep boards together"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.500v9M3.500 8h9"/></svg><span>New project</span></button>
         <button class="text-button" data-action="select" hidden title="Pick several boards, to move them to a project or delete them (or Ctrl/⌘-click boards)">Select</button>
       </div>
@@ -228,6 +229,6 @@
   <!-- Short messages, e.g. when an image can't be loaded -->
   <div id="toast"></div>
 
-  <script type="module" src="src/main.js?v=ca0a542e73"></script>
+  <script type="module" src="src/main.js?v=aee4cfc621"></script>
 </body>
 </html>
