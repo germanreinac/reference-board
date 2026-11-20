@@ -3053,6 +3053,36 @@ async function showSafetyNote() {
   el.classList.toggle('warn', !kept && (days === null || days > 14));
 }
 document.getElementById('backup-button').addEventListener('click', backupAllBoards);
+// The home screen keeps few buttons in view: the rest are in two small menus.
+document.getElementById('home-more').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  showMenu(r.right - 210, r.bottom + 6, [
+    { label: 'Open a board file…', action: openFile },
+    { label: 'Back up all boards', action: backupAllBoards },
+    ...(document.getElementById('install-button').hidden ? [] : [{ label: 'Install Melti as an app…', action: () => document.getElementById('install-button').click() }]),
+    '-',
+    { label: 'How Melti handles your data', action: () => window.open('privacy.html', '_blank', 'noopener') },
+  ]);
+});
+// Other ways to start a board (the button itself makes an empty one in one click).
+const newFromImages = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+document.body.appendChild(newFromImages);
+newFromImages.addEventListener('change', async () => {
+  const list = [...newFromImages.files].map((f) => ({ blob: f, name: f.name }));
+  newFromImages.value = '';
+  if (!list.length) return;
+  await openBoardNow(await createBoard());
+  const pane = targetBoardPane();
+  if (pane) { const w = pane.camera.toWorld(pane.rect.w / 2, pane.rect.h / 2); await addImages(list, w.x, w.y, pane); }
+});
+document.querySelector('[data-action="new-more"]').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  showMenu(r.left - 96, r.bottom + 6, [
+    { label: 'Empty board', action: () => newBoard() },
+    { label: 'From images on this computer…', action: () => newFromImages.click() },
+    { label: 'From a board file…', action: openFile },
+  ]);
+});
 
 // ---------- Installing as an app, and working offline ----------
 
