@@ -2844,7 +2844,34 @@ function syncSoon() {
 setInterval(syncNow, 180000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 
+// Before Google's own permission window: say plainly what connecting does and doesn't do.
+// Shown the first time only (reconnecting later goes straight to Google).
+function driveExplainer() {
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    el.className = 'mini-dialog drive-explain';
+    el.innerHTML = `
+      <h3>Keep your boards in your Google Drive</h3>
+      <p>So they follow you to other computers and your phone, and you have a backup.</p>
+      <ul>
+        <li><strong>Melti only sees the files it makes.</strong> It can't read, change or delete anything else in your Drive.</li>
+        <li><strong>Your boards go to your own Drive</strong>, in a folder called “Melti App”. They are not sent to us; there is no Melti server.</li>
+        <li><strong>It's optional.</strong> Melti works without it, and you can disconnect at any time.</li>
+      </ul>
+      <p class="quiet">Next, Google will ask you to confirm. Its wording (“see, edit, create and delete only the specific files you use with this app”) means the same thing. <a href="privacy.html" target="_blank" rel="noopener">How Melti handles your data</a></p>
+      <div class="buttons"><button data-a="cancel">Not now</button><button data-a="ok" class="primary">Continue to Google</button></div>`;
+    document.body.appendChild(el);
+    const done = (yes) => { el.remove(); window.removeEventListener('keydown', onKey, true); resolve(yes); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+    window.addEventListener('keydown', onKey, true);
+    el.querySelector('[data-a="cancel"]').addEventListener('click', () => done(false));
+    el.querySelector('[data-a="ok"]').addEventListener('click', () => done(true));
+    el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  });
+}
+
 async function connectDrive() {
+  if (!drive.isConnected() && !(await driveExplainer())) return;
   try {
     await drive.connect();
     if (mode === 'add') { toast('Connected to Google Drive ✓', 2000); return; }

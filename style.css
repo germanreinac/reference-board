@@ -2307,3 +2307,14 @@ body.dragging-project .project { transition: box-shadow 0.1s; }
 body :is(.cs-panel, .mini-dialog, .sb-panel, .star-panel, .pal-panel, .pal-card, .help-box, .menu, #find-box, #opacity-pop, .search-settings, .mq-ai-settings, .shape-picker, .colour-palette, .sel-palette, #split-tip, #map-panel, #toast, #load-progress, .cs-strip, .cs-canvas, .star-thumb, .result, .sb-list > *, #mannequin-onboard) { border-radius: var(--blob); }
 body :is(.cs-panel button, .cs-modes, .mini-dialog button, .mini-dialog select, .mini-dialog input, .sb-panel button, .sb-panel select, .sb-panel input, .sb-panel textarea, .pal-panel button:not(.pal-swatch), .pal-card input, .star-actions button, .mq-bar select, .mq-bar button, .mq-bar input[type="text"], .mq-ai input, .chip, .search-input, .mood-input, .sel-text select, .sel-text button:not(.swatch):not(.sel-colour), .key-row input, .shape-picker button, .frame-rename, .caption-editor, .note-editor, .pane-zoom, .tab-close, #tab-add, .trash-link, kbd) { border-radius: var(--blob-s); }
 #selection-bar, #toolbar, #studio-dock, #board-bar .tab { border-radius: var(--blob); }
+
+/* Before connecting Google Drive: what it does and doesn't do */
+.mini-dialog.drive-explain { width: min(460px, calc(100vw - 32px)); gap: 12px; }
+.drive-explain h3 { font: 700 17px var(--font-second); }
+.drive-explain p { font-size: 13px; }
+.drive-explain ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.drive-explain li { position: relative; padding-left: 22px; font-size: 13px; line-height: 1.45; }
+.drive-explain li::before { content: ""; position: absolute; left: 2px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.drive-explain li strong { color: var(--text-strong); }
+.drive-explain .quiet { font-size: 12px; opacity: 0.8; }
+.home-note a { color: var(--accent); }
