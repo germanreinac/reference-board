@@ -242,14 +242,17 @@ async function doSync(hooks) {
     //    to Drive's bin too. This is done here, at every sync, so it still happens when the
     //    board was deleted while Drive wasn't reachable. They are never brought back down.
     const gone = new Set(load().gone || []);
+    const leftovers = [];
     for (const [boardId, folder] of [...remote]) {
       if (!boardId) continue;
       const local = await store.getBoard(boardId);
-      // Also: a folder with pictures but no board in it, that isn't a board here and is
-      // more than a day old. That's what's left when a board was deleted while it was
-      // still uploading. (A day, so a board another computer is sending right now is safe.)
-      const leftover = !dataOf.get(folder.id) && !local && Date.now() - Date.parse(folder.modifiedTime) > 864e5;
-      if (!local?.trashed && !gone.has(boardId) && !leftover) continue;
+      // A folder with pictures but no board in it, that isn't a board here: an upload that
+      // never finished. It's left alone (it may be another computer sending it right now,
+      // or you may want it). If you bring that board back into Melti (same name), the
+      // folder is picked up again and the upload carries on from where it stopped; the
+      // Drive menu offers to remove it otherwise.
+      if (!dataOf.get(folder.id) && !local && !gone.has(boardId)) { leftovers.push(folder); remote.delete(boardId); continue; }
+      if (!local?.trashed && !gone.has(boardId)) continue;
       remote.delete(boardId);
       try { await trash(folder.id); gone.delete(boardId); } catch (err) { console.warn(`Drive: couldn't remove "${folder.name}"`, err); if (err.message === 'reconnect') throw err; }
     }
@@ -318,7 +321,24 @@ async function doSync(hooks) {
       // Removed from this computer, and its Drive folder is gone too: nothing to send.
       if (rec.offloaded && !remote.has(rec.id)) continue;
       const fresh = await store.getBoard(rec.id);   // the latest, in case it was just saved
-      await pushBoard(fresh, root, remote.get(rec.id), dataOf);
+      let folder = remote.get(rec.id);
+      if (!folder) {
+        // An unfinished upload of this same board is waiting in Drive: carry on with it.
+        const i = leftovers.findIndex((l) => l.name === safeName(fresh.name));
+        if (i >= 0) {
+          folder = leftovers.splice(i, 1)[0];
+          await patch(folder.id, { appProperties: { refboard: 'board', boardId: fresh.id } });
+          const there = new Map((await list(`'${folder.id}' in parents and trashed = false`)).filter((f) => f.appProperties?.refboard === 'image').map((f) => [String(f.name).replace(/\.[a-z0-9]{2,4}$/i, ''), f.id]));
+          const images = { ...(fresh.drive?.images || {}) };
+          // (Only pictures whose name and number both match are taken as already sent.)
+          for (const f of boardFiles(fresh.board)) {
+            const id = there.get(`${safeName(String(f.name || 'image').replace(/\.[a-z0-9]{2,4}$/i, ''))}-${safeName(f.key)}`);
+            if (id && !images[f.key]) images[f.key] = id;
+          }
+          fresh.drive = { ...(fresh.drive || {}), images };
+        }
+      }
+      await pushBoard(fresh, root, folder, dataOf);
       changed = true;
     }
 
@@ -334,7 +354,7 @@ async function doSync(hooks) {
     }
 
     if (changed) hooks.boardsChanged?.();
-    save({ lastError: '' });
+    save({ lastError: '', leftovers: leftovers.map((f) => ({ id: f.id, name: f.name })) });
     hooks.onStatus('synced');
   } catch (err) {
     console.warn('Drive sync', err);
@@ -413,6 +433,13 @@ export async function downloadBoardFiles(rec, onProgress = () => {}) {
 // main.js keeps the open boards' details in memory; it listens for this.
 function driveUpdated(boardId, drive) {
   window.dispatchEvent(new CustomEvent('drive-updated', { detail: { boardId, drive } }));
+}
+
+// Unfinished uploads waiting in Drive (folders with pictures but no board), as last seen.
+export const leftovers = () => load().leftovers || [];
+export async function removeLeftover(folderId) {
+  await trash(folderId);
+  save({ leftovers: leftovers().filter((l) => l.id !== folderId) });
 }
 
 // A board was deleted for good here: remember it, so its Drive folder is removed at the

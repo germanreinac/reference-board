@@ -2915,6 +2915,10 @@ function driveMenu(x, y) {
     ...(driveState === 'error' && drive.lastError() ? [{ label: `Problem: ${drive.lastError().slice(0, 140)}`, disabled: true }, '-'] : []),
     { label: 'Sync now', action: async () => { await syncNow(); toast(driveState === 'synced' ? 'Synced with Google Drive ✓' : `Couldn't sync: ${drive.lastError() || 'try reconnecting'}`, driveState === 'synced' ? 2000 : 9000); } },
     { label: 'Open the folder in Google Drive', action: () => window.open(drive.driveFolderUrl(), '_blank', 'noopener') },
+    ...drive.leftovers().map((l) => ({ label: `Unfinished upload: “${l.name}”`, submenu: [
+      { label: 'Bring that board back into Melti (same name) and its upload carries on.', disabled: true },
+      { label: 'Remove it from Drive', action: async () => { try { await drive.removeLeftover(l.id); toast(`“${l.name}” moved to Drive's bin.`, 2600); } catch (err) { toast(err.message || "Couldn't remove it."); } } },
+    ] })),
     { label: 'Add photos from your phone…', action: () => { location.hash = '#/add'; } },
     '-',
     { label: 'Disconnect', action: () => { if (confirm('Disconnect Google Drive? Your boards stay here and in Drive; they just stop syncing.')) { drive.disconnect(); driveState = 'off'; updateDriveButton(); } } },
