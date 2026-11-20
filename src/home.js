@@ -313,13 +313,6 @@ export class Home {
     head.addEventListener('dragend', () => { document.body.classList.remove('dragging-project'); const l = document.getElementById('drop-line'); if (l) l.hidden = true; });
     const grid = document.createElement('div');
     grid.className = 'board-grid';
-    // A small + in the header starts a board in this project (no big card taking up room).
-    const add = document.createElement('button');
-    add.className = 'project-add';
-    add.title = `New board in ${name}`;
-    add.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.500v9M3.500 8h9"/></svg>';
-    add.addEventListener('click', (e) => { e.stopPropagation(); this.actions.create({ group: name }); });
-    head.insertBefore(add, more);
     if (!boards.length) {
       const empty = document.createElement('button');
       empty.className = 'project-empty';
