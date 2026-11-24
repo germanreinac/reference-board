@@ -9,7 +9,8 @@ const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?|#|$)/i;
 export async function imagesFromDrop(dataTransfer) {
   // 1. Real files (from Finder / Explorer, or sometimes from another tab).
   const files = [...dataTransfer.files].filter((f) => f.type.startsWith('image/'));
-  if (files.length) return files.map((f) => ({ blob: f, name: f.name, sourceUrl: '' }));
+  // (A picture dragged from a web page often arrives as a file too: keep where it came from.)
+  if (files.length) { const from = files.length === 1 ? sourceOf(dataTransfer) : ''; return files.map((f) => ({ blob: f, name: f.name, sourceUrl: from })); }
 
   // 2. An image dragged from a web page arrives as a link, not a file.
   const url = urlFromDrop(dataTransfer);
@@ -24,13 +25,33 @@ export async function imagesFromPaste(clipboardData) {
     .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
     .map((it) => it.getAsFile())
     .filter(Boolean);
-  if (files.length) return files.map((f) => ({ blob: f, name: f.name || 'pasted image', sourceUrl: '' }));
+  if (files.length) { const from = files.length === 1 ? sourceOf(clipboardData) : ''; return files.map((f) => ({ blob: f, name: f.name || 'pasted image', sourceUrl: from })); }
 
   // A copied link to an image also works.
   const text = clipboardData.getData('text/plain').trim();
   if (/^https?:\/\/\S+$/.test(text)) return [await fetchImage(text)];
 
   return [];
+}
+
+// Where a picture from a web page came from: the page it links to (a Pinterest pin, an
+// ArtStation project...) when it's inside a link, otherwise the picture's own address.
+// Read straight away: the browser forgets a drop's details once the drop is handled.
+function sourceOf(dt) {
+  const web = (u) => (/^https?:\/\//i.test(u || '') ? u.trim() : '');
+  let src = '', link = '';
+  try {
+    const html = dt.getData('text/html');
+    if (html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      src = web(doc.querySelector('img[src]')?.getAttribute('src'));
+      link = web(doc.querySelector('a[href]')?.getAttribute('href'));
+    }
+    const uri = web(dt.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#')));
+    if (!link && uri && uri !== src && !IMAGE_EXT.test(uri)) link = uri;
+    if (!src && uri) src = uri;
+  } catch { /* nothing to read */ }
+  return link || src;
 }
 
 // Look for an image address in what was dropped.

@@ -4786,13 +4786,36 @@ const SEL_ICONS = {
   toFrame: '<svg viewBox="0 0 16 16"><rect x="2.500" y="5" width="11" height="8.500" rx="1.200"/><path d="M2.500 2.500h5"/></svg>',
   imgTitle: '<svg viewBox="0 0 16 16"><path d="M3 3.500h10"/><rect x="2.500" y="6.500" width="11" height="7" rx="1.200"/></svg>',
   script: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.2"/><path d="M5.8 3.5v9M10.2 3.5v9"/><path d="M1.5 9.5h13" opacity=".6"/></svg>',
+  source: '<svg viewBox="0 0 16 16"><path d="M6.800 9.200a3 3 0 004.200 0l2.300-2.300a3 3 0 00-4.200-4.200L8 3.800"/><path d="M9.200 6.800a3 3 0 00-4.200 0L2.700 9.100a3 3 0 004.200 4.200L8 12.200"/></svg>',
   compare: '<svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M8 1.5v13"/><path d="M8 3h5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0113 13H8z" fill="currentColor" stroke="none" opacity=".5"/></svg>',
 };
+// Where a picture came from: its link, to open or copy.
+function shortLink(url) {
+  try {
+    const u = new URL(url);
+    const s = u.host.replace(/^www\./, '') + decodeURIComponent(u.pathname).replace(/\/$/, '');
+    return s.length > 48 ? s.slice(0, 47) + '…' : s;
+  } catch { return url.slice(0, 48); }
+}
+function copyLink(url) {
+  navigator.clipboard.writeText(url).then(() => toast('Link copied', 1200), () => toast("Couldn't copy the link."));
+}
+function sourceMenu(item, x, y) {
+  if (!item?.sourceUrl) return;
+  showMenu(x, y, [
+    { label: shortLink(item.sourceUrl), disabled: true },
+    '-',
+    { label: 'Open in a new tab', action: () => window.open(item.sourceUrl, '_blank', 'noopener') },
+    { label: 'Copy link', action: () => copyLink(item.sourceUrl) },
+  ]);
+}
+
 const SEL_ACTIONS = [
   ['star', 'Star as a favourite (M)', toggleStar, (sel) => sel.some((x) => x.kind === 'image')],
   ['caption', 'Write a caption under it (Enter, or double-click the image)', () => editCaption(board.selected), (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['imgTitle', 'Write a title above the image', () => editCaption(board.selected, undefined, 'title'), (sel) => sel.length === 1 && sel[0].kind === 'image'],
   ['title', 'Write the frame\'s title (Enter, or double-click the title)', () => renameFrame(board.selected, activePane || targetBoardPane()), (sel) => sel.length === 1 && sel[0].kind === 'frame' && !sel[0].sbGen],
+  ['source', 'Where it came from', () => { const r = selectionBar.querySelector('[data-action="source"]').getBoundingClientRect(); sourceMenu(board.selected, r.left, r.bottom + 6); }, (sel) => sel.length === 1 && sel[0].kind === 'image' && !!sel[0].sourceUrl],
   ['compare', 'Compare these two (slider, side by side, overlay, difference)', () => compareSelection(), (sel) => sel.length === 2 && sel.every((x) => x.kind === 'image')],
   ['lock', 'Lock: it stays put and keeps its size (L). Click again to unlock', () => setLocked(null, !board.selection.every((x) => x.locked))],
   ['flipX', 'Flip left to right', () => flipSelection('x'), (sel) => sel.some((x) => x.kind === 'image' || x.kind === 'frame')],
@@ -5708,7 +5731,10 @@ function openMenu(x, y, pane) {
     ...(one?.kind === 'image' ? [
       { label: 'Copy image', action: () => copyImage(one) },
       { label: 'Download image', action: () => downloadImage(one) },
-      ...(one.sourceUrl ? [{ label: 'Open where it came from', action: () => window.open(one.sourceUrl, '_blank', 'noopener') }] : []),
+      ...(one.sourceUrl ? [
+        { label: 'Open where it came from', action: () => window.open(one.sourceUrl, '_blank', 'noopener') },
+        { label: 'Copy its link', action: () => copyLink(one.sourceUrl) },
+      ] : []),
     ] : []),
   ];
   const arrangeMenu = [
