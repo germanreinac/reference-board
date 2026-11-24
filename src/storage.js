@@ -160,6 +160,8 @@ export async function unpackBackup(file) {
 export const canPickFiles = 'showSaveFilePicker' in window;
 
 const PICKER_TYPES = [{ description: 'Reference board', accept: { 'application/x-reference-board': [FILE_EXT, BACKUP_EXT] } }];
+// Opening also takes PureRef boards (they're turned into Melti boards).
+const OPEN_TYPES = [{ description: 'Reference board or PureRef board', accept: { 'application/x-reference-board': [FILE_EXT, BACKUP_EXT], 'application/x-pureref': ['.pur'] } }];
 
 // Ask where to save. Returns a file handle, or null if you cancelled.
 export async function pickSaveLocation(suggestedName) {
@@ -190,7 +192,7 @@ export async function writeToHandle(handle, blob) {
 export async function pickBoardToOpen() {
   if (canPickFiles) {
     try {
-      const [handle] = await window.showOpenFilePicker({ types: PICKER_TYPES, id: 'refboard' });
+      const [handle] = await window.showOpenFilePicker({ types: OPEN_TYPES, id: 'refboard' });
       return { file: await handle.getFile(), handle };
     } catch (err) {
       if (err.name === 'AbortError') return null;
@@ -199,7 +201,7 @@ export async function pickBoardToOpen() {
   }
   // Fallback: a hidden file input.
   return new Promise((resolve) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: `${FILE_EXT},${BACKUP_EXT}` });
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: `${FILE_EXT},${BACKUP_EXT},.pur` });
     input.onchange = () => resolve(input.files[0] ? { file: input.files[0], handle: null } : null);
     input.click();
   });
