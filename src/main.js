@@ -2689,8 +2689,21 @@ async function importBoardFile(file, handle = null) {
 // sizes, turns, flips and crops; PureRef's texts become texts. Returns the new board's id.
 async function importPureRef(file) {
   const label = file.name.replace(/\.pur$/i, '');
-  toast(`Reading ${file.name}…`, 60000);
-  const { images, texts, strokes, linked } = await readPureRef(file);
+  toast(`Reading ${file.name}…`, 600000);
+  let shown = -1, read;
+  try {
+    read = await readPureRef(file, (done, total) => {
+      const pct = Math.floor((done / total) * 100);
+      if (pct !== shown && total > 20e6) { shown = pct; toast(`Reading ${file.name}… ${pct}%`, 600000); }
+    });
+  } catch (err) {
+    console.error(err);
+    // Something in the file we didn't expect: say so plainly, with the detail to report.
+    const known = /PureRef/.test(err?.message || '');
+    toast(known ? err.message : `Melti couldn't read ${file.name} (${err?.message || err}). Nothing was changed.`, 20000);
+    return null;
+  }
+  const { images, texts, strokes, linked } = read;
   const id = newBoardId();
   const order = [...images].sort((a, b) => a.z - b.z);
   const items = [];
@@ -2704,7 +2717,7 @@ async function importPureRef(file) {
         ? `There isn't enough room in Chrome's storage for ${file.name}. Free some disk space (or delete boards you don't need) and try again.`
         : err.message);
     }
-    if (++done % 25 === 0 && order.length > 50) toast(`Bringing in ${label}… ${done} of ${order.length} images`, 60000);
+    if (++done % 5 === 0 || done === order.length) toast(`Bringing in ${label}… ${done} of ${order.length} images`, 600000);
   });
   order.forEach((im, i) => items.push({
     id: i + 1, name: im.name, sourceUrl: '', x: im.x, y: im.y, scaleX: im.scaleX, scaleY: im.scaleY, rotation: im.rotation, alpha: im.opacity ?? 1,
@@ -2729,14 +2742,14 @@ async function importPureRef(file) {
   });
   askToKeepStorage();
   const missing = linked ? ` ${linked} image${linked > 1 ? 's were' : ' was'} only linked from the other computer, not saved inside the file, so ${linked > 1 ? "they're" : "it's"} not here.` : '';
-  toast(`Brought in ${label} from PureRef: ${items.length} image${items.length === 1 ? '' : 's'}.${missing}`, missing ? 7000 : 2500);
+  toast(`Brought in ${label} from PureRef: ${items.length} image${items.length === 1 ? '' : 's'}.${missing}`, missing ? 9000 : 4000);
   return id;
 }
 
 async function openFile() {
   try {
     const picked = await pickBoardToOpen();
-    if (picked && isPureRefFile(picked.file)) openBoard(await importPureRef(picked.file));
+    if (picked && isPureRefFile(picked.file)) { const id = await importPureRef(picked.file); if (id) openBoard(id); }
     else if (picked && isBackupFile(picked.file)) await restoreBackup(picked.file);
     else if (picked) openBoard(await importBoardFile(picked.file, picked.handle));
   } catch (err) {
@@ -3171,7 +3184,7 @@ window.launchQueue?.setConsumer(async ({ files }) => {
   for (const handle of files || []) {
     const file = await handle.getFile();
     if (isBackupFile(file)) await restoreBackup(file);
-    else if (isPureRefFile(file)) openBoard(await importPureRef(file));
+    else if (isPureRefFile(file)) { const id = await importPureRef(file); if (id) openBoard(id); }
     else openBoard(await importBoardFile(file, handle));
   }
 });
@@ -4306,8 +4319,8 @@ window.addEventListener('drop', async (e) => {
     const purs = [...e.dataTransfer.files].filter(isPureRefFile);
     if (purs.length) {
       let lastId;
-      for (const f of purs) lastId = await importPureRef(f);
-      if (purs.length === 1) openBoard(lastId);
+      for (const f of purs) lastId = (await importPureRef(f)) || lastId;
+      if (purs.length === 1 && lastId) openBoard(lastId);
       else if (mode === 'home') home.refresh();
       return;
     }

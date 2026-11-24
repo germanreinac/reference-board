@@ -25,24 +25,42 @@ export function isPureRefFile(file) {
   return /\.pur$/i.test(file?.name || '');
 }
 
-// Reads a bit of the file at a time, keeping one window of it in memory.
+// Reads the file in 1 MB blocks, each read from disk once and kept while reading (up to
+// 512 MB; past that the least recently used are let go). A picture's pages can be
+// scattered all over a PureRef 2 file, so this matters a lot for big, much-edited boards.
+const BLOCK = 1 << 20, KEEP = 512;
 class Reader {
-  constructor(file) { this.file = file; this.start = 0; this.bytes = new Uint8Array(0); this.view = null; }
-  async need(at, n) {
-    if (at >= this.start && at + n <= this.start + this.bytes.length) return;
-    if (at + n > this.file.size) throw new Error('short');
-    const size = Math.max(n, 4 << 20);
-    this.start = at;
-    this.bytes = new Uint8Array(await this.file.slice(at, Math.min(this.file.size, at + size)).arrayBuffer());
-    this.view = new DataView(this.bytes.buffer);
+  constructor(file) { this.file = file; this.blocks = new Map(); this.reads = 0; }
+  async block(i) {
+    let b = this.blocks.get(i);
+    if (b) return b;
+    b = new Uint8Array(await this.file.slice(i * BLOCK, Math.min(this.file.size, (i + 1) * BLOCK)).arrayBuffer());
+    this.reads++;
+    this.onRead?.(Math.min(this.file.size, this.reads * BLOCK), this.file.size);
+    this.blocks.set(i, b);
+    if (this.blocks.size > KEEP) this.blocks.delete(this.blocks.keys().next().value);
+    return b;
   }
-  async u8(at) { await this.need(at, 1); return this.view.getUint8(at - this.start); }
-  async u16(at) { await this.need(at, 2); return this.view.getUint16(at - this.start); }
-  async u32(at) { await this.need(at, 4); return this.view.getUint32(at - this.start); }
-  async i32(at) { await this.need(at, 4); return this.view.getInt32(at - this.start); }
-  async u64(at) { await this.need(at, 8); return Number(this.view.getBigUint64(at - this.start)); }
-  async f64(at) { await this.need(at, 8); return this.view.getFloat64(at - this.start); }
-  async raw(at, n) { await this.need(at, n); return this.bytes.slice(at - this.start, at - this.start + n); }
+  async raw(at, n) {
+    if (at < 0 || at + n > this.file.size) throw new Error('short');
+    const i0 = Math.floor(at / BLOCK), i1 = Math.floor((at + n - 1) / BLOCK);
+    if (n === 0) return new Uint8Array(0);
+    if (i0 === i1) { const b = await this.block(i0); return b.slice(at - i0 * BLOCK, at - i0 * BLOCK + n); }
+    const out = new Uint8Array(n);
+    for (let i = i0, o = 0; i <= i1; i++) {
+      const b = await this.block(i);
+      const s = i === i0 ? at - i0 * BLOCK : 0, e = i === i1 ? at + n - i1 * BLOCK : b.length;
+      out.set(b.subarray(s, e), o); o += e - s;
+    }
+    return out;
+  }
+  async view(at, n) { const b = await this.raw(at, n); return new DataView(b.buffer); }
+  async u8(at) { return (await this.view(at, 1)).getUint8(0); }
+  async u16(at) { return (await this.view(at, 2)).getUint16(0); }
+  async u32(at) { return (await this.view(at, 4)).getUint32(0); }
+  async i32(at) { return (await this.view(at, 4)).getInt32(0); }
+  async u64(at) { return Number((await this.view(at, 8)).getBigUint64(0)); }
+  async f64(at) { return (await this.view(at, 8)).getFloat64(0); }
   // A text: its length in bytes, then UTF-16. Returns [text, next position].
   async str(at) {
     const n = await this.u32(at);
@@ -104,8 +122,9 @@ async function sniffType(r, at) {
 //   images: { blob, name, source, x, y, scaleX, scaleY, rotation, crop, z }  (x, y = centre of what shows)
 //   texts:  { text, x, y, scale, rotation, color, background, z }
 //   linked: images that aren't inside the file (only a path to a file on that computer)
-export async function readPureRef(file) {
+export async function readPureRef(file, onProgress = () => {}) {
   const r = new Reader(file);
+  r.onRead = onProgress;   // (how much of the file has been read)
   let version;
   try {
     const n = await r.u32(0);
@@ -115,7 +134,7 @@ export async function readPureRef(file) {
   } catch {
     throw new Error("That doesn't look like a PureRef file.");
   }
-  if (Number(version.split('.')[0]) >= 2) return readPureRef2(file, r, version);
+  if (Number(version.split('.')[0]) >= 2) return readPureRef2(file, r, version, onProgress);
   const shift = (await r.u32(0)) - 8;   // (a longer version text moves the rest along)
   const tableAt = await r.u64(16 + shift);
   if (!tableAt || tableAt > file.size) throw unsupported(version);
@@ -503,7 +522,7 @@ function cssColour(c) {
   return '#' + m[1].slice(-6).toLowerCase();   // (#AARRGGBB: the alpha is dropped)
 }
 
-async function readPureRef2(file, r, version) {
+async function readPureRef2(file, r, version, onProgress) {
   let p, N;
   try {
     [, p] = await r.str(0);
