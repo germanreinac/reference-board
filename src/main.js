@@ -2690,7 +2690,7 @@ async function importBoardFile(file, handle = null) {
 async function importPureRef(file) {
   const label = file.name.replace(/\.pur$/i, '');
   toast(`Reading ${file.name}…`, 60000);
-  const { images, texts, linked } = await readPureRef(file);
+  const { images, texts, strokes, linked } = await readPureRef(file);
   const id = newBoardId();
   const order = [...images].sort((a, b) => a.z - b.z);
   const items = [];
@@ -2707,18 +2707,25 @@ async function importPureRef(file) {
     if (++done % 25 === 0 && order.length > 50) toast(`Bringing in ${label}… ${done} of ${order.length} images`, 60000);
   });
   order.forEach((im, i) => items.push({
-    id: i + 1, name: im.name, sourceUrl: '', x: im.x, y: im.y, scaleX: im.scaleX, scaleY: im.scaleY, rotation: im.rotation, alpha: 1,
-    ...(im.crop ? { crop: im.crop } : {}),
+    id: i + 1, name: im.name, sourceUrl: '', x: im.x, y: im.y, scaleX: im.scaleX, scaleY: im.scaleY, rotation: im.rotation, alpha: im.opacity ?? 1,
+    ...(im.crop ? { crop: im.crop } : {}), ...(im.group ? { group: im.group } : {}),
   }));
-  const notes = texts.filter((t) => t.text.trim()).sort((a, b) => a.z - b.z).map((t, i) => ({
-    id: items.length + i + 1, x: t.x, y: t.y, text: t.text, color: t.color, fontSize: 24,
-    style: 'text', level: 'body', base: 24,
-    ...(Math.abs(t.scale - 1) > 0.001 ? { scale: t.scale } : {}), ...(t.rotation ? { rotation: t.rotation } : {}),
-  }));
+  const ink = themeColours().text;
+  const notes = texts.filter((t) => t.text.trim()).sort((a, b) => a.z - b.z).map((t, i) => {
+    const size = Math.round(t.size || 24);
+    return {
+      id: items.length + i + 1, x: t.x, y: t.y, text: t.text, color: t.color || ink, fontSize: size,
+      style: 'text', level: 'body', base: size,
+      ...(Math.abs(t.scale - 1) > 0.001 ? { scale: t.scale } : {}), ...(t.rotation ? { rotation: t.rotation } : {}),
+      ...(t.group ? { group: t.group } : {}),
+    };
+  });
+  // PureRef's pen drawings become strokes.
+  const lines = (strokes || []).map((st, i) => ({ id: items.length + notes.length + i + 1, points: st.points, color: st.color, size: Math.max(1, st.size), simulatePressure: false }));
   const now = Date.now();
   await store.putBoard({
     id, name: await freeName(label), created: now, updated: now, handle: null,
-    board: { items, notes, strokes: [], shapes: [], frames: [], layout: defaultLayoutShape() }, look: defaultLook(),
+    board: { items, notes, strokes: lines, shapes: [], frames: [], layout: defaultLayoutShape() }, look: defaultLook(),
   });
   askToKeepStorage();
   const missing = linked ? ` ${linked} image${linked > 1 ? 's were' : ' was'} only linked from the other computer, not saved inside the file, so ${linked > 1 ? "they're" : "it's"} not here.` : '';

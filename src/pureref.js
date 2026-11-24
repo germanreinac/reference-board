@@ -1,7 +1,11 @@
 // Reading PureRef boards (.pur files), so they can be brought into Melti.
 //
-// PureRef's format isn't published. This follows the layout worked out by
-// github.com/FyorDev/PureRef-format (PureRef 1.10 and 1.11), all numbers big-endian:
+// PureRef's format isn't published, and it changed completely in PureRef 2:
+//   PureRef 2.x  an SQLite database with its first bytes moved to the end of the file.
+//                Layout worked out by github.com/FyorDev/pur-2-file-format (2.0.3 and 2.1.3).
+//                See readPureRef2 below.
+//   PureRef 1.x  its own binary layout, worked out by github.com/FyorDev/PureRef-format
+//                (1.10 and 1.11), all numbers big-endian:
 //
 //   header (224 bytes)   version text, item counts, where the picture table starts, the view
 //   pictures             one after another: a whole PNG/JPEG file, or 4 bytes saying
@@ -111,6 +115,7 @@ export async function readPureRef(file) {
   } catch {
     throw new Error("That doesn't look like a PureRef file.");
   }
+  if (Number(version.split('.')[0]) >= 2) return readPureRef2(file, r, version);
   const shift = (await r.u32(0)) - 8;   // (a longer version text moves the rest along)
   const tableAt = await r.u64(16 + shift);
   if (!tableAt || tableAt > file.size) throw unsupported(version);
@@ -232,7 +237,7 @@ export async function readPureRef(file) {
       crop, z: it.z,
     });
   }
-  return { version, images, texts, linked };
+  return { version, images, texts, strokes: [], linked };
 }
 
 function displayName(name, source) {
@@ -242,4 +247,394 @@ function displayName(name, source) {
 
 function unsupported(version) {
   return new Error(`This PureRef file (version ${version}) is laid out in a way Melti can't read yet.`);
+}
+
+// ---------- PureRef 2 ----------
+//
+// The file is an ordinary SQLite database D whose first H bytes were swapped for PureRef's
+// header and moved to the end:   [header: H bytes][D from H to N][D's first H bytes]
+// So byte o of the database is at o in the file, or at N + o when o < H.
+// A tiny SQLite reader below walks just the tables PureRef uses, reading pages from the
+// file as needed. Pictures are stored whole (PNG, JPEG...) but spread over database pages,
+// so each one becomes a Blob stitched from slices of the file: no copying into memory.
+
+class Db {
+  constructor(r, H, N) { this.r = r; this.H = H; this.N = N; }
+  // Where database bytes [o, o + n) are in the file, as [start, end] pieces.
+  ranges(o, n) {
+    const out = [];
+    if (o < this.H) { const e = Math.min(o + n, this.H); out.push([this.N + o, this.N + e]); n -= e - o; o = e; }
+    if (n > 0) out.push([o, o + n]);
+    return out;
+  }
+  async bytes(o, n) {
+    const parts = this.ranges(o, n);
+    if (parts.length === 1) return this.r.raw(parts[0][0], n);
+    const out = new Uint8Array(n);
+    let at = 0;
+    for (const [s, e] of parts) { out.set(await this.r.raw(s, e - s), at); at += e - s; }
+    return out;
+  }
+  async open() {
+    const h = await this.bytes(0, 100);
+    if (new TextDecoder().decode(h.subarray(0, 15)) !== 'SQLite format 3') throw new Error('not sqlite');
+    const v = new DataView(h.buffer, h.byteOffset);
+    this.ps = v.getUint16(16) === 1 ? 65536 : v.getUint16(16);
+    this.U = this.ps - h[20];
+    const schema = {};
+    for await (const row of this.rows(1)) {
+      const [type, name, , root, sql] = row.values;
+      if (type === 'table' && sql) schema[name] = { root, cols: columnsOf(sql) };
+    }
+    this.schema = schema;
+  }
+  async u32(o) { const b = await this.bytes(o, 4); return ((b[0] << 24) >>> 0) + (b[1] << 16) + (b[2] << 8) + b[3]; }
+  // Every row of the table whose b-tree starts at page `root`, in rowid order.
+  async *rows(root) {
+    const page = await this.bytes((root - 1) * this.ps, this.ps);
+    const at = root === 1 ? 100 : 0;
+    const v = new DataView(page.buffer, page.byteOffset, page.length);
+    const kind = page[at], cells = v.getUint16(at + 3);
+    if (kind === 5) {   // interior: children to the left of each key, then the right-most child
+      for (let i = 0; i < cells; i++) yield* this.rows(v.getUint32(v.getUint16(at + 12 + i * 2)));
+      yield* this.rows(v.getUint32(at + 8));
+    } else if (kind === 13) {   // leaf: the rows themselves
+      for (let i = 0; i < cells; i++) {
+        let p = v.getUint16(at + 8 + i * 2);
+        let size, rowid;
+        [size, p] = varint(page, p);
+        [rowid, p] = varint(page, p);
+        // How much of the row is on this page; the rest is on a chain of overflow pages.
+        const X = this.U - 35;
+        let local = size;
+        if (size > X) {
+          const M = Math.floor(((this.U - 12) * 32) / 255) - 23;
+          const K = M + ((size - M) % (this.U - 4));
+          local = K <= X ? K : M;
+        }
+        const pl = { size, local: page.slice(p, p + local), next: local < size ? v.getUint32(p + local) : 0, chain: [] };
+        yield { rowid, values: await this.record(pl) };
+      }
+    }
+  }
+  // Pieces making up bytes [a, b) of a row: Uint8Arrays (on the row's page) or database ranges.
+  async pieces(pl, a, b) {
+    const out = [];
+    const L = pl.local.length, per = this.U - 4;
+    if (a < L) { out.push(pl.local.subarray(a, Math.min(b, L))); a = Math.min(b, L); }
+    while (a < b) {
+      const k = Math.floor((a - L) / per);
+      while (pl.chain.length <= k) {
+        const pg = pl.chain.length ? await this.u32((pl.chain[pl.chain.length - 1] - 1) * this.ps) : pl.next;
+        if (!pg) throw new Error('broken chain');
+        pl.chain.push(pg);
+      }
+      const off = (a - L) % per, n = Math.min(b - a, per - off);
+      out.push([(pl.chain[k] - 1) * this.ps + 4 + off, n]);
+      a += n;
+    }
+    return out;
+  }
+  async read(pl, a, b) {
+    const parts = await this.pieces(pl, a, b);
+    const out = new Uint8Array(b - a);
+    let at = 0;
+    for (const p of parts) {
+      const bytes = p instanceof Uint8Array ? p : await this.bytes(p[0], p[1]);
+      out.set(bytes, at); at += bytes.length;
+    }
+    return out;
+  }
+  // A row's values. Big blobs (pictures) come back as { blobParts } to be cut from the file.
+  async record(pl) {
+    const head = await this.read(pl, 0, Math.min(pl.size, 9));
+    const [hsize] = varint(head, 0);
+    const h = await this.read(pl, 0, hsize);
+    let p = varint(h, 0)[1];
+    const types = [];
+    while (p < hsize) { let t; [t, p] = varint(h, p); types.push(t); }
+    const values = [];
+    let at = hsize;
+    for (const t of types) {
+      const n = t >= 12 ? Math.floor((t - 12) / 2) : [0, 1, 2, 3, 4, 6, 8, 8, 0, 0, 0, 0][t];
+      if (t >= 12 && t % 2 === 0 && n > 65536) {
+        const parts = [];
+        for (const piece of await this.pieces(pl, at, at + n)) {
+          if (piece instanceof Uint8Array) parts.push(piece.slice());
+          else for (const [s, e] of this.ranges(piece[0], piece[1])) parts.push(this.r.file.slice(s, e));
+        }
+        values.push({ blobParts: parts, length: n });
+      } else {
+        const b = n ? await this.read(pl, at, at + n) : new Uint8Array(0);
+        values.push(decodeValue(t, b));
+      }
+      at += n;
+    }
+    return values;
+  }
+  // A table's rows as objects (column name -> value). An INTEGER PRIMARY KEY is the rowid.
+  async table(name) {
+    const t = this.schema[name];
+    if (!t) return [];
+    const out = [];
+    for await (const row of this.rows(t.root)) {
+      const o = {};
+      t.cols.forEach((c, i) => { o[c.name] = c.key ? row.rowid : row.values[i] ?? null; });
+      out.push(o);
+    }
+    return out;
+  }
+}
+
+function varint(b, p) {
+  let v = 0;
+  for (let i = 0; i < 8; i++) {
+    const c = b[p++];
+    v = v * 128 + (c & 0x7f);
+    if (c < 0x80) return [v, p];
+  }
+  return [v * 256 + b[p++], p];
+}
+
+function decodeValue(t, b) {
+  if (t === 0) return null;
+  if (t === 8) return 0;
+  if (t === 9) return 1;
+  const v = new DataView(b.buffer, b.byteOffset, b.length);
+  if (t === 7) return v.getFloat64(0);
+  if (t >= 1 && t <= 6) {
+    let n = BigInt(b[0] & 0x80 ? -1 : 0);
+    for (const c of b) n = (n << 8n) | BigInt(c);
+    return Number(BigInt.asIntN(b.length * 8, n));
+  }
+  if (t % 2 === 1) return new TextDecoder().decode(b);
+  return b;
+}
+
+// Column names from a CREATE TABLE statement.
+function columnsOf(sql) {
+  const body = sql.slice(sql.indexOf('(') + 1, sql.lastIndexOf(')'));
+  return body.split(',').map((part) => {
+    const words = part.trim().split(/\s+/);
+    return { name: words[0].replace(/^["'`[]|["'`\]]$/g, ''), key: /integer\s+primary\s+key/i.test(part) };
+  });
+}
+
+// PureRef stores Qt values as text whose characters are really bytes.
+function cellBytes(v) {
+  if (v instanceof Uint8Array) return v;
+  if (typeof v !== 'string') return null;
+  const out = new Uint8Array(v.length);
+  for (let i = 0; i < v.length; i++) out[i] = v.charCodeAt(i) & 0xff;
+  return out;
+}
+
+// A Qt value: type id, null flag, (a type name for custom types), then the value.
+function variant(v) {
+  const b = cellBytes(v);
+  if (!b || b.length < 5) return null;
+  const d = new DataView(b.buffer, b.byteOffset, b.length);
+  const type = d.getUint32(0);
+  let p = 5, name = '';
+  if (type === 1024) { const n = d.getUint32(p); name = new TextDecoder().decode(b.subarray(p + 4, p + 4 + n)).replace(/\0$/, ''); p += 4 + n; }
+  return { type, name, d, p };
+}
+
+// A transform: x' = a x + c y + e, y' = b x + d y + f.
+const NONE = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+function qtransform(v) {
+  const q = variant(v);
+  if (!q || q.type !== 80) return NONE;
+  const n = (i) => q.d.getFloat64(q.p + i * 8);
+  return { a: n(0), b: n(1), c: n(3), d: n(4), e: n(6), f: n(7) };
+}
+// First t1, then t2.
+const then = (t1, t2) => ({
+  a: t1.a * t2.a + t1.b * t2.c, b: t1.a * t2.b + t1.b * t2.d,
+  c: t1.c * t2.a + t1.d * t2.c, d: t1.c * t2.b + t1.d * t2.d,
+  e: t1.e * t2.a + t1.f * t2.c + t2.e, f: t1.e * t2.b + t1.f * t2.d + t2.f,
+});
+const map = (t, x, y) => ({ x: t.a * x + t.c * y + t.e, y: t.b * x + t.d * y + t.f });
+function invert(t) {
+  const det = t.a * t.d - t.b * t.c || 1;
+  const a = t.d / det, b = -t.b / det, c = -t.c / det, d = t.a / det;
+  return { a, b, c, d, e: -(t.e * a + t.f * c), f: -(t.e * b + t.f * d) };
+}
+
+// A QPainterPath payload (at q.p, or `at`): its points, as lists of [x, y] per sub-path.
+// Curves are followed in small steps.
+function pathPoints(d, at) {
+  const count = d.getUint32(at); at += 4;
+  const subs = [];
+  let cur = null, last = null;
+  for (let i = 0; i < count; i++) {
+    const type = d.getInt32(at), x = d.getFloat64(at + 4), y = d.getFloat64(at + 12); at += 20;
+    if (type === 0) { cur = [[x, y]]; subs.push(cur); }
+    else if (type === 1) cur?.push([x, y]);
+    else if (type === 2 && i + 2 < count) {
+      const x2 = d.getFloat64(at + 4), y2 = d.getFloat64(at + 12), x3 = d.getFloat64(at + 24), y3 = d.getFloat64(at + 32);
+      at += 40; i += 2;
+      const [x0, y0] = last;
+      for (let k = 1; k <= 8; k++) {
+        const s = k / 8, u = 1 - s;
+        cur?.push([u * u * u * x0 + 3 * u * u * s * x + 3 * u * s * s * x2 + s * s * s * x3, u * u * u * y0 + 3 * u * u * s * y + 3 * u * s * s * y2 + s * s * s * y3]);
+      }
+      last = [x3, y3];
+      continue;
+    }
+    last = [x, y];
+  }
+  if (count) at += 8;
+  return { subs, at };
+}
+
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>\s*/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, '&')
+    .replace(/\n+$/, '').trim();
+}
+
+function cssColour(c) {
+  const m = /#([0-9a-f]{8}|[0-9a-f]{6})\b/i.exec(c || '');
+  if (!m) return null;
+  return '#' + m[1].slice(-6).toLowerCase();   // (#AARRGGBB: the alpha is dropped)
+}
+
+async function readPureRef2(file, r, version) {
+  let p, N;
+  try {
+    [, p] = await r.str(0);
+    p += 4;
+    N = await r.u64(p); p += 8;
+    [, p] = await r.str(p);   // the app version
+    [, p] = await r.str(p);   // a checksum
+    if (version !== '2.0') { const t = await r.u32(p); p += 4 + (t === 0xffffffff ? 0 : t); }   // a preview picture
+  } catch { throw unsupported(version); }
+  const H = p;
+  if (!(N > H && N <= file.size)) throw unsupported(version);
+  const db = new Db(r, H, N);
+  try { await db.open(); } catch { throw unsupported(version); }
+
+  const items = new Map((await db.table('items')).map((it) => [it.id, it]));
+  const imageRows = new Map((await db.table('images')).map((im) => [im.id, im]));
+  const groups = new Set((await db.table('items_groups')).map((g) => g.id));
+
+  // Where each item is on the board (transforms are relative to the parent group).
+  const worldOf = new Map();
+  const world = (id, depth = 0) => {
+    if (worldOf.has(id)) return worldOf.get(id);
+    const it = items.get(id);
+    if (!it || depth > 64) return NONE;
+    const own = qtransform(it.transform);
+    const w = it.parent >= 0 && items.has(it.parent) ? then(own, world(it.parent, depth + 1)) : own;
+    worldOf.set(id, w);
+    return w;
+  };
+  const opacityOf = (id, depth = 0) => {
+    const it = items.get(id);
+    if (!it || depth > 64) return 1;
+    return (it.opacity ?? 1) * (it.parent >= 0 ? opacityOf(it.parent, depth + 1) : 1);
+  };
+  const topGroup = (id) => {
+    let g = null, it = items.get(id), n = 0;
+    while (it && it.parent >= 0 && n++ < 64) { if (groups.has(it.parent)) g = it.parent; it = items.get(it.parent); }
+    return g === null ? null : `pr${g}`;
+  };
+  // Stacking order: siblings by z, each group's things together.
+  const kids = new Map();
+  for (const it of items.values()) {
+    const k = it.parent >= 0 && items.has(it.parent) ? it.parent : -1;
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(it);
+  }
+  const order = new Map();
+  const walk = (k, depth = 0) => {
+    if (depth > 64) return;
+    for (const it of (kids.get(k) || []).sort((a, b) => (a.z ?? 0) - (b.z ?? 0) || a.id - b.id)) { order.set(it.id, order.size); walk(it.id, depth + 1); }
+  };
+  walk(-1);
+
+  const images = [];
+  let linked = 0;
+  for (const ii of await db.table('items_images')) {
+    const res = imageRows.get(ii.image);
+    if (!res || !res.data?.blobParts && !(res.data instanceof Uint8Array && res.data.length)) { linked++; continue; }
+    const parts = res.data.blobParts || [res.data];
+    const head = new Uint8Array(await new Blob(parts.slice(0, 1)).slice(0, 12).arrayBuffer());
+    const type = head[0] === 0x89 ? 'image/png' : head[0] === 0xff ? 'image/jpeg' : head[0] === 0x47 ? 'image/gif'
+      : head[0] === 0x52 && head[8] === 0x57 ? 'image/webp' : head[0] === 0x42 ? 'image/bmp' : '';
+    if (!type) { linked++; continue; }
+    const imgT = qtransform(ii.image_transform);
+    const toWorld = then(imgT, world(ii.id));
+    // The visible part: the clip outline, in the picture's own pixels.
+    let crop = null;
+    const w = res.width || 0, h = res.height || 0;
+    const q = variant(ii.image_bounds);
+    if (q && q.type === 1024) {
+      const pts = pathPoints(q.d, q.p).subs.flat();
+      if (pts.length >= 3) {
+        const back = invert(imgT);
+        const px = pts.map(([x, y]) => map(back, x, y));
+        const l = Math.min(...px.map((o) => o.x)), t = Math.min(...px.map((o) => o.y));
+        const rr = Math.max(...px.map((o) => o.x)), b = Math.max(...px.map((o) => o.y));
+        if (!(w && h && l <= 0.5 && t <= 0.5 && rr >= w - 0.5 && b >= h - 0.5)) crop = { x: l, y: t, w: rr - l, h: b - t };
+      }
+    }
+    const c = crop ? { x: crop.x + crop.w / 2, y: crop.y + crop.h / 2 } : { x: w / 2, y: h / 2 };
+    const at = map(toWorld, c.x, c.y);
+    const dd = decompose({ m11: toWorld.a, m12: toWorld.b, m21: toWorld.c, m22: toWorld.d });
+    const it = items.get(ii.id);
+    images.push({
+      blob: new Blob(parts, { type }), name: displayName(it?.name, res.source || res.origin), source: res.source || '',
+      x: at.x, y: at.y, scaleX: dd.scaleX, scaleY: dd.scaleY, rotation: dd.rotation, crop,
+      opacity: opacityOf(ii.id), group: topGroup(ii.id), z: order.get(ii.id) ?? 0,
+    });
+  }
+
+  const texts = [];
+  for (const n of await db.table('items_notes')) {
+    const text = htmlToText(n.text);
+    if (!text) continue;
+    const body = String(n.text || '').replace(/<head[\s\S]*?<\/head>/i, '');
+    const size = /font-size:\s*([\d.]+)\s*(pt|px)/i.exec(body);
+    const px = size ? Number(size[1]) * (size[2].toLowerCase() === 'pt' ? 4 / 3 : 1) : 22;
+    const t = world(n.id);
+    const d = decompose({ m11: t.a, m12: t.b, m21: t.c, m22: t.d });
+    texts.push({
+      text, x: t.e, y: t.f, scale: Math.abs(d.scaleX), rotation: d.rotation, size: px,
+      color: cssColour(n.text_color) || cssColour(/color:\s*(#[0-9a-f]+)/i.exec(body)?.[1]) || null,
+      background: cssColour(n.background_color), group: topGroup(n.id), z: order.get(n.id) ?? 0,
+    });
+  }
+
+  const strokes = [];
+  for (const dr of await db.table('items_drawings')) {
+    const q = variant(dr.strokes);
+    if (!q || q.type !== 1024) continue;
+    const t = world(dr.id);
+    const k = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c)) || 1;
+    try {
+      let at = q.p;
+      const count = q.d.getUint32(at); at += 4;
+      for (let i = 0; i < count; i++) {
+        const ver = q.d.getInt8(at); at += ver > 99 ? 1 : 0;
+        const rgb = [q.d.getUint16(at + 3), q.d.getUint16(at + 5), q.d.getUint16(at + 7)];
+        at += 11;
+        const width = q.d.getFloat64(at); at += 8;
+        const path = pathPoints(q.d, at); at = path.at + 16 + (ver > 99 ? 4 : 0);
+        const color = '#' + rgb.map((v) => Math.round(v / 257).toString(16).padStart(2, '0')).join('');
+        for (const sub of path.subs) {
+          if (sub.length < 2) continue;
+          const points = [];
+          for (const [x, y] of sub) { const o = map(t, x, y); points.push(o.x, o.y, 0.5); }
+          strokes.push({ points, color, size: width * k, z: order.get(dr.id) ?? 0 });
+        }
+      }
+    } catch { /* a drawing we can't read is left out */ }
+  }
+
+  return { version, images, texts, strokes, linked };
 }
